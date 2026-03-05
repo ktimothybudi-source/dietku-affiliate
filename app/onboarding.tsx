@@ -1946,7 +1946,7 @@ export default function OnboardingScreen() {
         ref={scrollRef}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: contentPaddingBottom, paddingTop: contentPaddingTop }]}
         showsVerticalScrollIndicator={false}
-        scrollEnabled={(step === 14 || step === 15) && !showLoading}
+        scrollEnabled={(step === 13 || step === 14 || step === 15) && !showLoading}
         nestedScrollEnabled
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
