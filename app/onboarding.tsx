@@ -1436,14 +1436,7 @@ export default function OnboardingScreen() {
     const carbsPercent = 100 - proteinPercent - fatPercent;
 
     return (
-      <ScrollView
-        style={styles.finalScrollView}
-        contentContainerStyle={[styles.finalScrollContent, { paddingBottom: 40 + insets.bottom }]}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-        nestedScrollEnabled={true}
-      >
+      <View style={[styles.finalScrollContent, { paddingBottom: 40 + insets.bottom }]}> 
         <View style={styles.finalPlanContainer}>
           <Text style={styles.finalPlanTitle}>Selamat! Rencana Anda Siap! 🎉</Text>
 
@@ -1547,7 +1540,7 @@ export default function OnboardingScreen() {
           <Text style={styles.primaryButtonText}>Mulai Sekarang</Text>
           <ArrowRight size={20} color="#FFFFFF" />
         </TouchableOpacity>
-      </ScrollView>
+      </View>
     );
   };
 
@@ -1921,8 +1914,6 @@ export default function OnboardingScreen() {
   const contentPaddingTop = Platform.OS === 'android' ? 24 : insets.top + 8;
   const ScreenWrapper = Platform.OS === 'ios' ? KeyboardAvoidingView : View;
 
-  // Step 14 (renderFinal) has its own ScrollView, so we use View to avoid nested scroll issues on iOS
-  const useViewWrapper = step === 14;
 
   const renderContent = () => (
     <>
@@ -1951,23 +1942,17 @@ export default function OnboardingScreen() {
       style={styles.container}
       {...(Platform.OS === 'ios' ? { behavior: 'padding', keyboardVerticalOffset: 0 } : {})}
     >
-      {useViewWrapper ? (
-        <View style={[styles.scrollContent, { paddingBottom: contentPaddingBottom, paddingTop: contentPaddingTop, flex: 1 }]}>
-          {renderContent()}
-        </View>
-      ) : (
-        <ScrollView
-          ref={scrollRef}
-          contentContainerStyle={[styles.scrollContent, { paddingBottom: contentPaddingBottom, paddingTop: contentPaddingTop }]}
-          showsVerticalScrollIndicator={false}
-          scrollEnabled={step === 15 && !showLoading}
-          nestedScrollEnabled
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-        >
-          {renderContent()}
-        </ScrollView>
-      )}
+      <ScrollView
+        ref={scrollRef}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: contentPaddingBottom, paddingTop: contentPaddingTop }]}
+        showsVerticalScrollIndicator={false}
+        scrollEnabled={(step === 14 || step === 15) && !showLoading}
+        nestedScrollEnabled
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+      >
+        {renderContent()}
+      </ScrollView>
 
       {/* HIDDEN: Subscription modal */}
       {/* {showSubscription && renderSubscription()} */}
