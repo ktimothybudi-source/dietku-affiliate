@@ -1,24 +1,24 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  View,
-  Text,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
   StyleSheet,
+  Text,
   TextInput,
   TouchableOpacity,
-  KeyboardAvoidingView,
-  ScrollView,
-  Platform,
-  Alert,
+  View,
 } from 'react-native';
 import { router } from 'expo-router';
-import { ArrowRight, ArrowLeft } from 'lucide-react-native';
+import { ArrowLeft, ArrowRight, Mail } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { Svg, Path } from 'react-native-svg';
-import { useLanguage } from '@/contexts/LanguageContext';
-import { useNutrition } from '@/contexts/NutritionContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as WebBrowser from 'expo-web-browser';
 import { makeRedirectUri } from 'expo-auth-session';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { useNutrition } from '@/contexts/NutritionContext';
 import { supabase } from '@/lib/supabase';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -27,41 +27,14 @@ export default function SignInScreen() {
   const { t } = useLanguage();
   const { signIn } = useNutrition();
   const insets = useSafeAreaInsets();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [passwordConfirm, setPasswordConfirm] = useState('');
-  const [isSignUp, setIsSignUp] = useState(false);
-  const [isSigningIn, setIsSigningIn] = useState(false);
-  const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
+  const [email, setEmail] = useState<string>('');
+  const [password, setPassword] = useState<string>('');
+  const [isSigningIn, setIsSigningIn] = useState<boolean>(false);
+  const [isGoogleSigningIn, setIsGoogleSigningIn] = useState<boolean>(false);
+  const [isResending, setIsResending] = useState<boolean>(false);
+  const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null);
 
   useEffect(() => {
-    const handleDeepLink = async (url: string) => {
-      console.log('Deep link received:', url);
-      if (url.includes('#access_token=')) {
-        const params = new URLSearchParams(url.split('#')[1]);
-        const accessToken = params.get('access_token');
-        const refreshToken = params.get('refresh_token');
-        
-        if (accessToken && refreshToken) {
-          console.log('Setting Supabase session from OAuth callback');
-          const { error } = await supabase.auth.setSession({
-            access_token: accessToken,
-            refresh_token: refreshToken,
-          });
-          
-          if (error) {
-            console.error('Error setting session:', error);
-            Alert.alert('Error', 'Gagal masuk dengan Google');
-          } else {
-            console.log('Google sign in successful, navigating to main app');
-            router.replace('/(tabs)');
-          }
-        }
-      }
-    };
-
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event) => {
       console.log('Auth state changed in sign-in screen:', event);
       if (event === 'SIGNED_IN') {
@@ -74,53 +47,126 @@ export default function SignInScreen() {
     };
   }, []);
 
+  const checkProfileAndNavigate = async () => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        console.log('No user found after auth, navigating to tabs');
+        router.replace('/(tabs)');
+        return;
+      }
+
+      const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+
+      if (error) {
+        console.error('Profile fetch error during navigation:', error);
+      }
+
+      console.log('Profile data after auth:', profile);
+
+      const isProfileComplete = Boolean(
+        profile?.height && profile?.weight && profile?.goal && profile?.activity_level
+      );
+
+      if (isProfileComplete) {
+        console.log('Profile is complete, navigating to tabs');
+        router.replace('/(tabs)');
+        return;
+      }
+
+      console.log('Profile incomplete, redirecting to onboarding');
+      router.replace('/onboarding?mode=complete');
+    } catch (error) {
+      console.error('Error checking profile:', error);
+      router.replace('/(tabs)');
+    }
+  };
+
+  const handleResendVerification = async (targetEmail?: string) => {
+    const emailToUse = targetEmail ?? unverifiedEmail ?? email.trim();
+
+    if (!emailToUse) {
+      Alert.alert('Error', 'Masukkan email kamu dulu ya.');
+      return;
+    }
+
+    setIsResending(true);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: emailToUse,
+      });
+
+      if (error) {
+        console.error('Resend verification error:', error);
+        Alert.alert('Error', 'Gagal kirim ulang email. Coba lagi nanti.');
+        return;
+      }
+
+      Alert.alert(
+        'Email Terkirim',
+        `Link verifikasi sudah dikirim ke ${emailToUse}. Cek inbox atau folder spam kamu.`
+      );
+    } catch (error) {
+      console.error('Unexpected resend verification error:', error);
+      Alert.alert('Error', 'Gagal kirim ulang email. Coba lagi nanti.');
+    } finally {
+      setIsResending(false);
+    }
+  };
+
   const handleSignIn = async () => {
-    if (isSignUp) {
-      if (!email.trim() || !password.trim() || !firstName.trim() || !lastName.trim()) {
-        Alert.alert('Error', 'Mohon isi semua field');
-        return;
-      }
-      if (password.length < 6) {
-        Alert.alert('Error', 'Password minimal 6 karakter');
-        return;
-      }
-      if (password !== passwordConfirm) {
-        Alert.alert('Error', 'Password tidak cocok');
-        return;
-      }
-    } else {
-      if (!email.trim() || !password.trim()) {
-        Alert.alert('Error', 'Mohon masukkan email dan password');
-        return;
-      }
+    if (!email.trim() || !password.trim()) {
+      Alert.alert('Error', 'Mohon masukkan email dan password');
+      return;
     }
 
     setIsSigningIn(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setUnverifiedEmail(null);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
-      console.log('Sign in attempt:', { email });
+      console.log('Sign in attempt:', { email: email.trim() });
       await signIn(email.trim(), password);
-      
       console.log('Sign in successful, navigating to main app');
       router.replace('/(tabs)');
     } catch (error) {
       console.error('Sign in error:', error);
+
       if (error instanceof Error && error.message === 'INVALID_CREDENTIALS') {
-        Alert.alert(
-          'Login Gagal',
-          'Email atau password salah. Silakan coba lagi.',
-          [{ text: 'OK' }]
-        );
-      } else if (error instanceof Error && error.message.includes('Email not confirmed')) {
+        Alert.alert('Login Gagal', 'Email atau password salah. Silakan coba lagi.');
+        return;
+      }
+
+      if (error instanceof Error && error.message.includes('Email not confirmed')) {
+        const trimmedEmail = email.trim();
+        setUnverifiedEmail(trimmedEmail);
         Alert.alert(
           'Email Belum Dikonfirmasi',
-          'Silakan cek email Anda untuk mengkonfirmasi akun.',
-          [{ text: 'OK' }]
+          'Kami sudah kirim link verifikasi ke email kamu. Cek inbox atau folder spam ya!',
+          [
+            {
+              text: 'Kirim Ulang',
+              onPress: () => {
+                void handleResendVerification(trimmedEmail);
+              },
+            },
+            { text: 'OK' },
+          ]
         );
-      } else {
-        Alert.alert('Error', 'Gagal masuk. Silakan coba lagi.');
+        return;
       }
+
+      Alert.alert('Error', 'Gagal masuk. Silakan coba lagi.');
     } finally {
       setIsSigningIn(false);
     }
@@ -129,7 +175,7 @@ export default function SignInScreen() {
   const handleGoogleSignIn = async () => {
     try {
       setIsGoogleSigningIn(true);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       console.log('Starting Google OAuth flow');
 
       const redirectUrl = makeRedirectUri({
@@ -149,48 +195,45 @@ export default function SignInScreen() {
       if (error) {
         console.error('Google OAuth error:', error);
         Alert.alert('Error', 'Gagal memulai login Google. Silakan coba lagi.');
-        setIsGoogleSigningIn(false);
         return;
       }
 
       console.log('Opening OAuth URL:', data.url);
-      
-      if (data.url) {
-        const result = await WebBrowser.openAuthSessionAsync(
-          data.url,
-          redirectUrl
-        );
 
-        console.log('WebBrowser result:', result);
+      if (!data.url) {
+        Alert.alert('Error', 'URL login Google tidak tersedia.');
+        return;
+      }
 
-        if (result.type === 'success' && result.url) {
-          const url = result.url;
-          if (url.includes('#access_token=')) {
-            const params = new URLSearchParams(url.split('#')[1]);
-            const accessToken = params.get('access_token');
-            const refreshToken = params.get('refresh_token');
-            
-            if (accessToken && refreshToken) {
-              console.log('Setting Supabase session from OAuth callback');
-              const { error: sessionError } = await supabase.auth.setSession({
-                access_token: accessToken,
-                refresh_token: refreshToken,
-              });
-              
-              if (sessionError) {
-                console.error('Error setting session:', sessionError);
-                Alert.alert('Error', 'Gagal masuk dengan Google');
-                setIsGoogleSigningIn(false);
-              } else {
-                console.log('Google sign in successful, checking profile completeness');
-                await checkProfileAndNavigate();
-                setIsGoogleSigningIn(false);
-              }
-            }
+      const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
+      console.log('WebBrowser result:', result);
+
+      if (result.type === 'success' && result.url && result.url.includes('#access_token=')) {
+        const params = new URLSearchParams(result.url.split('#')[1]);
+        const accessToken = params.get('access_token');
+        const refreshToken = params.get('refresh_token');
+
+        if (accessToken && refreshToken) {
+          console.log('Setting Supabase session from OAuth callback');
+          const { error: sessionError } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          });
+
+          if (sessionError) {
+            console.error('Error setting session:', sessionError);
+            Alert.alert('Error', 'Gagal masuk dengan Google');
+            return;
           }
-        } else if (result.type === 'cancel') {
-          console.log('User cancelled OAuth flow');
+
+          console.log('Google sign in successful, checking profile completeness');
+          await checkProfileAndNavigate();
+          return;
         }
+      }
+
+      if (result.type === 'cancel') {
+        console.log('User cancelled OAuth flow');
       }
     } catch (error) {
       console.error('Google sign in error:', error);
@@ -200,43 +243,8 @@ export default function SignInScreen() {
     }
   };
 
-  const checkProfileAndNavigate = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        router.replace('/(tabs)');
-        return;
-      }
-
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single();
-
-      console.log('Profile data after OAuth:', profile);
-
-      const isProfileComplete = profile && 
-        profile.height && 
-        profile.weight && 
-        profile.goal && 
-        profile.activity_level;
-
-      if (isProfileComplete) {
-        console.log('Profile is complete, navigating to tabs');
-        router.replace('/(tabs)');
-      } else {
-        console.log('Profile incomplete, redirecting to onboarding');
-        router.replace('/onboarding?mode=complete');
-      }
-    } catch (error) {
-      console.error('Error checking profile:', error);
-      router.replace('/(tabs)');
-    }
-  };
-
   const handleBack = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     router.back();
   };
 
@@ -250,8 +258,14 @@ export default function SignInScreen() {
         contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 20 }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
+        testID="sign-in-scroll-view"
       >
-        <TouchableOpacity style={styles.backButton} onPress={handleBack} activeOpacity={0.7}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={handleBack}
+          activeOpacity={0.7}
+          testID="sign-in-back-button"
+        >
           <ArrowLeft size={24} color="#666666" />
         </TouchableOpacity>
 
@@ -265,55 +279,27 @@ export default function SignInScreen() {
                 />
               </Svg>
             </View>
-            <Text style={styles.title}>{isSignUp ? 'Daftar' : t.signIn.title}</Text>
-            <Text style={styles.subtitle}>{isSignUp ? 'Buat akun baru untuk mulai' : t.signIn.subtitle}</Text>
+            <Text style={styles.title}>{t.signIn.title}</Text>
+            <Text style={styles.subtitle}>{t.signIn.subtitle}</Text>
           </View>
 
           <View style={styles.form}>
-            {isSignUp && (
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Nama Depan</Text>
-                <TextInput
-                  style={styles.input}
-                  value={firstName}
-                  onChangeText={setFirstName}
-                  placeholder="Nama depan"
-                  placeholderTextColor="#999999"
-                  autoCapitalize="words"
-                  autoCorrect={false}
-                  editable={!isSigningIn}
-                />
-              </View>
-            )}
-
-            {isSignUp && (
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Nama Belakang</Text>
-                <TextInput
-                  style={styles.input}
-                  value={lastName}
-                  onChangeText={setLastName}
-                  placeholder="Nama belakang"
-                  placeholderTextColor="#999999"
-                  autoCapitalize="words"
-                  autoCorrect={false}
-                  editable={!isSigningIn}
-                />
-              </View>
-            )}
-
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>{t.signIn.email}</Text>
               <TextInput
                 style={styles.input}
                 value={email}
-                onChangeText={setEmail}
+                onChangeText={(value: string) => {
+                  setEmail(value);
+                  setUnverifiedEmail(null);
+                }}
                 placeholder="nama@email.com"
                 placeholderTextColor="#999999"
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoCorrect={false}
                 editable={!isSigningIn}
+                testID="sign-in-email-input"
               />
             </View>
 
@@ -329,37 +315,41 @@ export default function SignInScreen() {
                 autoCapitalize="none"
                 autoCorrect={false}
                 editable={!isSigningIn}
+                testID="sign-in-password-input"
               />
             </View>
-
-            {isSignUp && (
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Ketik Ulang Password</Text>
-                <TextInput
-                  style={styles.input}
-                  value={passwordConfirm}
-                  onChangeText={setPasswordConfirm}
-                  placeholder="••••••••"
-                  placeholderTextColor="#999999"
-                  secureTextEntry
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  editable={!isSigningIn}
-                />
-              </View>
-            )}
 
             <TouchableOpacity
               style={[styles.signInButton, isSigningIn && styles.signInButtonDisabled]}
               onPress={handleSignIn}
               activeOpacity={0.8}
               disabled={isSigningIn}
+              testID="sign-in-submit-button"
             >
               <Text style={styles.signInButtonText}>
-                {isSigningIn ? 'Memproses...' : (isSignUp ? 'Daftar' : t.signIn.signIn)}
+                {isSigningIn ? 'Memproses...' : t.signIn.signIn}
               </Text>
               {!isSigningIn && <ArrowRight size={20} color="#FFFFFF" />}
             </TouchableOpacity>
+
+            {unverifiedEmail && (
+              <View style={styles.verificationBanner} testID="sign-in-verification-banner">
+                <Mail size={18} color="#C27A00" />
+                <Text style={styles.verificationBannerText}>Email belum diverifikasi.</Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    void handleResendVerification();
+                  }}
+                  disabled={isResending}
+                  activeOpacity={0.7}
+                  testID="sign-in-resend-button"
+                >
+                  <Text style={styles.verificationBannerLink}>
+                    {isResending ? 'Mengirim...' : 'Kirim ulang'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
 
             <View style={styles.divider}>
               <View style={styles.dividerLine} />
@@ -368,10 +358,14 @@ export default function SignInScreen() {
             </View>
 
             <TouchableOpacity
-              style={[styles.googleButton, (isSigningIn || isGoogleSigningIn) && styles.googleButtonDisabled]}
+              style={[
+                styles.googleButton,
+                (isSigningIn || isGoogleSigningIn) && styles.googleButtonDisabled,
+              ]}
               onPress={handleGoogleSignIn}
               activeOpacity={0.7}
               disabled={isSigningIn || isGoogleSigningIn}
+              testID="sign-in-google-button"
             >
               <Svg width="20" height="20" viewBox="0 0 24 24" fill="none">
                 <Path
@@ -397,18 +391,16 @@ export default function SignInScreen() {
             </TouchableOpacity>
 
             <View style={styles.footer}>
-              <Text style={styles.footerText}>{isSignUp ? 'Sudah punya akun? ' : 'Belum punya akun? '}</Text>
+              <Text style={styles.footerText}>Belum punya akun? </Text>
               <TouchableOpacity
                 onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  setIsSignUp(!isSignUp);
-                  setFirstName('');
-                  setLastName('');
-                  setPasswordConfirm('');
+                  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  router.replace('/onboarding');
                 }}
                 activeOpacity={0.7}
+                testID="sign-in-sign-up-link"
               >
-                <Text style={styles.footerLink}>{isSignUp ? 'Masuk' : 'Daftar Sekarang'}</Text>
+                <Text style={styles.footerLink}>Daftar Sekarang</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -422,14 +414,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F6F4F1',
-  },
-  loadingContainer: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    fontSize: 16,
-    color: '#6E6E82',
   },
   scrollContent: {
     flexGrow: 1,
@@ -508,6 +492,28 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600' as const,
     color: '#FFFFFF',
+  },
+  verificationBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#FFF7E6',
+    borderWidth: 1,
+    borderColor: '#F0C36D',
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginTop: 12,
+  },
+  verificationBannerText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#7A4D00',
+  },
+  verificationBannerLink: {
+    fontSize: 14,
+    fontWeight: '600' as const,
+    color: '#C27A00',
   },
   divider: {
     flexDirection: 'row',
