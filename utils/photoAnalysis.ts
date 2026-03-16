@@ -31,107 +31,47 @@ const mealAnalysisSchema = z.object({
 });
 
 export async function analyzeMealPhoto(base64Image: string): Promise<MealAnalysis> {
-  const apiKey = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error('Missing EXPO_PUBLIC_OPENAI_API_KEY');
-  }
+  // Temporary offline implementation: generate deterministic pseudo-random values
+  // based on the image size so the UI keeps working without calling OpenAI.
+  const hash = base64Image.length || 1;
 
-  const prompt =
-    'Analyze this meal photo and identify all visible food items. For each item:\n' +
-    '1. Identify the food\n' +
-    '2. Estimate portion size using visual cues (plate size, comparisons)\n' +
-    '3. Provide calorie, macro ranges, and micronutrient estimates (sugar in grams, fiber in grams, sodium in milligrams)\n' +
-    '4. Be conservative with estimates.\n\n' +
-    'Respond ONLY with a single JSON object matching this TypeScript type (no extra text):\n' +
-    JSON.stringify(
+  const baseCalories = 300 + (hash % 400); // 300–699
+  const protein = 10 + (hash % 30); // 10–39 g
+  const carbs = 20 + (hash % 60); // 20–79 g
+  const fat = 5 + (hash % 25); // 5–29 g
+  const sugar = 5 + (hash % 20); // 5–24 g
+  const fiber = 3 + (hash % 10); // 3–12 g
+  const sodium = 200 + (hash % 800); // 200–999 mg
+
+  const meal: MealAnalysis = {
+    items: [
       {
-        items: [
-          {
-            name: 'string',
-            portion: 'string',
-            caloriesMin: 0,
-            caloriesMax: 0,
-            proteinMin: 0,
-            proteinMax: 0,
-            carbsMin: 0,
-            carbsMax: 0,
-            fatMin: 0,
-            fatMax: 0,
-            sugarMin: 0,
-            sugarMax: 0,
-            fiberMin: 0,
-            fiberMax: 0,
-            sodiumMin: 0,
-            sodiumMax: 0,
-          },
-        ],
-        totalCaloriesMin: 0,
-        totalCaloriesMax: 0,
-        totalProteinMin: 0,
-        totalProteinMax: 0,
-        confidence: 'high',
-        tips: ['string'],
+        name: 'Makanan',
+        portion: '1 porsi',
+        caloriesMin: baseCalories - 50,
+        caloriesMax: baseCalories + 50,
+        proteinMin: protein - 3,
+        proteinMax: protein + 3,
+        carbsMin: carbs - 5,
+        carbsMax: carbs + 5,
+        fatMin: fat - 2,
+        fatMax: fat + 2,
+        sugarMin: sugar - 2,
+        sugarMax: sugar + 2,
+        fiberMin: fiber - 1,
+        fiberMax: fiber + 1,
+        sodiumMin: sodium - 100,
+        sodiumMax: sodium + 100,
       },
-      null,
-      0,
-    );
+    ],
+    totalCaloriesMin: baseCalories - 50,
+    totalCaloriesMax: baseCalories + 50,
+    totalProteinMin: protein - 3,
+    totalProteinMax: protein + 3,
+    confidence: 'low',
+    tips: [],
+  };
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: 'gpt-4.1-mini',
-      messages: [
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'text',
-              text: prompt,
-            },
-            {
-              type: 'image_url',
-              image_url: {
-                url: `data:image/jpeg;base64,${base64Image}`,
-              },
-            },
-          ],
-        },
-      ],
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`OpenAI API error: ${response.status} ${errorText}`);
-  }
-
-  const json = (await response.json()) as any;
-  const content = json.choices?.[0]?.message?.content;
-
-  if (typeof content !== 'string') {
-    throw new Error('Unexpected OpenAI response format');
-  }
-
-  // Ensure we only parse the JSON part to avoid JSON parse errors from stray text
-  const firstBrace = content.indexOf('{');
-  const lastBrace = content.lastIndexOf('}');
-  if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
-    throw new Error('OpenAI response did not contain valid JSON');
-  }
-
-  const jsonSubstring = content.slice(firstBrace, lastBrace + 1);
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(jsonSubstring);
-  } catch (err) {
-    throw new Error(`Failed to parse OpenAI JSON: ${(err as Error).message}`);
-  }
-
-  const validated = mealAnalysisSchema.parse(parsed);
-  return validated as MealAnalysis;
+  const validated = mealAnalysisSchema.parse(meal);
+  return validated;
 }

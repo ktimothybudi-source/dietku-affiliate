@@ -1813,11 +1813,13 @@ export const indexStyles = StyleSheet.create({
   },
   pendingMacros: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    justifyContent: 'space-between',
+    marginTop: 8,
   },
   pendingMacro: {
+    flex: 1,
     alignItems: 'center',
-    gap: 4,
+    gap: 2,
   },
   pendingMacroEmoji: {
     fontSize: 20,
@@ -1828,6 +1830,29 @@ export const indexStyles = StyleSheet.create({
   },
   pendingMacroLabel: {
     fontSize: 12,
+  },
+  pendingMicrosRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-start',
+    gap: 12,
+    marginTop: 8,
+  },
+  pendingMicro: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 4,
+  },
+  pendingMicroValue: {
+    fontSize: 12,
+    fontWeight: '600' as const,
+  },
+  pendingMicroLabel: {
+    fontSize: 11,
+  },
+  pendingModalFooter: {
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    backgroundColor: 'transparent',
   },
   pendingItemsTitle: {
     fontSize: 16,

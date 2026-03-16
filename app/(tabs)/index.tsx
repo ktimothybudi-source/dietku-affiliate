@@ -2066,6 +2066,19 @@ export default function HomeScreen() {
                   <View style={styles.pendingResultState}>
                     {(() => {
                       const totals = getEditedTotals();
+                      const analysis = selectedPending.analysis;
+                      const avgFiber = Math.round(
+                        analysis.items.reduce(
+                          (sum, item) => sum + (item.fiberMin + item.fiberMax) / 2,
+                          0,
+                        ),
+                      );
+                      const avgSodium = Math.round(
+                        analysis.items.reduce(
+                          (sum, item) => sum + (item.sodiumMin + item.sodiumMax) / 2,
+                          0,
+                        ),
+                      );
                       return (
                         <View style={[styles.pendingTotalCard, { backgroundColor: theme.background, borderColor: theme.border }]}>
                           <View style={styles.pendingCaloriesRow}>
@@ -2096,6 +2109,20 @@ export default function HomeScreen() {
                                 {totals.fat}g
                               </Text>
                               <Text style={[styles.pendingMacroLabel, { color: theme.textSecondary }]}>Lemak</Text>
+                            </View>
+                          </View>
+                          <View style={styles.pendingMicrosRow}>
+                            <View style={styles.pendingMicro}>
+                              <Text style={[styles.pendingMicroValue, { color: theme.text }]}>
+                                {avgFiber}g
+                              </Text>
+                              <Text style={[styles.pendingMicroLabel, { color: theme.textSecondary }]}>Serat</Text>
+                            </View>
+                            <View style={styles.pendingMicro}>
+                              <Text style={[styles.pendingMicroValue, { color: theme.text }]}>
+                                {avgSodium}mg
+                              </Text>
+                              <Text style={[styles.pendingMicroLabel, { color: theme.textSecondary }]}>Natrium</Text>
                             </View>
                           </View>
                         </View>
@@ -2334,20 +2361,22 @@ export default function HomeScreen() {
                         </TouchableOpacity>
                       )
                     ))}
-
-                    <TouchableOpacity
-                      style={styles.confirmEditedButton}
-                      onPress={handleConfirmEdited}
-                      activeOpacity={0.8}
-                    >
-                      <Check size={20} color="#FFFFFF" />
-                      <Text style={styles.confirmEditedText}>
-                        {viewingLoggedEntryId ? 'Simpan Perubahan' : 'Konfirmasi & Tambah ke Log'}
-                      </Text>
-                    </TouchableOpacity>
                   </View>
                 )}
               </ScrollView>
+
+              <View style={[styles.pendingModalFooter, { paddingBottom: insets.bottom + 8 }]}>
+                <TouchableOpacity
+                  style={styles.confirmEditedButton}
+                  onPress={handleConfirmEdited}
+                  activeOpacity={0.8}
+                >
+                  <Check size={20} color="#FFFFFF" />
+                  <Text style={styles.confirmEditedText}>
+                    {viewingLoggedEntryId ? 'Simpan Perubahan' : 'Konfirmasi & Tambah ke Log'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         </Modal>
