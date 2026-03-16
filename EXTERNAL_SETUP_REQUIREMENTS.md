@@ -117,9 +117,6 @@ EXPO_PUBLIC_USDA_API_KEY=your_usda_api_key
 
 # Backend API (REQUIRED)
 EXPO_PUBLIC_RORK_API_BASE_URL=http://localhost:3000
-
-# Rork Project ID (REQUIRED for photo analysis)
-RORK_PROJECT_ID=your_rork_project_id
 ```
 
 ### Where to Get Values:

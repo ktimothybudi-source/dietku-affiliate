@@ -1,4 +1,3 @@
-import { generateObject } from '@rork-ai/toolkit-sdk';
 import { z } from 'zod';
 import { MealAnalysis } from '@/types/nutrition';
 
@@ -32,34 +31,107 @@ const mealAnalysisSchema = z.object({
 });
 
 export async function analyzeMealPhoto(base64Image: string): Promise<MealAnalysis> {
-  const result = await generateObject({
-    messages: [
+  const apiKey = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error('Missing EXPO_PUBLIC_OPENAI_API_KEY');
+  }
+
+  const prompt =
+    'Analyze this meal photo and identify all visible food items. For each item:\n' +
+    '1. Identify the food\n' +
+    '2. Estimate portion size using visual cues (plate size, comparisons)\n' +
+    '3. Provide calorie, macro ranges, and micronutrient estimates (sugar in grams, fiber in grams, sodium in milligrams)\n' +
+    '4. Be conservative with estimates.\n\n' +
+    'Respond ONLY with a single JSON object matching this TypeScript type (no extra text):\n' +
+    JSON.stringify(
       {
-        role: 'user',
-        content: [
+        items: [
           {
-            type: 'text',
-            text:
-              'Analyze this meal photo and identify all visible food items. For each item:\n' +
-              '1. Identify the food\n' +
-              '2. Estimate portion size using visual cues (plate size, comparisons)\n' +
-              '3. Provide calorie, macro ranges, and micronutrient estimates (sugar in grams, fiber in grams, sodium in milligrams)\n' +
-              '4. Be conservative with estimates\n\n' +
-              'Provide a confidence level based on:\n' +
-              '- High: Clear view, standard portions, common foods\n' +
-              '- Medium: Partial view or mixed dishes\n' +
-              '- Low: Poor lighting, unclear items, or complex dishes\n\n' +
-              'Include 1-2 tips to improve photo accuracy if needed.',
-          },
-          {
-            type: 'image',
-            image: base64Image,
+            name: 'string',
+            portion: 'string',
+            caloriesMin: 0,
+            caloriesMax: 0,
+            proteinMin: 0,
+            proteinMax: 0,
+            carbsMin: 0,
+            carbsMax: 0,
+            fatMin: 0,
+            fatMax: 0,
+            sugarMin: 0,
+            sugarMax: 0,
+            fiberMin: 0,
+            fiberMax: 0,
+            sodiumMin: 0,
+            sodiumMax: 0,
           },
         ],
+        totalCaloriesMin: 0,
+        totalCaloriesMax: 0,
+        totalProteinMin: 0,
+        totalProteinMax: 0,
+        confidence: 'high',
+        tips: ['string'],
       },
-    ],
-    schema: mealAnalysisSchema,
+      null,
+      0,
+    );
+
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: 'gpt-4.1-mini',
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: prompt,
+            },
+            {
+              type: 'image_url',
+              image_url: {
+                url: `data:image/jpeg;base64,${base64Image}`,
+              },
+            },
+          ],
+        },
+      ],
+    }),
   });
 
-  return result;
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`OpenAI API error: ${response.status} ${errorText}`);
+  }
+
+  const json = (await response.json()) as any;
+  const content = json.choices?.[0]?.message?.content;
+
+  if (typeof content !== 'string') {
+    throw new Error('Unexpected OpenAI response format');
+  }
+
+  // Ensure we only parse the JSON part to avoid JSON parse errors from stray text
+  const firstBrace = content.indexOf('{');
+  const lastBrace = content.lastIndexOf('}');
+  if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
+    throw new Error('OpenAI response did not contain valid JSON');
+  }
+
+  const jsonSubstring = content.slice(firstBrace, lastBrace + 1);
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonSubstring);
+  } catch (err) {
+    throw new Error(`Failed to parse OpenAI JSON: ${(err as Error).message}`);
+  }
+
+  const validated = mealAnalysisSchema.parse(parsed);
+  return validated as MealAnalysis;
 }

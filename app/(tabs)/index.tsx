@@ -1538,7 +1538,11 @@ export default function HomeScreen() {
                       activeOpacity={0.7}
                     >
                       <View style={[styles.foodThumbnail, { backgroundColor: theme.background }]}>
-                        <Camera size={18} color={theme.textSecondary} />
+                        {entry.photoUri ? (
+                          <Image source={{ uri: entry.photoUri }} style={styles.foodThumbnailImage} />
+                        ) : (
+                          <Camera size={18} color={theme.textSecondary} />
+                        )}
                       </View>
                       <View style={styles.foodInfo}>
                         <Text style={[styles.mealTimeLabel, { color: theme.text }]} numberOfLines={1}>
@@ -2331,18 +2335,16 @@ export default function HomeScreen() {
                       )
                     ))}
 
-                    {(hasEdited || viewingLoggedEntryId) && (
-                      <TouchableOpacity
-                        style={styles.confirmEditedButton}
-                        onPress={handleConfirmEdited}
-                        activeOpacity={0.8}
-                      >
-                        <Check size={20} color="#FFFFFF" />
-                        <Text style={styles.confirmEditedText}>
-                          {viewingLoggedEntryId ? 'Simpan Perubahan' : 'Konfirmasi & Tambah ke Log'}
-                        </Text>
-                      </TouchableOpacity>
-                    )}
+                    <TouchableOpacity
+                      style={styles.confirmEditedButton}
+                      onPress={handleConfirmEdited}
+                      activeOpacity={0.8}
+                    >
+                      <Check size={20} color="#FFFFFF" />
+                      <Text style={styles.confirmEditedText}>
+                        {viewingLoggedEntryId ? 'Simpan Perubahan' : 'Konfirmasi & Tambah ke Log'}
+                      </Text>
+                    </TouchableOpacity>
                   </View>
                 )}
               </ScrollView>
