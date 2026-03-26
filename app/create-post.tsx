@@ -33,11 +33,13 @@ export default function CreatePostScreen() {
   const [fat, setFat] = useState('');
   const [mealType, setMealType] = useState<typeof MEAL_TYPES[number]>('lunch');
   const [selectedEntry, setSelectedEntry] = useState<string | null>(null);
+  const [selectedEntryPhotoUri, setSelectedEntryPhotoUri] = useState<string | undefined>(undefined);
 
   const handleSelectEntry = useCallback((entry: typeof todayEntries[0]) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (selectedEntry === entry.id) {
       setSelectedEntry(null);
+      setSelectedEntryPhotoUri(undefined);
       setFoodName('');
       setCalories('');
       setProtein('');
@@ -50,6 +52,7 @@ export default function CreatePostScreen() {
       setProtein(Math.round(entry.protein).toString());
       setCarbs(Math.round(entry.carbs).toString());
       setFat(Math.round(entry.fat).toString());
+      setSelectedEntryPhotoUri(entry.photoUri);
     }
   }, [selectedEntry]);
 
@@ -83,12 +86,13 @@ export default function CreatePostScreen() {
       protein: pro,
       carbs: carb,
       fat: f,
+      photoUri: selectedEntryPhotoUri,
       mealType,
     });
 
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     router.back();
-  }, [communityProfile, caption, foodName, calories, protein, carbs, fat, mealType, createPost]);
+  }, [communityProfile, caption, foodName, calories, protein, carbs, fat, selectedEntryPhotoUri, mealType, createPost]);
 
   return (
     <>

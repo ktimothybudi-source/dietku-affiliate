@@ -104,6 +104,26 @@ export function calculateDailyTargets(profile: UserProfile): DailyTargets {
   };
 }
 
+export function calculateSugarTargetFromCalories(calories: number): number {
+  // WHO-style upper limit: <=10% of total calories from added/free sugar.
+  return Math.round((Math.max(0, calories) * 0.1) / 4);
+}
+
+export function calculateFiberTargetFromCalories(calories: number): number {
+  // Common nutrition rule: ~14g fiber per 1000 kcal intake.
+  return Math.round((Math.max(0, calories) / 1000) * 14);
+}
+
+export function calculateSodiumTargetMg(): number {
+  return 2300;
+}
+
+export function calculateWaterTargetCups(weightKg: number): number {
+  // Approximation: 35ml per kg bodyweight; 1 cup ~250ml.
+  const mlNeeded = Math.max(0, weightKg) * 35;
+  return Math.max(4, Math.round(mlNeeded / 250));
+}
+
 export function getTodayKey(): string {
   const today = new Date();
   return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;

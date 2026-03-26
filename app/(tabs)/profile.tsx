@@ -9,7 +9,7 @@ import {
   Alert,
 } from 'react-native';
 import { Stack, router } from 'expo-router';
-import { User, Settings as SettingsIcon, LogIn, LogOut, Globe, Moon, Sun, ChevronRight, UserCircle, Target, Flame, Bookmark, Trash2, Star, FileText, Shield, RefreshCw } from 'lucide-react-native';
+import { User, Settings as SettingsIcon, LogIn, LogOut, Globe, Moon, Sun, ChevronRight, UserCircle, Target, Flame, FileText, Shield, RefreshCw } from 'lucide-react-native';
 import { useNutrition } from '@/contexts/NutritionContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -18,7 +18,7 @@ import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function ProfileScreen() {
-  const { profile, dailyTargets, favorites, removeFromFavorites, authState, signOut } = useNutrition();
+  const { profile, dailyTargets, authState, signOut } = useNutrition();
   const { theme, themeMode, toggleTheme } = useTheme();
   const { language } = useLanguage();
   const { communityProfile, hasProfile } = useCommunity();
@@ -281,58 +281,6 @@ export default function ProfileScreen() {
                 </Text>
               </View>
             </View>
-          </View>
-
-          <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <View style={styles.cardHeader}>
-              <View style={styles.cardTitleRow}>
-                <Bookmark size={20} color={theme.primary} />
-                <Text style={[styles.cardTitle, { color: theme.text }]}>Makanan Favorit</Text>
-              </View>
-              {favorites.length > 0 && (
-                <Text style={[styles.favoriteCount, { color: theme.textSecondary }]}>{favorites.length} item</Text>
-              )}
-            </View>
-
-            {favorites.length === 0 ? (
-              <View style={styles.emptyFavorites}>
-                <Star size={32} color={theme.textTertiary} />
-                <Text style={[styles.emptyFavoritesText, { color: theme.textSecondary }]}>Belum ada favorit</Text>
-                <Text style={[styles.emptyFavoritesSubtext, { color: theme.textTertiary }]}>Simpan makanan dari detail untuk akses cepat</Text>
-              </View>
-            ) : (
-              <View style={styles.favoritesList}>
-                {favorites.map((favorite, index) => (
-                  <View
-                    key={favorite.id}
-                    style={[
-                      styles.favoriteItem,
-                      { borderBottomColor: theme.border },
-                      index === favorites.length - 1 && { borderBottomWidth: 0 }
-                    ]}
-                  >
-                    <View style={styles.favoriteInfo}>
-                      <Text style={[styles.favoriteName, { color: theme.text }]} numberOfLines={1}>
-                        {favorite.name.split(',')[0]}
-                      </Text>
-                      <Text style={[styles.favoriteCalories, { color: theme.textSecondary }]}>
-                        {favorite.calories} kcal • {favorite.protein}g protein
-                      </Text>
-                    </View>
-                    <TouchableOpacity
-                      style={[styles.deleteButton, { backgroundColor: 'rgba(197, 48, 48, 0.08)' }]}
-                      onPress={() => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                        removeFromFavorites(favorite.id);
-                      }}
-                      activeOpacity={0.7}
-                    >
-                      <Trash2 size={16} color="#C53030" />
-                    </TouchableOpacity>
-                  </View>
-                ))}
-              </View>
-            )}
           </View>
 
           <TouchableOpacity

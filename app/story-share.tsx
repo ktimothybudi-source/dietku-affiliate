@@ -497,7 +497,7 @@ export default function StoryShareScreen() {
                 style={styles.nameEditTouchable}
               >
                 <Text style={styles.toggleSubtitle}>{customMealName}</Text>
-                <Edit3 size={12} color="#6C63FF" style={styles.editIcon} />
+                <Edit3 size={12} color="#22C55E" style={styles.editIcon} />
               </TouchableOpacity>
             )}
           </View>
@@ -671,7 +671,7 @@ export default function StoryShareScreen() {
             disabled={isLoadingLocation}
           >
             <View style={styles.locationOptionIcon}>
-              <Navigation size={20} color="#6C63FF" />
+              <Navigation size={20} color="#22C55E" />
             </View>
             <Text style={styles.locationOptionText}>
               {isLoadingLocation ? 'Getting location...' : 'Use current location'}

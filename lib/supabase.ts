@@ -42,6 +42,9 @@ export interface SupabaseFoodEntry {
   protein: number;
   carbs: number;
   fat: number;
+  sugar: number | null;
+  fiber: number | null;
+  sodium: number | null;
   photo_uri: string | null;
   created_at: string;
 }
@@ -51,6 +54,16 @@ export interface SupabaseWeightHistory {
   user_id: string;
   weight: number;
   recorded_at: string;
+}
+
+export interface SupabaseStreak {
+  id: string;
+  user_id: string;
+  current_streak: number;
+  best_streak: number;
+  last_logged_date: string | null;
+  grace_used_week: boolean;
+  updated_at: string;
 }
 
 export interface SupabaseFood {

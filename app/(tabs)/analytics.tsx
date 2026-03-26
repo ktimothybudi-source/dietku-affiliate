@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -9,9 +9,11 @@ import {
   Modal,
   KeyboardAvoidingView,
   Dimensions,
+  Keyboard,
+  Image,
 } from 'react-native';
 import { Stack } from 'expo-router';
-import { 
+import {
   TrendingUp, 
   TrendingDown, 
   Scale, 
@@ -33,6 +35,8 @@ import {
   Dumbbell,
 } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system/legacy';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNutrition } from '@/contexts/NutritionContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useExercise } from '@/contexts/ExerciseContext';
@@ -40,6 +44,12 @@ import { FoodEntry } from '@/types/nutrition';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { analyticsStyles as styles } from '@/styles/analyticsStyles';
+import {
+  calculateSugarTargetFromCalories,
+  calculateFiberTargetFromCalories,
+  calculateSodiumTargetMg,
+  calculateWaterTargetCups,
+} from '@/utils/nutritionCalculations';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -54,6 +64,15 @@ interface DayData {
   fat: number;
   entries: FoodEntry[];
 }
+
+interface BodyPhoto {
+  uri: string;
+  date: string;
+  label: string;
+}
+
+const BODY_PHOTOS_STORAGE_KEY = 'analytics_body_photos_local_v1';
+const BODY_PHOTOS_DIR = `${FileSystem.documentDirectory}body-progress-photos/`;
 
 function formatDateKey(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -80,19 +99,67 @@ export default function AnalyticsScreen() {
   const [weightInput, setWeightInput] = useState('');
   const [weightError, setWeightError] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-  const [showCalendarPicker, setShowCalendarPicker] = useState(false);
-  const [calendarMonth, setCalendarMonth] = useState(() => {
-    const today = new Date();
-    return { year: today.getFullYear(), month: today.getMonth() };
-  });
   const [showEditWeightModal, setShowEditWeightModal] = useState(false);
   const [selectedWeightEntry, setSelectedWeightEntry] = useState<{ date: string; weight: number } | null>(null);
   const [editWeightInput, setEditWeightInput] = useState('');
-  const [bodyPhotos, setBodyPhotos] = useState<{ uri: string; date: string; label: string }[]>([]);
+  const [bodyPhotos, setBodyPhotos] = useState<BodyPhoto[]>([]);
   const [showPhotoModal, setShowPhotoModal] = useState(false);
 
   const setupReady = !!profile && !!dailyTargets;
   const timeRangeDays = getTimeRangeDays(timeRange);
+  const sugarTarget = useMemo(
+    () => calculateSugarTargetFromCalories(dailyTargets?.calories ?? 2000),
+    [dailyTargets?.calories]
+  );
+  const fiberTarget = useMemo(
+    () => calculateFiberTargetFromCalories(dailyTargets?.calories ?? 2000),
+    [dailyTargets?.calories]
+  );
+  const sodiumTargetMg = useMemo(() => calculateSodiumTargetMg(), []);
+  const waterTargetCups = useMemo(
+    () => calculateWaterTargetCups(profile?.weight ?? 70),
+    [profile?.weight]
+  );
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadLocalBodyPhotos = async () => {
+      try {
+        const raw = await AsyncStorage.getItem(BODY_PHOTOS_STORAGE_KEY);
+        if (!raw) return;
+
+        const parsed = JSON.parse(raw) as BodyPhoto[];
+        if (!Array.isArray(parsed)) return;
+
+        const checks = await Promise.all(
+          parsed.map(async (photo) => {
+            const info = await FileSystem.getInfoAsync(photo.uri);
+            return info.exists ? photo : null;
+          })
+        );
+
+        const existing = checks.filter((item): item is BodyPhoto => Boolean(item));
+        if (isMounted) {
+          setBodyPhotos(existing);
+        }
+      } catch (error) {
+        console.error('Failed to load local body photos:', error);
+      }
+    };
+
+    loadLocalBodyPhotos();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    AsyncStorage.setItem(BODY_PHOTOS_STORAGE_KEY, JSON.stringify(bodyPhotos)).catch((error) => {
+      console.error('Failed to save local body photos:', error);
+    });
+  }, [bodyPhotos]);
 
   const dayData = useMemo<DayData[]>(() => {
     const log = (foodLog as Record<string, FoodEntry[]>) || {};
@@ -136,7 +203,7 @@ export default function AnalyticsScreen() {
     return days;
   }, [foodLog, timeRangeDays]);
 
-  const weightChartData = useMemo(() => {
+  const allWeightData = useMemo(() => {
     let list = (weightHistory || [])
       .filter((w: any) => Number.isFinite(new Date(w.date).getTime()))
       .sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -152,10 +219,16 @@ export default function AnalyticsScreen() {
       }];
     }
 
+    return list;
+  }, [weightHistory, profile]);
+
+  const weightChartData = useMemo(() => {
+    const list = allWeightData;
+
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - timeRangeDays);
     return list.filter((w: any) => new Date(w.date) >= cutoff);
-  }, [weightHistory, timeRangeDays, profile]);
+  }, [allWeightData, timeRangeDays]);
 
   const stats = useMemo(() => {
     const daysWithData = dayData.filter(d => d.entries.length > 0);
@@ -170,20 +243,22 @@ export default function AnalyticsScreen() {
     const consistencyPercentage =
       daysWithData.length > 0 ? Math.round((daysWithinTarget / daysWithData.length) * 100) : 0;
 
-    const initialWeight = profile?.weight ?? 0;
-    const startWeight = weightChartData.length > 0 ? weightChartData[0].weight : initialWeight;
-    const currentWeight = weightChartData.length > 0 
-      ? weightChartData[weightChartData.length - 1].weight 
+    const initialWeight = allWeightData.length > 0
+      ? allWeightData[0].weight
+      : (profile?.weight ?? 0);
+    const startWeight = initialWeight;
+    const currentWeight = allWeightData.length > 0
+      ? allWeightData[allWeightData.length - 1].weight
       : initialWeight;
-    const weightChange = currentWeight - initialWeight;
+    const weightChange = currentWeight - startWeight;
 
     const targetWeight = profile?.goalWeight ?? 0;
     let weightProgress = 0;
-    if (targetWeight > 0 && initialWeight > 0 && targetWeight !== initialWeight) {
-      const totalToChange = Math.abs(initialWeight - targetWeight);
-      const currentChanged = Math.abs(initialWeight - currentWeight);
-      const isCorrectDirection = (initialWeight > targetWeight && currentWeight <= initialWeight) ||
-                                  (initialWeight < targetWeight && currentWeight >= initialWeight);
+    if (targetWeight > 0 && startWeight > 0 && targetWeight !== startWeight) {
+      const totalToChange = Math.abs(startWeight - targetWeight);
+      const currentChanged = Math.abs(startWeight - currentWeight);
+      const isCorrectDirection = (startWeight > targetWeight && currentWeight <= startWeight) ||
+                                  (startWeight < targetWeight && currentWeight >= startWeight);
       if (isCorrectDirection) {
         weightProgress = Math.min(100, Math.max(0, Math.round((currentChanged / totalToChange) * 100)));
       }
@@ -213,7 +288,7 @@ export default function AnalyticsScreen() {
       targetWeight,
       weightProgress,
     };
-  }, [dayData, dailyTargets, profile, weightChartData]);
+  }, [dayData, dailyTargets, profile, allWeightData]);
 
   const handleDotPress = (entry: { date: string; weight: number }) => {
     setSelectedWeightEntry(entry);
@@ -312,79 +387,20 @@ export default function AnalyticsScreen() {
     return date.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'short' });
   };
 
-  const openCalendarPicker = () => {
-    const date = new Date(selectedDate);
-    setCalendarMonth({ year: date.getFullYear(), month: date.getMonth() });
-    setShowCalendarPicker(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  };
+  const changeSelectedDateBy = (dayDelta: number) => {
+    const next = new Date(selectedDate);
+    next.setHours(0, 0, 0, 0);
+    next.setDate(next.getDate() + dayDelta);
 
-  const selectDateFromCalendar = (day: number) => {
-    const newDate = new Date(calendarMonth.year, calendarMonth.month, day);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
     const minDate = new Date(today);
     minDate.setDate(minDate.getDate() - 30);
-    
-    if (newDate <= today && newDate >= minDate) {
-      setSelectedDate(newDate);
-      setShowCalendarPicker(false);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    }
-  };
 
-  const goToPreviousMonth = () => {
-    setCalendarMonth(prev => {
-      if (prev.month === 0) {
-        return { year: prev.year - 1, month: 11 };
-      }
-      return { year: prev.year, month: prev.month - 1 };
-    });
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  };
-
-  const goToNextMonth = () => {
-    const today = new Date();
-    const nextMonth = calendarMonth.month === 11 ? 0 : calendarMonth.month + 1;
-    const nextYear = calendarMonth.month === 11 ? calendarMonth.year + 1 : calendarMonth.year;
-    
-    if (nextYear < today.getFullYear() || (nextYear === today.getFullYear() && nextMonth <= today.getMonth())) {
-      setCalendarMonth({ year: nextYear, month: nextMonth });
+    if (next >= minDate && next <= today) {
+      setSelectedDate(next);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
-  };
-
-  const getCalendarDays = () => {
-    const { year, month } = calendarMonth;
-    const firstDay = new Date(year, month, 1).getDay();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    const minDate = new Date(today);
-    minDate.setDate(minDate.getDate() - 30);
-    
-    const days: { day: number; isCurrentMonth: boolean; isSelectable: boolean; isSelected: boolean; isToday: boolean }[] = [];
-    
-    for (let i = 0; i < firstDay; i++) {
-      days.push({ day: 0, isCurrentMonth: false, isSelectable: false, isSelected: false, isToday: false });
-    }
-    
-    for (let day = 1; day <= daysInMonth; day++) {
-      const date = new Date(year, month, day);
-      const isSelectable = date <= today && date >= minDate;
-      const isSelected = formatDateKey(date) === formatDateKey(selectedDate);
-      const isToday = formatDateKey(date) === formatDateKey(today);
-      days.push({ day, isCurrentMonth: true, isSelectable, isSelected, isToday });
-    }
-    
-    return days;
-  };
-
-  const getMonthName = (month: number) => {
-    const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-    return months[month];
   };
 
   const renderCalorieChart = () => {
@@ -644,20 +660,20 @@ export default function AnalyticsScreen() {
     const getWeightChangeColor = () => {
       if (stats.weightChange === 0) return theme.textSecondary;
       if (goal === 'lose') {
-        return stats.weightChange < 0 ? '#3B82F6' : theme.destructive;
+        return stats.weightChange < 0 ? theme.primary : theme.destructive;
       }
       if (goal === 'gain') {
-        return stats.weightChange > 0 ? '#3B82F6' : theme.destructive;
+        return stats.weightChange > 0 ? theme.primary : theme.destructive;
       }
-      return Math.abs(stats.weightChange) < 1 ? '#3B82F6' : '#F59E0B';
+      return Math.abs(stats.weightChange) < 1 ? theme.primary : theme.warning;
     };
 
     return (
       <View style={[styles.weightSection, { backgroundColor: theme.card, borderColor: theme.border }]}>
         <View style={styles.weightHeader}>
           <View style={styles.chartTitleRow}>
-            <View style={[styles.chartIconWrap, { backgroundColor: '#3B82F6' + '15' }]}>
-              <Scale size={18} color="#3B82F6" />
+            <View style={[styles.chartIconWrap, { backgroundColor: theme.primary + '15' }]}>
+              <Scale size={18} color={theme.primary} />
             </View>
             <View>
               <Text style={[styles.chartTitle, { color: theme.text }]}>Berat Badan</Text>
@@ -667,7 +683,7 @@ export default function AnalyticsScreen() {
             </View>
           </View>
           <TouchableOpacity
-            style={[styles.recordBtn, { backgroundColor: '#3B82F6' }]}
+            style={[styles.recordBtn, { backgroundColor: theme.primary }]}
             onPress={openWeightModal}
             activeOpacity={0.8}
           >
@@ -703,8 +719,8 @@ export default function AnalyticsScreen() {
           <View style={[styles.weightStatDivider, { backgroundColor: theme.border }]} />
           <View style={styles.weightStatItem}>
             <View style={styles.weightChangeDisplay}>
-              <Target size={16} color="#3B82F6" />
-              <Text style={[styles.weightStatValue, { color: '#3B82F6', fontSize: 22 }]}>
+              <Target size={16} color={theme.primary} />
+              <Text style={[styles.weightStatValue, { color: theme.primary, fontSize: 22 }]}>
                 {targetWeight > 0 ? targetWeight.toFixed(1) : '-'}
               </Text>
             </View>
@@ -714,57 +730,47 @@ export default function AnalyticsScreen() {
 
         {renderWeightGraph()}
 
-        <View style={styles.weightTimeRange}>
-          {(['7h', '30h', '90h'] as const).map(range => (
-            <TouchableOpacity
-              key={range}
-              style={[
-                styles.weightTimeRangePill,
-                { backgroundColor: theme.background, borderColor: theme.border },
-                timeRange === range && { backgroundColor: '#3B82F6', borderColor: '#3B82F6' },
-              ]}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setTimeRange(range);
-              }}
-              activeOpacity={0.8}
-            >
-              <Text style={[
-                styles.weightTimeRangeText,
-                { color: theme.textSecondary },
-                timeRange === range && { color: '#ffffff' },
-              ]}>
-                {range === '7h' ? '7 Hari' : range === '30h' ? '30 Hari' : '90 Hari'}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+        {false && (
+          <View style={styles.weightTimeRange}>
+            {(['7h', '30h', '90h'] as const).map(range => (
+              <TouchableOpacity
+                key={range}
+                style={[
+                  styles.weightTimeRangePill,
+                  { backgroundColor: theme.background, borderColor: theme.border },
+                  timeRange === range && { backgroundColor: theme.primary, borderColor: theme.primary },
+                ]}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setTimeRange(range);
+                }}
+                activeOpacity={0.8}
+              >
+                <Text style={[
+                  styles.weightTimeRangeText,
+                  { color: theme.textSecondary },
+                  timeRange === range && { color: '#ffffff' },
+                ]}>
+                  {range === '7h' ? '7 Hari' : range === '30h' ? '30 Hari' : '90 Hari'}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
         
-        {goalProjection && targetWeight > 0 && (
+        {goalProjection && targetWeight > 0 && (goalProjection.type === 'projected' || goalProjection.type === 'estimated') && (
           <View style={[styles.projectionCard, { backgroundColor: theme.background, borderColor: theme.border }]}>
-            {(goalProjection.type === 'projected' || goalProjection.type === 'estimated') ? (
-              <View style={styles.projectionContent}>
-                <Text style={[styles.projectionFriendlyText, { color: theme.text }]}>
-                  🎯 Kamu akan mencapai berat impianmu sekitar
-                </Text>
-                <Text style={[styles.projectionDate, { color: '#3B82F6' }]}>
-                  {goalProjection.date.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
-                </Text>
-                <Text style={[styles.projectionSubtext, { color: theme.textSecondary }]}>
-                  ~{goalProjection.daysRemaining} hari lagi • {goalProjection.weeklyRate.toFixed(1)} kg/minggu
-                </Text>
-              </View>
-            ) : (
-              <View style={styles.projectionContent}>
-                <Text style={[styles.projectionFriendlyText, { color: '#F59E0B' }]}>
-                  {goalProjection.message === 'Belum ada perubahan' 
-                    ? '📊 Terus catat beratmu untuk melihat proyeksi'
-                    : goalProjection.message === 'Perlu penyesuaian pola'
-                    ? '💪 Ayo sesuaikan pola makanmu untuk mencapai target!'
-                    : '⏳ Proyeksi membutuhkan waktu lebih lama'}
-                </Text>
-              </View>
-            )}
+            <View style={styles.projectionContent}>
+              <Text style={[styles.projectionFriendlyText, { color: theme.text }]}>
+                🎯 Kamu akan mencapai berat impianmu sekitar
+              </Text>
+              <Text style={[styles.projectionDate, { color: theme.primary }]}>
+                {goalProjection.date.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
+              </Text>
+              <Text style={[styles.projectionSubtext, { color: theme.textSecondary }]}>
+                ~{goalProjection.daysRemaining} hari lagi • {goalProjection.weeklyRate.toFixed(1)} kg/minggu
+              </Text>
+            </View>
           </View>
         )}
       </View>
@@ -804,7 +810,7 @@ export default function AnalyticsScreen() {
           <View style={[styles.graphYLabels, { height: chartHeight }]}>
             <Text style={[styles.graphLabel, { color: theme.textTertiary }]}>{maxWeight.toFixed(0)} kg</Text>
             {targetWeight > 0 && (
-              <Text style={[styles.graphLabel, styles.targetLabel, { color: '#3B82F6' }]}>
+              <Text style={[styles.graphLabel, styles.targetLabel, { color: theme.primary }]}>
                 {targetWeight.toFixed(0)} kg
               </Text>
             )}
@@ -818,7 +824,7 @@ export default function AnalyticsScreen() {
                   styles.targetGraphLine, 
                   { 
                     top: targetY,
-                    backgroundColor: '#3B82F6' + '40',
+                    backgroundColor: theme.primary + '40',
                   }
                 ]} 
               />
@@ -836,7 +842,7 @@ export default function AnalyticsScreen() {
                 onPress={() => handleDotPress({ date: point.date, weight: point.weight })}
                 activeOpacity={0.7}
               >
-                <View style={[styles.graphDot, { backgroundColor: '#3B82F6' }]} />
+                <View style={[styles.graphDot, { backgroundColor: theme.primary }]} />
               </TouchableOpacity>
             ))}
             {points.length > 1 && points.map((point: { x: number; y: number; weight: number; date: string }, index: number) => {
@@ -856,7 +862,7 @@ export default function AnalyticsScreen() {
                       width: length,
                       left: prev.x,
                       top: prev.y,
-                      backgroundColor: '#3B82F6',
+                      backgroundColor: theme.primary,
                       transform: [{ rotate: `${angle}deg` }],
                     }
                   ]}
@@ -890,25 +896,36 @@ export default function AnalyticsScreen() {
     const targetProtein = dailyTargets?.protein ?? 0;
     const targetCarbs = dailyTargets ? Math.round((dailyTargets.carbsMin + dailyTargets.carbsMax) / 2) : 0;
     const targetFat = dailyTargets ? Math.round((dailyTargets.fatMin + dailyTargets.fatMax) / 2) : 0;
+    const last7Days = dayData.slice(-7);
+    const macroDaysWithData = last7Days.filter(d => d.entries.length > 0);
+    const avgProtein7d = macroDaysWithData.length > 0
+      ? Math.round(macroDaysWithData.reduce((sum, d) => sum + d.protein, 0) / macroDaysWithData.length)
+      : 0;
+    const avgCarbs7d = macroDaysWithData.length > 0
+      ? Math.round(macroDaysWithData.reduce((sum, d) => sum + d.carbs, 0) / macroDaysWithData.length)
+      : 0;
+    const avgFat7d = macroDaysWithData.length > 0
+      ? Math.round(macroDaysWithData.reduce((sum, d) => sum + d.fat, 0) / macroDaysWithData.length)
+      : 0;
     
     const macros = [
       { 
         name: 'Protein', 
-        avg: stats.avgProtein, 
+        avg: avgProtein7d,
         target: targetProtein, 
         color: '#3B82F6',
         unit: 'g'
       },
       { 
         name: 'Karbohidrat', 
-        avg: stats.avgCarbs, 
+        avg: avgCarbs7d,
         target: targetCarbs, 
         color: '#F59E0B',
         unit: 'g'
       },
       { 
         name: 'Lemak', 
-        avg: stats.avgFat, 
+        avg: avgFat7d,
         target: targetFat, 
         color: theme.destructive,
         unit: 'g'
@@ -919,13 +936,13 @@ export default function AnalyticsScreen() {
       <View style={[styles.chartCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
         <View style={styles.chartHeader}>
           <View style={styles.chartTitleRow}>
-            <View style={[styles.chartIconWrap, { backgroundColor: '#8B5CF6' + '15' }]}>
-              <Zap size={18} color="#8B5CF6" />
+            <View style={[styles.chartIconWrap, { backgroundColor: theme.primary + '15' }]}>
+              <Zap size={18} color={theme.primary} />
             </View>
             <View>
               <Text style={[styles.chartTitle, { color: theme.text }]}>Makro Harian</Text>
               <Text style={[styles.chartSubtitle, { color: theme.textSecondary }]}>
-                Rata-rata {timeRange === '7h' ? '7 hari' : timeRange === '30h' ? '30 hari' : '90 hari'} terakhir
+                Rata-rata 7 hari terakhir
               </Text>
             </View>
           </View>
@@ -986,10 +1003,20 @@ export default function AnalyticsScreen() {
         quality: 0.8,
       });
       if (!result.canceled && result.assets[0]) {
+        const dirInfo = await FileSystem.getInfoAsync(BODY_PHOTOS_DIR);
+        if (!dirInfo.exists) {
+          await FileSystem.makeDirectoryAsync(BODY_PHOTOS_DIR, { intermediates: true });
+        }
+
         const today = new Date();
+        const dateKey = formatDateKey(today);
+        const extension = result.assets[0].uri.split('.').pop() || 'jpg';
+        const localUri = `${BODY_PHOTOS_DIR}${dateKey}-${Date.now()}.${extension}`;
+        await FileSystem.copyAsync({ from: result.assets[0].uri, to: localUri });
+
         const newPhoto = {
-          uri: result.assets[0].uri,
-          date: formatDateKey(today),
+          uri: localUri,
+          date: dateKey,
           label: today.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }),
         };
         setBodyPhotos(prev => [newPhoto, ...prev]);
@@ -1015,10 +1042,20 @@ export default function AnalyticsScreen() {
         quality: 0.8,
       });
       if (!result.canceled && result.assets[0]) {
+        const dirInfo = await FileSystem.getInfoAsync(BODY_PHOTOS_DIR);
+        if (!dirInfo.exists) {
+          await FileSystem.makeDirectoryAsync(BODY_PHOTOS_DIR, { intermediates: true });
+        }
+
         const today = new Date();
+        const dateKey = formatDateKey(today);
+        const extension = result.assets[0].uri.split('.').pop() || 'jpg';
+        const localUri = `${BODY_PHOTOS_DIR}${dateKey}-${Date.now()}.${extension}`;
+        await FileSystem.copyAsync({ from: result.assets[0].uri, to: localUri });
+
         const newPhoto = {
-          uri: result.assets[0].uri,
-          date: formatDateKey(today),
+          uri: localUri,
+          date: dateKey,
           label: today.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }),
         };
         setBodyPhotos(prev => [newPhoto, ...prev]);
@@ -1035,13 +1072,13 @@ export default function AnalyticsScreen() {
       <View style={[styles.chartCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
         <View style={styles.chartHeader}>
           <View style={styles.chartTitleRow}>
-            <View style={[styles.chartIconWrap, { backgroundColor: '#3B82F6' + '15' }]}>
-              <Camera size={18} color="#3B82F6" />
+            <View style={[styles.chartIconWrap, { backgroundColor: theme.primary + '15' }]}>
+              <Camera size={18} color={theme.primary} />
             </View>
             <Text style={[styles.chartTitle, { color: theme.text }]}>Foto Kemajuan</Text>
           </View>
           <TouchableOpacity
-            style={[styles.fotoBtn, { backgroundColor: '#3B82F6' }]}
+            style={[styles.fotoBtn, { backgroundColor: theme.primary }]}
             onPress={() => { setShowPhotoModal(true); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
             activeOpacity={0.8}
           >
@@ -1056,26 +1093,37 @@ export default function AnalyticsScreen() {
             onPress={() => { setShowPhotoModal(true); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
             activeOpacity={0.7}
           >
-            <View style={[styles.emptyPhotoIcon, { backgroundColor: '#3B82F6' + '10' }]}>
-              <Camera size={28} color="#3B82F6" />
+            <View style={[styles.emptyPhotoIcon, { backgroundColor: theme.primary + '10' }]}>
+              <Camera size={28} color={theme.primary} />
             </View>
             <Text style={[styles.emptyPhotoTitle, { color: theme.text }]}>Mulai dokumentasi</Text>
             <Text style={[styles.emptyPhotoText, { color: theme.textSecondary }]}>
               Ambil foto pertamamu untuk melihat perubahan dari waktu ke waktu
             </Text>
+            <Text style={[styles.emptyPhotoText, { color: theme.textTertiary, marginTop: 8 }]}>
+              Disimpan lokal di perangkat saja (tidak diupload). Jika aplikasi dihapus, foto ikut terhapus.
+            </Text>
           </TouchableOpacity>
         ) : (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.photoScroll}>
-            {bodyPhotos.map((photo, index) => (
-              <View key={index} style={styles.photoCard}>
-                <View style={[styles.photoImageWrap, { backgroundColor: theme.background }]}>
-                  <ImageIcon size={32} color={theme.textTertiary} />
-                  <Text style={[styles.photoPlaceholder, { color: theme.textTertiary }]}>Foto</Text>
+          <>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.photoScroll}>
+              {bodyPhotos.map((photo, index) => (
+                <View key={index} style={styles.photoCard}>
+                  <View style={[styles.photoImageWrap, { backgroundColor: theme.background }]}>
+                    <Image
+                      source={{ uri: photo.uri }}
+                      style={{ width: '100%', height: '100%', borderRadius: 10 }}
+                      resizeMode="cover"
+                    />
+                  </View>
+                  <Text style={[styles.photoDateLabel, { color: theme.textSecondary }]}>{photo.label}</Text>
                 </View>
-                <Text style={[styles.photoDateLabel, { color: theme.textSecondary }]}>{photo.label}</Text>
-              </View>
-            ))}
-          </ScrollView>
+              ))}
+            </ScrollView>
+            <Text style={[styles.emptyPhotoText, { color: theme.textTertiary, marginTop: 10 }]}>
+              Disimpan lokal di perangkat saja (tidak diupload). Jika aplikasi dihapus, foto ikut terhapus.
+            </Text>
+          </>
         )}
       </View>
     );
@@ -1087,15 +1135,18 @@ export default function AnalyticsScreen() {
     const weekLabels = ['M', 'S', 'S', 'R', 'K', 'J', 'S'];
     const weekStart = new Date(today);
     weekStart.setDate(today.getDate() - dayOfWeek);
-    const log = (foodLog as Record<string, FoodEntry[]>) || {};
+    const streakCount = Math.max(0, streakData?.currentStreak ?? 0);
+    const streakDotsThisWeek = Math.min(streakCount, dayOfWeek + 1);
+    const streakStartIndex = dayOfWeek - streakDotsThisWeek + 1;
+
     const weekDaysData = Array.from({ length: 7 }, (_, i) => {
       const date = new Date(weekStart);
       date.setDate(weekStart.getDate() + i);
       const dateKey = formatDateKey(date);
-      const hasEntries = (log[dateKey] || []).length > 0;
       const isToday = dateKey === formatDateKey(new Date());
       const isFuture = date > today;
-      return { day: weekLabels[i], logged: hasEntries, isToday, isFuture };
+      const isInCurrentStreak = !isFuture && i >= streakStartIndex && i <= dayOfWeek;
+      return { day: weekLabels[i], logged: isInCurrentStreak, isToday, isFuture };
     });
     return (
       <View style={styles.streakRow}>
@@ -1117,7 +1168,7 @@ export default function AnalyticsScreen() {
           </View>
         </View>
         <View style={[styles.streakCardRight, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <Target size={28} color="#3B82F6" />
+          <Target size={28} color={theme.primary} />
           <Text style={[styles.streakCardNumber, { color: theme.text }]}>{stats.weightProgress}%</Text>
           <Text style={[styles.streakCardLabel, { color: theme.textSecondary }]}>tercapai</Text>
         </View>
@@ -1131,8 +1182,8 @@ export default function AnalyticsScreen() {
       <View style={[styles.chartCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
         <View style={styles.chartHeader}>
           <View style={styles.chartTitleRow}>
-            <View style={[styles.chartIconWrap, { backgroundColor: '#3B82F6' + '15' }]}>
-              <Scale size={18} color="#3B82F6" />
+            <View style={[styles.chartIconWrap, { backgroundColor: theme.primary + '15' }]}>
+              <Scale size={18} color={theme.primary} />
             </View>
             <Text style={[styles.chartTitle, { color: theme.text }]}>Perubahan Berat</Text>
           </View>
@@ -1140,9 +1191,9 @@ export default function AnalyticsScreen() {
         {weightChanges.map((item, i) => (
           <View key={i} style={[styles.changeRow, i < weightChanges.length - 1 && { borderBottomWidth: 1, borderBottomColor: theme.border }]}>
             <Text style={[styles.changeLabel, { color: theme.textSecondary }]}>{item.label}</Text>
-            <View style={[styles.changeTrendBar, { backgroundColor: item.trend === 'down' ? '#3B82F620' : item.trend === 'up' ? '#F59E0B20' : theme.border }]} />
+            <View style={[styles.changeTrendBar, { backgroundColor: item.trend === 'down' ? theme.primary + '20' : item.trend === 'up' ? theme.warning + '20' : theme.border }]} />
             <Text style={[styles.changeValue, { color: theme.text }]}>{item.change > 0 ? '+' : ''}{item.change} kg</Text>
-            <Text style={[styles.changeTrend, { color: item.trend === 'down' ? '#3B82F6' : item.trend === 'up' ? '#F59E0B' : theme.textTertiary }]}>
+            <Text style={[styles.changeTrend, { color: item.trend === 'down' ? theme.primary : item.trend === 'up' ? theme.warning : theme.textTertiary }]}>
               {item.trend === 'up' ? '↗ Naik' : item.trend === 'down' ? '↘ Turun' : '→ Tetap'}
             </Text>
           </View>
@@ -1179,7 +1230,7 @@ export default function AnalyticsScreen() {
         <View style={styles.energyStatsRow}>
           <View style={styles.energyStat}>
             <Text style={[styles.energyStatLabel, { color: theme.textSecondary }]}>Terbakar</Text>
-            <Text style={[styles.energyStatValue, { color: '#F59E0B' }]}>{totalBurned.toLocaleString()}</Text>
+            <Text style={[styles.energyStatValue, { color: theme.warning }]}>{totalBurned.toLocaleString()}</Text>
             <Text style={[styles.energyStatUnit, { color: theme.textTertiary }]}>cal</Text>
           </View>
           <View style={styles.energyStat}>
@@ -1189,7 +1240,7 @@ export default function AnalyticsScreen() {
           </View>
           <View style={styles.energyStat}>
             <Text style={[styles.energyStatLabel, { color: theme.textSecondary }]}>Energi</Text>
-            <Text style={[styles.energyStatValue, { color: totalEnergy >= 0 ? theme.destructive : '#3B82F6' }]}>{totalEnergy >= 0 ? '+' : ''}{totalEnergy}</Text>
+            <Text style={[styles.energyStatValue, { color: totalEnergy >= 0 ? theme.destructive : theme.primary }]}>{totalEnergy >= 0 ? '+' : ''}{totalEnergy}</Text>
             <Text style={[styles.energyStatUnit, { color: theme.textTertiary }]}>cal</Text>
           </View>
         </View>
@@ -1201,7 +1252,7 @@ export default function AnalyticsScreen() {
             return (
               <View key={d.dateKey} style={styles.energyBarCol}>
                 <View style={styles.energyBarPair}>
-                  <View style={[styles.energyBar, { height: Math.max(burnedH, 3), backgroundColor: '#F59E0B' }]} />
+                  <View style={[styles.energyBar, { height: Math.max(burnedH, 3), backgroundColor: theme.warning }]} />
                   <View style={[styles.energyBar, { height: Math.max(consumedH, 3), backgroundColor: theme.primary }]} />
                 </View>
                 <Text style={[styles.energyDayLabel, { color: theme.textTertiary }]}>{dayLabel}</Text>
@@ -1211,7 +1262,7 @@ export default function AnalyticsScreen() {
         </View>
         <View style={[styles.chartLegend, { borderTopColor: theme.border }]}>
           <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: '#F59E0B' }]} />
+            <View style={[styles.legendDot, { backgroundColor: theme.warning }]} />
             <Text style={[styles.legendText, { color: theme.textSecondary }]}>Terbakar</Text>
           </View>
           <View style={styles.legendItem}>
@@ -1228,8 +1279,8 @@ export default function AnalyticsScreen() {
       <View style={[styles.chartCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
         <View style={styles.chartHeader}>
           <View style={styles.chartTitleRow}>
-            <View style={[styles.chartIconWrap, { backgroundColor: '#F59E0B15' }]}>
-              <TrendingUp size={18} color="#F59E0B" />
+            <View style={[styles.chartIconWrap, { backgroundColor: theme.warning + '15' }]}>
+              <TrendingUp size={18} color={theme.warning} />
             </View>
             <Text style={[styles.chartTitle, { color: theme.text }]}>Perubahan Konsumsi</Text>
           </View>
@@ -1237,9 +1288,9 @@ export default function AnalyticsScreen() {
         {expenditureChanges.map((item, i) => (
           <View key={i} style={[styles.changeRow, i < expenditureChanges.length - 1 && { borderBottomWidth: 1, borderBottomColor: theme.border }]}>
             <Text style={[styles.changeLabel, { color: theme.textSecondary }]}>{item.label}</Text>
-            <View style={[styles.changeTrendBar, { backgroundColor: item.trend === 'up' ? '#F59E0B20' : item.trend === 'down' ? '#3B82F620' : theme.border }]} />
+            <View style={[styles.changeTrendBar, { backgroundColor: item.trend === 'up' ? theme.warning + '20' : item.trend === 'down' ? theme.primary + '20' : theme.border }]} />
             <Text style={[styles.changeValue, { color: theme.text }]}>{item.change > 0 ? '+' : ''}{item.change} cal</Text>
-            <Text style={[styles.changeTrend, { color: item.trend === 'up' ? '#F59E0B' : item.trend === 'down' ? '#3B82F6' : theme.textTertiary }]}>
+            <Text style={[styles.changeTrend, { color: item.trend === 'up' ? theme.warning : item.trend === 'down' ? theme.primary : theme.textTertiary }]}>
               {item.trend === 'up' ? '↗ Naik' : item.trend === 'down' ? '↘ Turun' : '→ Tetap'}
             </Text>
           </View>
@@ -1249,50 +1300,44 @@ export default function AnalyticsScreen() {
   };
 
   const microsTrend = useMemo(() => {
-    const waterData = nutritionRaw.waterCups || nutritionRaw.getTodayWaterCups ? {} : {};
-    const sugarData = nutritionRaw.sugarUnits || {};
-    const fiberData = nutritionRaw.fiberUnits || {};
-    const sodiumData = nutritionRaw.sodiumUnits || {};
-
-    const rawWater = (typeof nutritionRaw.waterCups === 'object' && nutritionRaw.waterCups !== null) ? nutritionRaw.waterCups : waterData;
-    const rawSugar = (typeof nutritionRaw.sugarUnits === 'object' && nutritionRaw.sugarUnits !== null) ? nutritionRaw.sugarUnits : sugarData;
-    const rawFiber = (typeof nutritionRaw.fiberUnits === 'object' && nutritionRaw.fiberUnits !== null) ? nutritionRaw.fiberUnits : fiberData;
-    const rawSodium = (typeof nutritionRaw.sodiumUnits === 'object' && nutritionRaw.sodiumUnits !== null) ? nutritionRaw.sodiumUnits : sodiumData;
-
-    const days = timeRangeDays;
+    const rawWater = (typeof nutritionRaw.waterCups === 'object' && nutritionRaw.waterCups !== null) ? nutritionRaw.waterCups : {};
+    const log = (foodLog as Record<string, FoodEntry[]>) || {};
+    const days = 7;
     const today = new Date();
     let totalWater = 0, totalSugar = 0, totalFiber = 0, totalSodium = 0;
-    let daysWithWater = 0, daysWithSugar = 0, daysWithFiber = 0, daysWithSodium = 0;
 
     for (let i = 0; i < days; i++) {
       const d = new Date(today);
       d.setDate(d.getDate() - i);
       const key = formatDateKey(d);
       const w = rawWater[key] || 0;
-      const s = rawSugar[key] || 0;
-      const f = rawFiber[key] || 0;
-      const n = rawSodium[key] || 0;
-      if (w > 0) { totalWater += w; daysWithWater++; }
-      if (s > 0) { totalSugar += s; daysWithSugar++; }
-      if (f > 0) { totalFiber += f; daysWithFiber++; }
-      if (n > 0) { totalSodium += n; daysWithSodium++; }
+      const dayEntries = log[key] || [];
+      const s = dayEntries.reduce((sum, entry) => sum + (entry.sugar ?? 0), 0);
+      const f = dayEntries.reduce((sum, entry) => sum + (entry.fiber ?? 0), 0);
+      const n = dayEntries.reduce((sum, entry) => sum + (entry.sodium ?? 0), 0);
+      totalWater += w;
+      totalSugar += s;
+      totalFiber += f;
+      totalSodium += n;
     }
 
+    const todayKey = formatDateKey(today);
+    const todayEntries = log[todayKey] || [];
+    const todaySugar = Math.round(todayEntries.reduce((sum, entry) => sum + (entry.sugar ?? 0), 0) * 10) / 10;
+    const todayFiber = Math.round(todayEntries.reduce((sum, entry) => sum + (entry.fiber ?? 0), 0) * 10) / 10;
+    const todaySodium = Math.round(todayEntries.reduce((sum, entry) => sum + (entry.sodium ?? 0), 0));
+
     return {
-      avgWater: daysWithWater > 0 ? Math.round((totalWater / daysWithWater) * 10) / 10 : 0,
-      avgSugar: daysWithSugar > 0 ? Math.round((totalSugar / daysWithSugar) * 10) / 10 : 0,
-      avgFiber: daysWithFiber > 0 ? Math.round((totalFiber / daysWithFiber) * 10) / 10 : 0,
-      avgSodium: daysWithSodium > 0 ? Math.round(totalSodium / daysWithSodium) : 0,
-      daysWithWater,
-      daysWithSugar,
-      daysWithFiber,
-      daysWithSodium,
-      todayWater: rawWater[formatDateKey(today)] || 0,
-      todaySugar: rawSugar[formatDateKey(today)] || 0,
-      todayFiber: rawFiber[formatDateKey(today)] || 0,
-      todaySodium: rawSodium[formatDateKey(today)] || 0,
+      avgWater: Math.round((totalWater / days) * 10) / 10,
+      avgSugar: Math.round((totalSugar / days) * 10) / 10,
+      avgFiber: Math.round((totalFiber / days) * 10) / 10,
+      avgSodium: Math.round(totalSodium / days),
+      todayWater: rawWater[todayKey] || 0,
+      todaySugar,
+      todayFiber,
+      todaySodium,
     };
-  }, [nutritionRaw, timeRangeDays]);
+  }, [nutritionRaw, foodLog]);
 
   const activityTrend = useMemo(() => {
     const stepsData = exerciseData.stepsData || {};
@@ -1342,7 +1387,7 @@ export default function AnalyticsScreen() {
         name: 'Gula',
         value: microsTrend.todaySugar,
         avg: microsTrend.avgSugar,
-        target: 25,
+        target: sugarTarget,
         unit: 'g',
         color: '#F59E0B',
         isLessBetter: true,
@@ -1351,7 +1396,7 @@ export default function AnalyticsScreen() {
         name: 'Serat',
         value: microsTrend.todayFiber,
         avg: microsTrend.avgFiber,
-        target: 25,
+        target: fiberTarget,
         unit: 'g',
         color: '#22C55E',
         isLessBetter: false,
@@ -1360,7 +1405,7 @@ export default function AnalyticsScreen() {
         name: 'Sodium',
         value: microsTrend.todaySodium,
         avg: microsTrend.avgSodium,
-        target: 2300,
+        target: sodiumTargetMg,
         unit: 'mg',
         color: '#EF4444',
         isLessBetter: true,
@@ -1377,7 +1422,7 @@ export default function AnalyticsScreen() {
             <View>
               <Text style={[styles.chartTitle, { color: theme.text }]}>Mikronutrien</Text>
               <Text style={[styles.chartSubtitle, { color: theme.textSecondary }]}>
-                Rata-rata {timeRange === '7h' ? '7 hari' : timeRange === '30h' ? '30 hari' : '90 hari'} terakhir
+                Rata-rata 7 hari terakhir
               </Text>
             </View>
           </View>
@@ -1426,15 +1471,16 @@ export default function AnalyticsScreen() {
   };
 
   const renderWaterSection = () => {
-    const waterTarget = 8;
-    const waterProgress = waterTarget > 0 ? Math.min((microsTrend.todayWater / waterTarget) * 100, 100) : 0;
+    const waterTarget = waterTargetCups;
+    const averageWater = microsTrend.avgWater;
+    const waterProgress = waterTarget > 0 ? Math.min((averageWater / waterTarget) * 100, 100) : 0;
 
     return (
       <View style={[styles.chartCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
         <View style={styles.chartHeader}>
           <View style={styles.chartTitleRow}>
-            <View style={[styles.chartIconWrap, { backgroundColor: '#06B6D4' + '15' }]}>
-              <Droplets size={18} color="#06B6D4" />
+            <View style={[styles.chartIconWrap, { backgroundColor: theme.primary + '15' }]}>
+              <Droplets size={18} color={theme.primary} />
             </View>
             <View>
               <Text style={[styles.chartTitle, { color: theme.text }]}>Air</Text>
@@ -1447,21 +1493,21 @@ export default function AnalyticsScreen() {
 
         <View style={styles.waterTrendRow}>
           <View style={styles.waterTrendLeft}>
-            <Droplets size={20} color="#06B6D4" />
+            <Droplets size={20} color={theme.primary} />
             <View>
-              <Text style={[styles.waterTrendLabel, { color: theme.text }]}>Air Hari Ini</Text>
+              <Text style={[styles.waterTrendLabel, { color: theme.text }]}>Rata-rata Air</Text>
               <Text style={[styles.waterTrendSub, { color: theme.textSecondary }]}>
                 Rata-rata: {microsTrend.avgWater} gelas/hari
               </Text>
             </View>
           </View>
           <View style={styles.waterTrendRight}>
-            <Text style={[styles.waterTrendValue, { color: '#06B6D4' }]}>{microsTrend.todayWater}</Text>
+            <Text style={[styles.waterTrendValue, { color: theme.primary }]}>{averageWater}</Text>
             <Text style={[styles.waterTrendTarget, { color: theme.textTertiary }]}>/ {waterTarget}</Text>
           </View>
         </View>
         <View style={[styles.waterProgressBg, { backgroundColor: theme.border }]}>
-          <View style={[styles.waterProgressFill, { width: `${waterProgress}%`, backgroundColor: '#06B6D4' }]} />
+          <View style={[styles.waterProgressFill, { width: `${waterProgress}%`, backgroundColor: theme.primary }]} />
         </View>
       </View>
     );
@@ -1487,8 +1533,8 @@ export default function AnalyticsScreen() {
       <View style={[styles.chartCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
         <View style={styles.chartHeader}>
           <View style={styles.chartTitleRow}>
-            <View style={[styles.chartIconWrap, { backgroundColor: '#10B981' + '15' }]}>
-              <Activity size={18} color="#10B981" />
+            <View style={[styles.chartIconWrap, { backgroundColor: theme.primary + '15' }]}>
+              <Activity size={18} color={theme.primary} />
             </View>
             <View>
               <Text style={[styles.chartTitle, { color: theme.text }]}>Aktivitas</Text>
@@ -1501,13 +1547,13 @@ export default function AnalyticsScreen() {
 
         <View style={styles.activityStatsRow}>
           <View style={[styles.activityStatCard, { backgroundColor: theme.background, borderColor: theme.border }]}>
-            <Footprints size={18} color="#10B981" />
+            <Footprints size={18} color={theme.primary} />
             <Text style={[styles.activityStatValue, { color: theme.text }]}>
               {activityTrend.todaySteps.toLocaleString()}
             </Text>
             <Text style={[styles.activityStatLabel, { color: theme.textSecondary }]}>langkah</Text>
             <View style={[styles.activityMiniProgress, { backgroundColor: theme.border }]}>
-              <View style={[styles.activityMiniProgressFill, { width: `${stepsProgress}%`, backgroundColor: '#10B981' }]} />
+              <View style={[styles.activityMiniProgressFill, { width: `${stepsProgress}%`, backgroundColor: theme.primary }]} />
             </View>
           </View>
 
@@ -1528,7 +1574,7 @@ export default function AnalyticsScreen() {
           </View>
 
           <View style={[styles.activityStatCard, { backgroundColor: theme.background, borderColor: theme.border }]}>
-            <Dumbbell size={18} color="#8B5CF6" />
+            <Dumbbell size={18} color={theme.primaryMuted} />
             <Text style={[styles.activityStatValue, { color: theme.text }]}>
               {activityTrend.avgExerciseDuration}
             </Text>
@@ -1547,7 +1593,7 @@ export default function AnalyticsScreen() {
               return (
                 <View key={d.key} style={styles.stepsBarCol}>
                   {d.steps > 0 && (
-                    <Text style={[styles.stepsBarValue, { color: d.isToday ? '#10B981' : theme.textTertiary }]}>
+                    <Text style={[styles.stepsBarValue, { color: d.isToday ? theme.primary : theme.textTertiary }]}>
                       {d.steps >= 1000 ? `${(d.steps / 1000).toFixed(1)}k` : d.steps}
                     </Text>
                   )}
@@ -1556,15 +1602,15 @@ export default function AnalyticsScreen() {
                       styles.stepsBar,
                       {
                         height: Math.max(barH, 4),
-                        backgroundColor: d.isToday ? '#10B981' : '#10B981' + '40',
+                        backgroundColor: d.isToday ? theme.primary : theme.primary + '40',
                       },
-                      d.isToday && { borderWidth: 2, borderColor: '#10B981' },
+                      d.isToday && { borderWidth: 2, borderColor: theme.primary },
                     ]}
                   />
                   <Text
                     style={[
                       styles.stepsDayLabel,
-                      { color: d.isToday ? '#10B981' : theme.textTertiary },
+                      { color: d.isToday ? theme.primary : theme.textTertiary },
                       d.isToday && { fontWeight: '700' as const },
                     ]}
                   >
@@ -1627,7 +1673,7 @@ export default function AnalyticsScreen() {
         </View>
         <View style={styles.bmiScaleWrapper}>
           <View style={styles.bmiScaleBar}>
-            <View style={[styles.bmiSegment, { backgroundColor: '#3B82F6', flex: 14 }]} />
+            <View style={[styles.bmiSegment, { backgroundColor: theme.primaryMuted, flex: 14 }]} />
             <View style={[styles.bmiSegment, { backgroundColor: '#22C55E', flex: 26 }]} />
             <View style={[styles.bmiSegment, { backgroundColor: '#F59E0B', flex: 20 }]} />
             <View style={[styles.bmiSegment, { backgroundColor: '#EF4444', flex: 40 }]} />
@@ -1638,7 +1684,7 @@ export default function AnalyticsScreen() {
         </View>
         <View style={styles.bmiLegendRow}>
           <View style={styles.bmiLegendCol}>
-            <View style={[styles.bmiLegendDot, { backgroundColor: '#3B82F6' }]} />
+            <View style={[styles.bmiLegendDot, { backgroundColor: theme.primaryMuted }]} />
             <Text style={[styles.bmiLegendLabel, { color: theme.textTertiary }]}>Kurus</Text>
             <Text style={[styles.bmiLegendRange, { color: theme.textTertiary }]}>&lt;18.5</Text>
           </View>
@@ -1688,51 +1734,53 @@ export default function AnalyticsScreen() {
     <>
       <Stack.Screen options={{ headerShown: false }} />
       <View style={[styles.container, { backgroundColor: theme.background }]}>
+        <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
+          <Text style={[styles.headerTitle, { color: theme.text }]}>Kemajuan</Text>
+        </View>
+
         <ScrollView 
           style={styles.scrollView} 
-          contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 16 }]}
+          contentContainerStyle={[styles.scrollContent, { paddingTop: 8 }]}
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.header}>
-            <Text style={[styles.headerTitle, { color: theme.text }]}>Kemajuan</Text>
-          </View>
-
           {renderStreakVisualization()}
           {renderWeightSection()}
           {renderBodyProgress()}
           {renderWeightChanges()}
-          {renderCalorieChart()}
-          {renderActivitySection()}
-          {renderWeeklyEnergy()}
+          {false && renderCalorieChart()}
+          {false && renderActivitySection()}
+          {false && renderWeeklyEnergy()}
           {renderExpenditureChanges()}
           {renderMacroChart()}
           {renderMicrosSection()}
           {renderWaterSection()}
           {renderBMICard()}
 
-          <View style={styles.statsGrid}>
-            <View style={[styles.statCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-              <View style={[styles.statIconWrap, { backgroundColor: '#FF6B35' + '15' }]}>
-                <Flame size={18} color="#FF6B35" fill="#FF6B35" />
+          {false && (
+            <View style={styles.statsGrid}>
+              <View style={[styles.statCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                <View style={[styles.statIconWrap, { backgroundColor: '#FF6B35' + '15' }]}>
+                  <Flame size={18} color="#FF6B35" fill="#FF6B35" />
+                </View>
+                <Text style={[styles.statValue, { color: theme.text }]}>{streakData?.currentStreak ?? 0}</Text>
+                <Text style={[styles.statLabel, { color: theme.textSecondary }]}>Streak</Text>
               </View>
-              <Text style={[styles.statValue, { color: theme.text }]}>{streakData?.currentStreak ?? 0}</Text>
-              <Text style={[styles.statLabel, { color: theme.textSecondary }]}>Streak</Text>
-            </View>
-            <View style={[styles.statCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-              <View style={[styles.statIconWrap, { backgroundColor: '#F59E0B' + '15' }]}>
-                <Award size={18} color="#F59E0B" />
+              <View style={[styles.statCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                <View style={[styles.statIconWrap, { backgroundColor: '#F59E0B' + '15' }]}>
+                  <Award size={18} color="#F59E0B" />
+                </View>
+                <Text style={[styles.statValue, { color: theme.text }]}>{streakData?.bestStreak ?? 0}</Text>
+                <Text style={[styles.statLabel, { color: theme.textSecondary }]}>Rekor</Text>
               </View>
-              <Text style={[styles.statValue, { color: theme.text }]}>{streakData?.bestStreak ?? 0}</Text>
-              <Text style={[styles.statLabel, { color: theme.textSecondary }]}>Rekor</Text>
-            </View>
-            <View style={[styles.statCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-              <View style={[styles.statIconWrap, { backgroundColor: theme.primary + '15' }]}>
-                <Calendar size={18} color={theme.primary} />
+              <View style={[styles.statCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                <View style={[styles.statIconWrap, { backgroundColor: theme.primary + '15' }]}>
+                  <Calendar size={18} color={theme.primary} />
+                </View>
+                <Text style={[styles.statValue, { color: theme.text }]}>{stats.daysLogged}</Text>
+                <Text style={[styles.statLabel, { color: theme.textSecondary }]}>Hari</Text>
               </View>
-              <Text style={[styles.statValue, { color: theme.text }]}>{stats.daysLogged}</Text>
-              <Text style={[styles.statLabel, { color: theme.textSecondary }]}>Hari</Text>
             </View>
-          </View>
+          )}
 
           <View style={{ height: 100 }} />
         </ScrollView>
@@ -1785,17 +1833,26 @@ export default function AnalyticsScreen() {
               )}
 
               <Text style={[styles.modalLabel, { color: theme.textSecondary, marginTop: 24 }]}>Tanggal</Text>
-              <TouchableOpacity
-                style={[styles.datePickerButton, { backgroundColor: theme.background, borderColor: theme.border }]}
-                onPress={openCalendarPicker}
-                activeOpacity={0.7}
-              >
+              <View style={[styles.datePickerButton, { backgroundColor: theme.background, borderColor: theme.border }]}>
+                <TouchableOpacity
+                  onPress={() => changeSelectedDateBy(-1)}
+                  activeOpacity={0.7}
+                  style={styles.calendarNavBtn}
+                >
+                  <ChevronLeft size={20} color={theme.textSecondary} />
+                </TouchableOpacity>
                 <Calendar size={20} color={theme.primary} />
                 <Text style={[styles.datePickerButtonText, { color: theme.text }]}>
                   {formatDisplayDate(selectedDate)}
                 </Text>
-                <ChevronRight size={18} color={theme.textTertiary} />
-              </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => changeSelectedDateBy(1)}
+                  activeOpacity={0.7}
+                  style={styles.calendarNavBtn}
+                >
+                  <ChevronRight size={20} color={theme.textSecondary} />
+                </TouchableOpacity>
+              </View>
             </View>
 
             <View style={styles.modalFooter}>
@@ -1807,7 +1864,7 @@ export default function AnalyticsScreen() {
                 <Text style={[styles.cancelButtonText, { color: theme.textSecondary }]}>Batal</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.saveButton, { backgroundColor: '#3B82F6' }]}
+                style={[styles.saveButton, { backgroundColor: theme.primary }]}
                 onPress={logWeight}
                 activeOpacity={0.8}
               >
@@ -1816,70 +1873,6 @@ export default function AnalyticsScreen() {
             </View>
           </View>
         </KeyboardAvoidingView>
-      </Modal>
-
-      <Modal
-        visible={showCalendarPicker}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowCalendarPicker(false)}
-      >
-        <TouchableOpacity
-          style={styles.calendarModalOverlay}
-          activeOpacity={1}
-          onPress={() => setShowCalendarPicker(false)}
-        >
-          <View style={[styles.calendarModalContent, { backgroundColor: theme.card }]}>
-            <TouchableOpacity activeOpacity={1}>
-              <View style={styles.calendarHeader}>
-                <TouchableOpacity onPress={goToPreviousMonth} style={styles.calendarNavBtn}>
-                  <ChevronLeft size={22} color={theme.text} />
-                </TouchableOpacity>
-                <Text style={[styles.calendarMonthText, { color: theme.text }]}>
-                  {getMonthName(calendarMonth.month)} {calendarMonth.year}
-                </Text>
-                <TouchableOpacity 
-                  onPress={goToNextMonth} 
-                  style={[styles.calendarNavBtn, {
-                    opacity: (calendarMonth.year === new Date().getFullYear() && calendarMonth.month >= new Date().getMonth()) ? 0.3 : 1
-                  }]}
-                >
-                  <ChevronRight size={22} color={theme.text} />
-                </TouchableOpacity>
-              </View>
-              
-              <View style={styles.calendarWeekdays}>
-                {['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'].map((day, i) => (
-                  <Text key={i} style={[styles.calendarWeekday, { color: theme.textSecondary }]}>{day}</Text>
-                ))}
-              </View>
-              
-              <View style={styles.calendarGrid}>
-                {getCalendarDays().map((item, index) => (
-                  <TouchableOpacity
-                    key={index}
-                    style={[
-                      styles.calendarDay,
-                      item.isSelected && styles.calendarDaySelected,
-                      item.isToday && !item.isSelected && [styles.calendarDayToday, { borderColor: theme.primary }],
-                    ]}
-                    onPress={() => item.isCurrentMonth && item.isSelectable && selectDateFromCalendar(item.day)}
-                    disabled={!item.isCurrentMonth || !item.isSelectable}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={[
-                      styles.calendarDayText,
-                      { color: item.isCurrentMonth ? (item.isSelectable ? theme.text : theme.textTertiary) : 'transparent' },
-                      item.isSelected && styles.calendarDayTextSelected,
-                    ]}>
-                      {item.day || ''}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
       </Modal>
 
       <Modal
@@ -1900,15 +1893,15 @@ export default function AnalyticsScreen() {
             </View>
             <Text style={[styles.photoModalTitle, { color: theme.text }]}>Foto Kemajuan Tubuh</Text>
             <Text style={[styles.photoModalSubtitle, { color: theme.textSecondary }]}>
-              Dokumentasi perubahan tubuhmu secara berkala
+              Disimpan lokal di perangkat saja (tidak diupload). Jika aplikasi dihapus, foto ikut terhapus.
             </Text>
             <TouchableOpacity
-              style={[styles.photoModalOption, { backgroundColor: '#3B82F6' + '10' }]}
+              style={[styles.photoModalOption, { backgroundColor: theme.primary + '10' }]}
               onPress={takeBodyPhoto}
               activeOpacity={0.7}
             >
-              <View style={[styles.photoModalIconWrap, { backgroundColor: '#3B82F6' + '20' }]}>
-                <Camera size={22} color="#3B82F6" />
+              <View style={[styles.photoModalIconWrap, { backgroundColor: theme.primary + '20' }]}>
+                <Camera size={22} color={theme.primary} />
               </View>
               <View style={styles.photoModalOptionText}>
                 <Text style={[styles.photoModalOptionTitle, { color: theme.text }]}>Ambil Foto</Text>
@@ -1916,12 +1909,12 @@ export default function AnalyticsScreen() {
               </View>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.photoModalOption, { backgroundColor: '#3B82F6' + '10' }]}
+              style={[styles.photoModalOption, { backgroundColor: theme.primary + '10' }]}
               onPress={pickBodyPhoto}
               activeOpacity={0.7}
             >
-              <View style={[styles.photoModalIconWrap, { backgroundColor: '#3B82F6' + '20' }]}>
-                <ImageIcon size={22} color="#3B82F6" />
+              <View style={[styles.photoModalIconWrap, { backgroundColor: theme.primary + '20' }]}>
+                <ImageIcon size={22} color={theme.primary} />
               </View>
               <View style={styles.photoModalOptionText}>
                 <Text style={[styles.photoModalOptionTitle, { color: theme.text }]}>Pilih dari Galeri</Text>
@@ -2000,7 +1993,7 @@ export default function AnalyticsScreen() {
                 <Text style={styles.deleteWeightBtnText}>Hapus</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.saveButton, { backgroundColor: '#3B82F6', flex: 1 }]}
+                style={[styles.saveButton, { backgroundColor: theme.primary, flex: 1 }]}
                 onPress={updateWeight}
                 activeOpacity={0.8}
               >

@@ -16,6 +16,7 @@ export const analyticsStyles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingHorizontal: 20,
     marginBottom: 20,
   },
   headerTitle: {
@@ -669,7 +670,7 @@ export const analyticsStyles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   calendarDay: {
-    width: '14.28%',
+    width: '14.2857%',
     aspectRatio: 1,
     justifyContent: 'center',
     alignItems: 'center',

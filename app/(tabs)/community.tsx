@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -35,6 +35,8 @@ import { FoodPost, MEAL_TYPE_LABELS, CommunityGroup } from '@/types/community';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { communityStyles as styles } from '@/styles/communityStyles';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { supabase } from '@/lib/supabase';
 
 function timeAgo(timestamp: number): string {
   const diff = Date.now() - timestamp;
@@ -136,6 +138,9 @@ const PostCard = React.memo(({ post, onLike, onComment, onDelete, currentUserId,
             </View>
           )}
         </View>
+        {post.photoUri ? (
+          <Image source={{ uri: post.photoUri }} style={styles.postFoodImage} resizeMode="cover" />
+        ) : null}
         <View style={styles.macroRow}>
           <View style={styles.macroItem}>
             <Text style={[styles.macroValue, { color: theme.text }]}>{post.calories}</Text>
@@ -159,29 +164,31 @@ const PostCard = React.memo(({ post, onLike, onComment, onDelete, currentUserId,
         </View>
       </View>
 
-      <View style={styles.postActions}>
-        <TouchableOpacity style={styles.actionBtn} onPress={handleLike} activeOpacity={0.7} testID={`post-like-${post.id}`}>
-          <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
-            <Heart
-              size={19}
-              color={isLiked ? '#E53E3E' : theme.textTertiary}
-              fill={isLiked ? '#E53E3E' : 'transparent'}
-            />
-          </Animated.View>
-          <Text style={[styles.actionCount, { color: isLiked ? '#E53E3E' : theme.textTertiary }]}>
-            {post.likes.length}
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.actionBtn}
-          onPress={() => onComment(post.id)}
-          activeOpacity={0.7}
-          testID={`post-comment-${post.id}`}
-        >
-          <MessageCircle size={19} color={theme.textTertiary} />
-          <Text style={[styles.actionCount, { color: theme.textTertiary }]}>{post.commentCount}</Text>
-        </TouchableOpacity>
-      </View>
+      {false && (
+        <View style={styles.postActions}>
+          <TouchableOpacity style={styles.actionBtn} onPress={handleLike} activeOpacity={0.7} testID={`post-like-${post.id}`}>
+            <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
+              <Heart
+                size={19}
+                color={isLiked ? '#E53E3E' : theme.textTertiary}
+                fill={isLiked ? '#E53E3E' : 'transparent'}
+              />
+            </Animated.View>
+            <Text style={[styles.actionCount, { color: isLiked ? '#E53E3E' : theme.textTertiary }]}>
+              {post.likes.length}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.actionBtn}
+            onPress={() => onComment(post.id)}
+            activeOpacity={0.7}
+            testID={`post-comment-${post.id}`}
+          >
+            <MessageCircle size={19} color={theme.textTertiary} />
+            <Text style={[styles.actionCount, { color: theme.textTertiary }]}>{post.commentCount}</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 });
@@ -190,6 +197,7 @@ type GroupTab = 'feed' | 'chat' | 'leaderboard';
 
 type ChatMessage = {
   id: string;
+  groupId: string;
   userId: string;
   displayName: string;
   avatarColor: string;
@@ -210,7 +218,7 @@ export default function CommunityScreen() {
   const { theme } = useTheme();
   const {
     posts, toggleLike, deletePost, hasProfile, communityProfile,
-    hasJoinedGroup, joinGroup, activeGroup, joinedGroups,
+    hasJoinedGroup, activeGroup, joinedGroups,
     switchActiveGroup, joinedGroupIds,
   } = useCommunity();
   const { authState } = useNutrition();
@@ -219,37 +227,66 @@ export default function CommunityScreen() {
   const [activeTab, setActiveTab] = useState<GroupTab>('feed');
   const [chatInput, setChatInput] = useState('');
   const [showGroupPicker, setShowGroupPicker] = useState(false);
+  const queryClient = useQueryClient();
 
   const currentUserId = communityProfile?.userId || authState.userId || null;
 
-  const chatMessages = useMemo<ChatMessage[]>(() => {
-    if (!activeGroup) return [];
-    const members = activeGroup.members.slice(0, 3);
-    return members.map((m, i) => ({
-      id: `c${i}`,
-      userId: m.userId,
-      displayName: m.userId === currentUserId ? 'Kamu' : m.displayName,
-      avatarColor: m.avatarColor,
-      message: [
-        'Target protein hari ini 120g. Siapa yang sudah tercapai?',
-        'Aku baru 85g, mau tambah snack tinggi protein.',
-        'Ada rekomendasi menu tinggi serat nggak?',
-      ][i % 3],
-      createdAt: Date.now() - 1000 * 60 * (6 - i * 2),
-    }));
-  }, [activeGroup, currentUserId]);
+  const chatMessagesQuery = useQuery({
+    queryKey: ['community_group_messages', activeGroup?.id || 'none'],
+    enabled: !!activeGroup?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('community_group_messages')
+        .select('id, group_id, user_id, message, created_at')
+        .eq('group_id', activeGroup!.id)
+        .order('created_at', { ascending: true });
+      if (error) throw error;
+      const rows = (data || []) as Array<{
+        id: string;
+        group_id: string;
+        user_id: string;
+        message: string;
+        created_at: string;
+      }>;
+      const userIds = Array.from(new Set(rows.map((r) => r.user_id)));
+      const { data: profilesData, error: profilesError } = await supabase
+        .from('community_profiles')
+        .select('user_id, display_name, avatar_color')
+        .in('user_id', userIds.length > 0 ? userIds : ['00000000-0000-0000-0000-000000000000']);
+      if (profilesError) throw profilesError;
+      const profileMap = Object.fromEntries(
+        ((profilesData || []) as Array<{ user_id: string; display_name: string; avatar_color: string }>).map((p) => [p.user_id, p])
+      );
+      return rows.map((r) => ({
+        id: r.id,
+        groupId: r.group_id,
+        userId: r.user_id,
+        displayName: profileMap[r.user_id]?.display_name || 'User',
+        avatarColor: profileMap[r.user_id]?.avatar_color || '#22C55E',
+        message: r.message,
+        createdAt: new Date(r.created_at).getTime(),
+      })) as ChatMessage[];
+    },
+  });
 
-  const leaderboard = useMemo<LeaderEntry[]>(() => {
-    if (!activeGroup) return [];
-    return activeGroup.members.map((m, i) => ({
-      id: `l${i}`,
-      userId: m.userId,
-      displayName: m.displayName,
-      avatarColor: m.avatarColor,
-      streakDays: Math.max(1, 26 - i * 5),
-      caloriesAvg: 1880 + i * 70,
-    }));
-  }, [activeGroup]);
+  const sendChatMutation = useMutation({
+    mutationFn: async (message: string) => {
+      if (!activeGroup?.id || !currentUserId) return;
+      const { error } = await supabase.from('community_group_messages').insert({
+        group_id: activeGroup.id,
+        user_id: currentUserId,
+        message,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['community_group_messages', activeGroup?.id || 'none'] });
+    },
+  });
+
+  const chatMessages = useMemo<ChatMessage[]>(() => {
+    return chatMessagesQuery.data || [];
+  }, [chatMessagesQuery.data]);
 
   const handleCreatePost = useCallback(() => {
     console.log('community:create-post');
@@ -297,32 +334,22 @@ export default function CommunityScreen() {
   const handleRefresh = useCallback(async () => {
     console.log('community:refresh');
     setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 800);
-  }, []);
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['community_posts'] }),
+      queryClient.invalidateQueries({ queryKey: ['community_comments'] }),
+      queryClient.invalidateQueries({ queryKey: ['community_likes'] }),
+      queryClient.invalidateQueries({ queryKey: ['community_group_messages', activeGroup?.id || 'none'] }),
+    ]);
+    setTimeout(() => setRefreshing(false), 400);
+  }, [queryClient, activeGroup?.id]);
 
   const handleSendChat = useCallback(() => {
     console.log('community:send-chat', chatInput);
-    if (!chatInput.trim()) return;
+    if (!chatInput.trim() || !activeGroup) return;
+    sendChatMutation.mutate(chatInput.trim());
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setChatInput('');
-  }, [chatInput]);
-
-  const handleBrowseGroups = useCallback(() => {
-    console.log('community:browse-groups');
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    if (!authState.isSignedIn) {
-      Alert.alert('Masuk Diperlukan', 'Silakan masuk terlebih dahulu.', [
-        { text: 'Batal', style: 'cancel' },
-        { text: 'Masuk', onPress: () => router.push('/sign-in') },
-      ]);
-      return;
-    }
-    if (!hasProfile) {
-      router.push('/setup-community-profile');
-      return;
-    }
-    router.push('/browse-groups');
-  }, [authState.isSignedIn, hasProfile]);
+  }, [chatInput, activeGroup, sendChatMutation]);
 
   const handleCreateGroup = useCallback(() => {
     console.log('community:create-group');
@@ -399,6 +426,11 @@ export default function CommunityScreen() {
 
   const keyExtractor = useCallback((item: FoodPost) => item.id, []);
 
+  const activeGroupPosts = useMemo(() => {
+    if (!activeGroup) return [];
+    return posts.filter(post => post.groupId === activeGroup.id);
+  }, [posts, activeGroup]);
+
   const GroupPickerDropdown = showGroupPicker ? (
     <View style={[styles.groupPickerOverlay]}>
       <TouchableOpacity
@@ -430,19 +462,6 @@ export default function CommunityScreen() {
             )}
           </TouchableOpacity>
         ))}
-        <TouchableOpacity
-          style={[styles.groupPickerItem, { borderColor: theme.border }]}
-          onPress={() => {
-            setShowGroupPicker(false);
-            handleBrowseGroups();
-          }}
-          activeOpacity={0.7}
-        >
-          <View style={[styles.groupPickerAddIcon, { backgroundColor: theme.primary + '12' }]}>
-            <Plus size={16} color={theme.primary} />
-          </View>
-          <Text style={[styles.groupPickerAddText, { color: theme.primary }]}>Gabung Grup Lain</Text>
-        </TouchableOpacity>
       </View>
     </View>
   ) : null;
@@ -453,7 +472,6 @@ export default function CommunityScreen() {
         {([
           { key: 'feed' as const, label: 'Feed' },
           { key: 'chat' as const, label: 'Chat' },
-          { key: 'leaderboard' as const, label: 'Leaderboard' },
         ]).map(tab => {
           const isActive = activeTab === tab.key;
           return (
@@ -469,6 +487,7 @@ export default function CommunityScreen() {
           );
         })}
       </View>
+      <View style={styles.tabUnderlay} />
     </View>
   );
 
@@ -477,7 +496,7 @@ export default function CommunityScreen() {
       <>
         <Stack.Screen options={{ headerShown: false }} />
         <View style={[styles.container, { backgroundColor: theme.background }]}>
-          <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
+          <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
             <Text style={[styles.headerTitle, { color: theme.text }]}>Komunitas</Text>
           </View>
 
@@ -490,20 +509,10 @@ export default function CommunityScreen() {
             </View>
             <Text style={[styles.noGroupTitle, { color: theme.text }]}>Belum Ada Grup</Text>
             <Text style={[styles.noGroupDesc, { color: theme.textSecondary }]}>
-              Bergabung dengan grup untuk berbagi progres makanan, chat, dan bersaing di leaderboard bersama teman-teman.
+              Fitur grup publik sedang dinonaktifkan. Untuk saat ini kamu hanya bisa membuat grup privat.
             </Text>
 
             <View style={styles.noGroupActions}>
-              <TouchableOpacity
-                style={[styles.joinGroupBtn, { backgroundColor: theme.primary }]}
-                onPress={handleBrowseGroups}
-                activeOpacity={0.8}
-                testID="community-join-group"
-              >
-                <Search size={18} color="#FFFFFF" strokeWidth={2.5} />
-                <Text style={styles.joinGroupBtnText}>Cari & Gabung Grup</Text>
-              </TouchableOpacity>
-
               <TouchableOpacity
                 style={[styles.createGroupBtn, { borderColor: theme.border, backgroundColor: theme.card }]}
                 onPress={handleCreateGroup}
@@ -518,9 +527,8 @@ export default function CommunityScreen() {
             <View style={[styles.noGroupFeatures, { backgroundColor: theme.card, borderColor: theme.border }]}>
               <Text style={[styles.featuresTitle, { color: theme.text }]}>Apa yang bisa kamu lakukan</Text>
               {[
-                { icon: <Globe size={16} color={theme.primary} />, text: 'Lihat feed makanan anggota grup' },
+                { icon: <Globe size={16} color={theme.primary} />, text: 'Lihat feed makanan anggota grup privat' },
                 { icon: <MessageCircle size={16} color={theme.primary} />, text: 'Chat dan diskusi nutrisi' },
-                { icon: <Trophy size={16} color={theme.primary} />, text: 'Bersaing di leaderboard streak' },
                 { icon: <UserPlus size={16} color={theme.primary} />, text: 'Undang teman ke grup kamu' },
               ].map((feature, i) => (
                 <View key={i} style={styles.featureRow}>
@@ -542,7 +550,7 @@ export default function CommunityScreen() {
       <Stack.Screen options={{ headerShown: false }} />
 
       <View style={[styles.container, { backgroundColor: theme.background }]}>
-        <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
+        <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
           {joinedGroups.length > 1 ? (
             <TouchableOpacity
               style={styles.groupSwitcher}
@@ -577,9 +585,11 @@ export default function CommunityScreen() {
 
         {GroupPickerDropdown}
 
+        {HeaderContent}
+
         {activeTab === 'feed' ? (
           <FlatList
-            data={posts}
+            data={activeGroupPosts}
             renderItem={renderPost}
             keyExtractor={keyExtractor}
             contentContainerStyle={styles.listContent}
@@ -587,7 +597,6 @@ export default function CommunityScreen() {
             refreshControl={
               <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={theme.primary} />
             }
-            ListHeaderComponent={HeaderContent}
             ListEmptyComponent={
               <View style={styles.emptyState}>
                 <Utensils size={48} color={theme.textTertiary} />
@@ -605,18 +614,13 @@ export default function CommunityScreen() {
             keyExtractor={item => item.id}
             contentContainerStyle={styles.chatContent}
             showsVerticalScrollIndicator={false}
-            ListHeaderComponent={HeaderContent}
-          />
-        ) : null}
-
-        {activeTab === 'leaderboard' ? (
-          <FlatList
-            data={leaderboard}
-            renderItem={renderLeader}
-            keyExtractor={item => item.id}
-            contentContainerStyle={styles.leaderContent}
-            showsVerticalScrollIndicator={false}
-            ListHeaderComponent={HeaderContent}
+            ListEmptyComponent={
+              <View style={styles.emptyState}>
+                <MessageCircle size={48} color={theme.textTertiary} />
+                <Text style={[styles.emptyTitle, { color: theme.text }]}>Belum Ada Chat</Text>
+                <Text style={[styles.emptySubtitle, { color: theme.textSecondary }]}>Mulai percakapan pertama di grup ini.</Text>
+              </View>
+            }
           />
         ) : null}
 

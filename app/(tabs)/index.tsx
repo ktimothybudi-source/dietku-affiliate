@@ -19,18 +19,21 @@ import { indexStyles as styles } from '@/styles/indexStyles';
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const CAROUSEL_CARD_WIDTH = SCREEN_WIDTH - 28;
 const CAROUSEL_GAP = 12;
-const SUGAR_TARGET_G = 25;
-const FIBER_TARGET_G = 25;
-const SODIUM_TARGET_MG = 2300;
 import { Stack, router } from 'expo-router';
-import { Flame, X, Check, Camera, ImageIcon, ChevronLeft, ChevronRight, Calendar, RefreshCw, Trash2, Plus, Bookmark, Clock, Star, Share2, Edit3, PlusCircle, Search as SearchIcon, Droplets, Minus, Footprints, Dumbbell, ChevronRight as ChevronRightIcon, Utensils, Target, TrendingDown, TrendingUp, Zap, MessageSquare, Send } from 'lucide-react-native';
+import { Flame, X, Check, Camera, ImageIcon, ChevronLeft, ChevronRight, RefreshCw, Trash2, Plus, Bookmark, Clock, Star, Share2, Edit3, PlusCircle, Search as SearchIcon, Droplets, Minus, Footprints, Dumbbell, ChevronRight as ChevronRightIcon, Utensils, Target, TrendingDown, TrendingUp, Zap, MessageSquare, Send } from 'lucide-react-native';
 import { useNutrition, useTodayProgress, PendingFoodEntry } from '@/contexts/NutritionContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { FoodEntry, MealAnalysis } from '@/types/nutrition';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { analyzeMealPhoto } from '@/utils/photoAnalysis';
-import { getTodayKey } from '@/utils/nutritionCalculations';
+import {
+  getTodayKey,
+  calculateSugarTargetFromCalories,
+  calculateFiberTargetFromCalories,
+  calculateSodiumTargetMg,
+  calculateWaterTargetCups,
+} from '@/utils/nutritionCalculations';
 import { searchUSDAFoods, USDAFoodItem } from '@/utils/usdaApi';
 import { searchFoods } from '@/lib/foodsApi';
 import { FoodSearchResult } from '@/types/food';
@@ -42,7 +45,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getTimeBasedMessage, getProgressMessage, getCalorieFeedback, MotivationalMessage } from '@/constants/motivationalMessages';
 
 export default function HomeScreen() {
-  const { profile, dailyTargets, todayEntries, todayTotals, addFoodEntry, deleteFoodEntry, isLoading, streakData, selectedDate, setSelectedDate, pendingEntries, confirmPendingEntry, removePendingEntry, retryPendingEntry, favorites, recentMeals, addToFavorites, removeFromFavorites, isFavorite, logFromFavorite, logFromRecent, removeFromRecent, shouldSuggestFavorite, addWaterCup, removeWaterCup, getTodayWaterCups, addSugarUnit, removeSugarUnit, getTodaySugarUnits, addFiberUnit, removeFiberUnit, getTodayFiberUnits, addSodiumUnit, removeSodiumUnit, getTodaySodiumUnits } = useNutrition();
+  const { profile, dailyTargets, todayEntries, todayTotals, addFoodEntry, deleteFoodEntry, isLoading, streakData, selectedDate, setSelectedDate, pendingEntries, confirmPendingEntry, removePendingEntry, retryPendingEntry, favorites, recentMeals, addToFavorites, removeFromFavorites, isFavorite, logFromFavorite, logFromRecent, removeFromRecent, shouldSuggestFavorite, addWaterCup, removeWaterCup, getTodayWaterCups } = useNutrition();
   const { todaySteps, stepsCaloriesBurned, exerciseCaloriesBurned, totalCaloriesBurned, todayExercises, addExercise } = useExercise();
   const { theme } = useTheme();
   const progress = useTodayProgress();
@@ -69,11 +72,6 @@ export default function HomeScreen() {
   const [favoriteToastMessage, setFavoriteToastMessage] = useState('');
   const [showSuggestFavorite, setShowSuggestFavorite] = useState(false);
   const [suggestedMealName, setSuggestedMealName] = useState('');
-  const [showCalendarPicker, setShowCalendarPicker] = useState(false);
-  const [calendarMonth, setCalendarMonth] = useState(() => {
-    const today = new Date();
-    return { year: today.getFullYear(), month: today.getMonth() };
-  });
   const [shownPendingIds, setShownPendingIds] = useState<Set<string>>(new Set());
   const insets = useSafeAreaInsets();
   const [motivationalMessage, setMotivationalMessage] = useState<MotivationalMessage & { isWarning?: boolean; isCelebration?: boolean } | null>(null);
@@ -90,6 +88,9 @@ export default function HomeScreen() {
     protein: number;
     carbs: number;
     fat: number;
+    sugar?: number;
+    fiber?: number;
+    sodium?: number;
   }[]>([]);
   
   const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null);
@@ -253,6 +254,9 @@ export default function HomeScreen() {
         protein: Math.round((item.proteinMin + item.proteinMax) / 2),
         carbs: Math.round((item.carbsMin + item.carbsMax) / 2),
         fat: Math.round((item.fatMin + item.fatMax) / 2),
+        sugar: Math.round((((item.sugarMin ?? 0) + (item.sugarMax ?? 0)) / 2) * 10) / 10,
+        fiber: Math.round((((item.fiberMin ?? 0) + (item.fiberMax ?? 0)) / 2) * 10) / 10,
+        sodium: Math.round(((item.sodiumMin ?? 0) + (item.sodiumMax ?? 0)) / 2),
       }));
       setEditedItems(items);
       setHasEdited(false);
@@ -272,14 +276,24 @@ export default function HomeScreen() {
   };
 
   const isToday = selectedDate === getTodayKey();
+  const minDateKey = useMemo(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - 6);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }, []);
+  const isAtMinDate = selectedDate <= minDateKey;
   
   const goToPreviousDay = () => {
+    if (isAtMinDate) return;
     const [year, month, day] = selectedDate.split('-').map(Number);
     const date = new Date(year, month - 1, day);
     date.setDate(date.getDate() - 1);
     const newDateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-    setSelectedDate(newDateKey);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (newDateKey >= minDateKey) {
+      setSelectedDate(newDateKey);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
   };
 
   const goToNextDay = () => {
@@ -293,76 +307,6 @@ export default function HomeScreen() {
     }
   };
 
-  const goToToday = () => {
-    setSelectedDate(getTodayKey());
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-  };
-
-  const openCalendarPicker = () => {
-    const [year, month] = selectedDate.split('-').map(Number);
-    setCalendarMonth({ year, month: month - 1 });
-    setShowCalendarPicker(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  };
-
-  const selectDateFromCalendar = (day: number) => {
-    const newDateKey = `${calendarMonth.year}-${String(calendarMonth.month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    const todayKey = getTodayKey();
-    if (newDateKey <= todayKey) {
-      setSelectedDate(newDateKey);
-      setShowCalendarPicker(false);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    }
-  };
-
-  const goToPreviousMonth = () => {
-    setCalendarMonth(prev => {
-      if (prev.month === 0) {
-        return { year: prev.year - 1, month: 11 };
-      }
-      return { year: prev.year, month: prev.month - 1 };
-    });
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  };
-
-  const goToNextMonth = () => {
-    const today = new Date();
-    const nextMonth = calendarMonth.month === 11 ? 0 : calendarMonth.month + 1;
-    const nextYear = calendarMonth.month === 11 ? calendarMonth.year + 1 : calendarMonth.year;
-    
-    if (nextYear < today.getFullYear() || (nextYear === today.getFullYear() && nextMonth <= today.getMonth())) {
-      setCalendarMonth({ year: nextYear, month: nextMonth });
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    }
-  };
-
-  const getCalendarDays = () => {
-    const { year, month } = calendarMonth;
-    const firstDay = new Date(year, month, 1).getDay();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const todayKey = getTodayKey();
-    
-    const days: { day: number; isCurrentMonth: boolean; isSelectable: boolean; isSelected: boolean; isToday: boolean }[] = [];
-    
-    for (let i = 0; i < firstDay; i++) {
-      days.push({ day: 0, isCurrentMonth: false, isSelectable: false, isSelected: false, isToday: false });
-    }
-    
-    for (let day = 1; day <= daysInMonth; day++) {
-      const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-      const isSelectable = dateKey <= todayKey;
-      const isSelected = dateKey === selectedDate;
-      const isToday = dateKey === todayKey;
-      days.push({ day, isCurrentMonth: true, isSelectable, isSelected, isToday });
-    }
-    
-    return days;
-  };
-
-  const getMonthName = (month: number) => {
-    const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-    return months[month];
-  };
 
   const handleUSDASearch = useCallback((query: string) => {
     setUsdaSearchQuery(query);
@@ -441,6 +385,32 @@ export default function HomeScreen() {
     const color = score >= 8 ? '#22C55E' : score >= 6 ? '#EAB308' : score >= 4 ? '#F97316' : '#EF4444';
     return { score, message, color };
   }, [progress, dailyTargets, todayTotals, todayEntries.length, getTodayWaterCups, totalCaloriesBurned, todaySteps]);
+
+  const todayMicros = useMemo(() => {
+    const sugar = todayEntries.reduce((sum, entry) => sum + (entry.sugar ?? 0), 0);
+    const fiber = todayEntries.reduce((sum, entry) => sum + (entry.fiber ?? 0), 0);
+    const sodium = todayEntries.reduce((sum, entry) => sum + (entry.sodium ?? 0), 0);
+
+    return {
+      sugar: Math.round(sugar * 10) / 10,
+      fiber: Math.round(fiber * 10) / 10,
+      sodium: Math.round(sodium),
+    };
+  }, [todayEntries]);
+
+  const sugarTarget = useMemo(
+    () => calculateSugarTargetFromCalories(dailyTargets?.calories ?? 2000),
+    [dailyTargets?.calories]
+  );
+  const fiberTarget = useMemo(
+    () => calculateFiberTargetFromCalories(dailyTargets?.calories ?? 2000),
+    [dailyTargets?.calories]
+  );
+  const sodiumTargetMg = useMemo(() => calculateSodiumTargetMg(), []);
+  const waterTarget = useMemo(
+    () => calculateWaterTargetCups(profile?.weight ?? 70),
+    [profile?.weight]
+  );
 
   React.useEffect(() => {
     if (!isLoading && !profile) {
@@ -532,6 +502,12 @@ export default function HomeScreen() {
           carbsMax: item.carbs,
           fatMin: item.fat,
           fatMax: item.fat,
+          sugarMin: item.sugar ?? 0,
+          sugarMax: item.sugar ?? 0,
+          fiberMin: item.fiber ?? 0,
+          fiberMax: item.fiber ?? 0,
+          sodiumMin: item.sodium ?? 0,
+          sodiumMax: item.sodium ?? 0,
         })),
         totalCaloriesMin: entry.calories,
         totalCaloriesMax: entry.calories,
@@ -583,6 +559,9 @@ export default function HomeScreen() {
         protein: Math.round((item.proteinMin + item.proteinMax) / 2),
         carbs: Math.round((item.carbsMin + item.carbsMax) / 2),
         fat: Math.round((item.fatMin + item.fatMax) / 2),
+        sugar: Math.round((((item.sugarMin ?? 0) + (item.sugarMax ?? 0)) / 2) * 10) / 10,
+        fiber: Math.round((((item.fiberMin ?? 0) + (item.fiberMax ?? 0)) / 2) * 10) / 10,
+        sodium: Math.round(((item.sodiumMin ?? 0) + (item.sodiumMax ?? 0)) / 2),
       }));
       setEditedItems(items);
       setHasEdited(false);
@@ -695,7 +674,10 @@ export default function HomeScreen() {
       protein: acc.protein + item.protein,
       carbs: acc.carbs + item.carbs,
       fat: acc.fat + item.fat,
-    }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
+      sugar: acc.sugar + (item.sugar ?? 0),
+      fiber: acc.fiber + (item.fiber ?? 0),
+      sodium: acc.sodium + (item.sodium ?? 0),
+    }), { calories: 0, protein: 0, carbs: 0, fat: 0, sugar: 0, fiber: 0, sodium: 0 });
   };
 
   const handleConfirmEdited = () => {
@@ -711,6 +693,9 @@ export default function HomeScreen() {
         protein: totals.protein,
         carbs: totals.carbs,
         fat: totals.fat,
+        sugar: Math.round(totals.sugar * 10) / 10,
+        fiber: Math.round(totals.fiber * 10) / 10,
+        sodium: Math.round(totals.sodium),
         photoUri: selectedPending.photoUri || undefined,
       });
     } else {
@@ -720,18 +705,11 @@ export default function HomeScreen() {
         protein: totals.protein,
         carbs: totals.carbs,
         fat: totals.fat,
+        sugar: Math.round(totals.sugar * 10) / 10,
+        fiber: Math.round(totals.fiber * 10) / 10,
+        sodium: Math.round(totals.sodium),
         photoUri: selectedPending.photoUri || selectedPending.permanentPhotoUri,
       });
-      
-      if (selectedPending.analysis) {
-        const analysis = selectedPending.analysis;
-        const avgSugar = Math.round(analysis.items.reduce((sum, item) => sum + ((item.sugarMin ?? 0) + (item.sugarMax ?? 0)) / 2, 0));
-        const avgFiber = Math.round(analysis.items.reduce((sum, item) => sum + ((item.fiberMin ?? 0) + (item.fiberMax ?? 0)) / 2, 0));
-        const avgSodium = Math.round(analysis.items.reduce((sum, item) => sum + ((item.sodiumMin ?? 0) + (item.sodiumMax ?? 0)) / 2, 0));
-        if (avgSugar > 0) addSugarUnit(avgSugar);
-        if (avgFiber > 0) addFiberUnit(avgFiber);
-        if (avgSodium > 0) addSodiumUnit(avgSodium);
-      }
       
       removePendingEntry(selectedPending.id);
     }
@@ -935,36 +913,19 @@ export default function HomeScreen() {
           
           <View style={styles.dateNavigation}>
             <TouchableOpacity 
-              style={[styles.dateNavButton, { backgroundColor: theme.card, borderColor: theme.border }]}
+              style={[styles.dateNavButton, { backgroundColor: theme.card, borderColor: theme.border, opacity: isAtMinDate ? 0.5 : 1 }]}
               onPress={goToPreviousDay}
               activeOpacity={0.7}
+              disabled={isAtMinDate}
             >
               <ChevronLeft size={20} color={theme.text} />
             </TouchableOpacity>
             
-            <TouchableOpacity 
-              style={styles.dateCenter}
-              onPress={openCalendarPicker}
-              activeOpacity={0.7}
-            >
+            <View style={styles.dateCenter}>
               <View style={styles.dateTouchable}>
                 <Text style={[styles.dateText, { color: theme.text }]}>{getFormattedDate(selectedDate)}</Text>
-                <Calendar size={16} color={theme.textSecondary} style={{ marginLeft: 6 }} />
               </View>
-              {!isToday && (
-                <TouchableOpacity
-                  style={[styles.todayButton, { backgroundColor: theme.primary }]}
-                  onPress={(e) => {
-                    e.stopPropagation();
-                    goToToday();
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <Calendar size={12} color="#FFFFFF" />
-                  <Text style={styles.todayButtonText}>Hari Ini</Text>
-                </TouchableOpacity>
-              )}
-            </TouchableOpacity>
+            </View>
             
             <TouchableOpacity 
               style={[styles.dateNavButton, { backgroundColor: theme.card, borderColor: theme.border, opacity: isToday ? 0.5 : 1 }]}
@@ -999,6 +960,10 @@ export default function HomeScreen() {
                 const carbsPct = carbsTarget > 0 ? Math.round((todayTotals.carbs / carbsTarget) * 100) : 0;
                 const fatTarget = dailyTargets.fatMax || 70;
                 const fatPct = fatTarget > 0 ? Math.round((todayTotals.fat / fatTarget) * 100) : 0;
+                const caloriesRemainingDisplay = progress
+                  ? Math.round(Math.abs(progress.caloriesRemaining))
+                  : 0;
+
                 return (
                   <View style={styles.carouselPageContainer} onLayout={(e) => {
                     const h = e.nativeEvent.layout.height;
@@ -1014,16 +979,15 @@ export default function HomeScreen() {
                             progress={Math.min((progress?.caloriesProgress || 0), 100)}
                             size={130}
                             strokeWidth={6}
-                            color={(progress?.isOver || false) ? '#C53030' : '#A78BFA'}
+                            color={(progress?.isOver || false) ? '#C53030' : '#22C55E'}
                             backgroundColor={theme.border}
                           >
                             <View style={styles.heroRingContent}>
                               <Flame size={16} color={theme.textTertiary} />
                               <View style={styles.heroCalValueRow}>
                                 <Text style={[styles.heroCalValue, { color: theme.text }]}>
-                                  {todayTotals.calories}
+                                  {caloriesRemainingDisplay}
                                 </Text>
-                                <Text style={[styles.heroCalLabel, { color: theme.text }]}>kalori</Text>
                               </View>
                               <Text style={[styles.heroCalSubLabel, { color: theme.textTertiary }]}>{progress?.isOver ? 'Berlebih' : 'Tersisa'}</Text>
                             </View>
@@ -1038,15 +1002,17 @@ export default function HomeScreen() {
                         </View>
                         <View style={[styles.heroSimpleDivider, { backgroundColor: theme.border }]} />
                         <View style={styles.heroSimpleRow}>
-                          <Text style={[styles.heroSimpleLabel, { color: theme.textSecondary }]}>Makan</Text>
+                          <Text style={[styles.heroSimpleLabel, { color: theme.textSecondary }]}>Termakan</Text>
                           <Text style={[styles.heroSimpleSeparator, { color: theme.textTertiary }]}> · </Text>
                           <Text style={[styles.heroSimpleValue, { color: theme.text }]}>{todayTotals.calories.toLocaleString()}</Text>
                         </View>
-                        <View style={styles.heroSimpleRow}>
-                          <Text style={[styles.heroSimpleLabel, { color: theme.textSecondary }]}>Olahraga</Text>
-                          <Text style={[styles.heroSimpleSeparator, { color: theme.textTertiary }]}> · </Text>
-                          <Text style={[styles.heroSimpleValue, { color: theme.text }]}>{totalCaloriesBurned}</Text>
-                        </View>
+                        {false && (
+                          <View style={styles.heroSimpleRow}>
+                            <Text style={[styles.heroSimpleLabel, { color: theme.textSecondary }]}>Olahraga</Text>
+                            <Text style={[styles.heroSimpleSeparator, { color: theme.textTertiary }]}> · </Text>
+                            <Text style={[styles.heroSimpleValue, { color: theme.text }]}>{totalCaloriesBurned}</Text>
+                          </View>
+                        )}
                       </View>
                     </View>
                     </View>
@@ -1121,12 +1087,12 @@ export default function HomeScreen() {
 
               <View style={[styles.carouselPageContainer, carouselPageHeight > 0 && { height: carouselPageHeight }]}>
                 {(() => {
-                  const currentSugar = getTodaySugarUnits();
-                  const currentFiber = getTodayFiberUnits();
-                  const currentSodium = getTodaySodiumUnits();
-                  const sugarPct = SUGAR_TARGET_G > 0 ? Math.round((currentSugar / SUGAR_TARGET_G) * 100) : 0;
-                  const fiberPct = FIBER_TARGET_G > 0 ? Math.round((currentFiber / FIBER_TARGET_G) * 100) : 0;
-                  const sodiumPct = SODIUM_TARGET_MG > 0 ? Math.round((currentSodium / SODIUM_TARGET_MG) * 100) : 0;
+                  const currentSugar = todayMicros.sugar;
+                  const currentFiber = todayMicros.fiber;
+                  const currentSodium = todayMicros.sodium;
+                  const sugarPct = sugarTarget > 0 ? Math.round((currentSugar / sugarTarget) * 100) : 0;
+                  const fiberPct = fiberTarget > 0 ? Math.round((currentFiber / fiberTarget) * 100) : 0;
+                  const sodiumPct = sodiumTargetMg > 0 ? Math.round((currentSodium / sodiumTargetMg) * 100) : 0;
                   return (
                     <View style={styles.macroCardsRow}>
                       <View style={[styles.macroSeparateCard, styles.separatedCard, { backgroundColor: theme.card }]}>
@@ -1141,7 +1107,7 @@ export default function HomeScreen() {
                         </ProgressRing>
                         <View style={styles.macroCardValues}>
                           <Text style={[styles.macroCardCurrent, { color: theme.text }]}>{currentSugar}</Text>
-                          <Text style={[styles.macroCardTarget, { color: theme.textTertiary }]}>/ {SUGAR_TARGET_G}g</Text>
+                          <Text style={[styles.macroCardTarget, { color: theme.textTertiary }]}>/ {sugarTarget}g</Text>
                         </View>
                         <View style={styles.macroCardFooter}>
                           <Text style={[styles.macroCardName, { color: theme.textSecondary }]}>Gula</Text>
@@ -1162,7 +1128,7 @@ export default function HomeScreen() {
                         </ProgressRing>
                         <View style={styles.macroCardValues}>
                           <Text style={[styles.macroCardCurrent, { color: theme.text }]}>{currentFiber}</Text>
-                          <Text style={[styles.macroCardTarget, { color: theme.textTertiary }]}>/ {FIBER_TARGET_G}g</Text>
+                          <Text style={[styles.macroCardTarget, { color: theme.textTertiary }]}>/ {fiberTarget}g</Text>
                         </View>
                         <View style={styles.macroCardFooter}>
                           <Text style={[styles.macroCardName, { color: theme.textSecondary }]}>Serat</Text>
@@ -1183,7 +1149,7 @@ export default function HomeScreen() {
                         </ProgressRing>
                         <View style={styles.macroCardValues}>
                           <Text style={[styles.macroCardCurrent, { color: theme.text }]}>{currentSodium < 1000 ? currentSodium : (currentSodium / 1000).toFixed(1)}</Text>
-                          <Text style={[styles.macroCardTarget, { color: theme.textTertiary }]}>/ {(SODIUM_TARGET_MG / 1000).toFixed(1)}g</Text>
+                          <Text style={[styles.macroCardTarget, { color: theme.textTertiary }]}>/ {(sodiumTargetMg / 1000).toFixed(1)}g</Text>
                         </View>
                         <View style={styles.macroCardFooter}>
                           <Text style={[styles.macroCardName, { color: theme.textSecondary }]}>Sodium</Text>
@@ -1198,7 +1164,6 @@ export default function HomeScreen() {
                 <View style={[styles.separatedCard, styles.waterCardExpanded, { backgroundColor: theme.card, flex: 1 }]}>
                   {(() => {
                     const currentWater = getTodayWaterCups();
-                    const waterTarget = 8;
                     const waterPct = Math.round((currentWater / waterTarget) * 100);
                     return (
                       <View style={styles.waterCompactExpanded}>
@@ -1252,6 +1217,7 @@ export default function HomeScreen() {
                 </View>
               </View>
 
+              {false && (
               <View style={[styles.carouselPageContainer, carouselPageHeight > 0 && { height: carouselPageHeight }]}>
                 <View style={styles.activitySeparateRow}>
                   <TouchableOpacity
@@ -1298,6 +1264,7 @@ export default function HomeScreen() {
                   </TouchableOpacity>
                 </View>
 
+                {false && (
                 <View style={[styles.separatedCard, { backgroundColor: theme.card, flex: 1 }]}>
                   <View style={styles.exCardHeaderRow}>
                     <Text style={[styles.exCardTitle, { color: theme.text }]}>Catat Aktivitas</Text>
@@ -1454,10 +1421,12 @@ export default function HomeScreen() {
                     )}
                   </View>
                 </View>
+                )}
               </View>
+              )}
             </ScrollView>
             <View style={styles.carouselDots}>
-              {[0, 1, 2].map((i) => (
+              {[0, 1].map((i) => (
                 <View
                   key={i}
                   style={[
@@ -1599,7 +1568,7 @@ export default function HomeScreen() {
           <Plus size={28} color="#FFFFFF" />
         </TouchableOpacity>
 
-        {showMotivationalToast && motivationalMessage && (
+        {false && showMotivationalToast && motivationalMessage && (
           <Animated.View 
             style={[
               styles.motivationalToast,
@@ -1619,70 +1588,6 @@ export default function HomeScreen() {
             </View>
           </Animated.View>
         )}
-
-        <Modal
-          visible={showCalendarPicker}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setShowCalendarPicker(false)}
-        >
-          <TouchableOpacity
-            style={styles.calendarModalOverlay}
-            activeOpacity={1}
-            onPress={() => setShowCalendarPicker(false)}
-          >
-            <View style={[styles.calendarModalContent, { backgroundColor: theme.card }]}>
-              <TouchableOpacity activeOpacity={1}>
-                <View style={styles.calendarHeader}>
-                  <TouchableOpacity onPress={goToPreviousMonth} style={styles.calendarNavBtn}>
-                    <ChevronLeft size={22} color={theme.text} />
-                  </TouchableOpacity>
-                  <Text style={[styles.calendarMonthText, { color: theme.text }]}>
-                    {getMonthName(calendarMonth.month)} {calendarMonth.year}
-                  </Text>
-                  <TouchableOpacity 
-                    onPress={goToNextMonth} 
-                    style={[styles.calendarNavBtn, {
-                      opacity: (calendarMonth.year === new Date().getFullYear() && calendarMonth.month >= new Date().getMonth()) ? 0.3 : 1
-                    }]}
-                  >
-                    <ChevronRight size={22} color={theme.text} />
-                  </TouchableOpacity>
-                </View>
-                
-                <View style={styles.calendarWeekdays}>
-                  {['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'].map((day, i) => (
-                    <Text key={i} style={[styles.calendarWeekday, { color: theme.textSecondary }]}>{day}</Text>
-                  ))}
-                </View>
-                
-                <View style={styles.calendarGrid}>
-                  {getCalendarDays().map((item, index) => (
-                    <TouchableOpacity
-                      key={index}
-                      style={[
-                        styles.calendarDay,
-                        item.isSelected && styles.calendarDaySelected,
-                        item.isToday && !item.isSelected && [styles.calendarDayToday, { borderColor: theme.primary }],
-                      ]}
-                      onPress={() => item.isCurrentMonth && item.isSelectable && selectDateFromCalendar(item.day)}
-                      disabled={!item.isCurrentMonth || !item.isSelectable}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={[
-                        styles.calendarDayText,
-                        { color: item.isCurrentMonth ? (item.isSelectable ? theme.text : theme.textTertiary) : 'transparent' },
-                        item.isSelected && styles.calendarDayTextSelected,
-                      ]}>
-                        {item.day || ''}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </TouchableOpacity>
-            </View>
-          </TouchableOpacity>
-        </Modal>
 
         <Modal
           visible={modalVisible}
@@ -2021,13 +1926,13 @@ export default function HomeScreen() {
                   }
                 }}
               >
-                {selectedPending?.photoUri ? (
+                {selectedPending?.photoUri && selectedPending?.status !== 'done' ? (
                   <Image source={{ uri: selectedPending.photoUri }} style={styles.pendingModalImage} />
-                ) : (
+                ) : selectedPending?.status !== 'done' ? (
                   <View style={[styles.viewEntryImageContainer, { backgroundColor: theme.background }]}>
                     <Camera size={48} color={theme.textTertiary} />
                   </View>
-                )}
+                ) : null}
 
                 {selectedPending?.status === 'analyzing' && (
                   <View style={styles.pendingAnalyzingState}>
@@ -2067,65 +1972,88 @@ export default function HomeScreen() {
                     {(() => {
                       const totals = getEditedTotals();
                       const analysis = selectedPending.analysis;
+                      const avgSugar = Math.round(
+                        analysis.items.reduce(
+                          (sum, item) => sum + ((item.sugarMin ?? 0) + (item.sugarMax ?? 0)) / 2,
+                          0,
+                        ),
+                      );
                       const avgFiber = Math.round(
                         analysis.items.reduce(
-                          (sum, item) => sum + (item.fiberMin + item.fiberMax) / 2,
+                          (sum, item) => sum + ((item.fiberMin ?? 0) + (item.fiberMax ?? 0)) / 2,
                           0,
                         ),
                       );
                       const avgSodium = Math.round(
                         analysis.items.reduce(
-                          (sum, item) => sum + (item.sodiumMin + item.sodiumMax) / 2,
+                          (sum, item) => sum + ((item.sodiumMin ?? 0) + (item.sodiumMax ?? 0)) / 2,
                           0,
                         ),
                       );
                       return (
-                        <View style={[styles.pendingTotalCard, { backgroundColor: theme.background, borderColor: theme.border }]}>
-                          <View style={styles.pendingCaloriesRow}>
-                            <Text style={styles.pendingCaloriesEmoji}>🔥</Text>
-                            <Text style={[styles.pendingCaloriesValue, { color: theme.text }]}>
-                              {totals.calories}
-                            </Text>
-                            <Text style={[styles.pendingCaloriesUnit, { color: theme.textSecondary }]}>kcal</Text>
-                          </View>
-                          <View style={styles.pendingMacros}>
-                            <View style={styles.pendingMacro}>
-                              <Text style={styles.pendingMacroEmoji}>🥩</Text>
-                              <Text style={[styles.pendingMacroValue, { color: theme.text }]}>
-                                {totals.protein}g
-                              </Text>
-                              <Text style={[styles.pendingMacroLabel, { color: theme.textSecondary }]}>Protein</Text>
-                            </View>
-                            <View style={styles.pendingMacro}>
-                              <Text style={styles.pendingMacroEmoji}>🌾</Text>
-                              <Text style={[styles.pendingMacroValue, { color: theme.text }]}>
-                                {totals.carbs}g
-                              </Text>
-                              <Text style={[styles.pendingMacroLabel, { color: theme.textSecondary }]}>Karbo</Text>
-                            </View>
-                            <View style={styles.pendingMacro}>
-                              <Text style={styles.pendingMacroEmoji}>🥑</Text>
-                              <Text style={[styles.pendingMacroValue, { color: theme.text }]}>
-                                {totals.fat}g
-                              </Text>
-                              <Text style={[styles.pendingMacroLabel, { color: theme.textSecondary }]}>Lemak</Text>
+                        <>
+                          <View style={styles.pendingHeroImageWrap}>
+                            {selectedPending?.photoUri ? (
+                              <Image source={{ uri: selectedPending.photoUri }} style={styles.pendingHeroImage} />
+                            ) : (
+                              <View style={[styles.pendingHeroImageFallback, { backgroundColor: theme.card }]}>
+                                <Camera size={36} color={theme.textTertiary} />
+                              </View>
+                            )}
+                            <View style={styles.pendingImageCaloriesBadge}>
+                              <Text style={styles.pendingCaloriesEmoji}>🔥</Text>
+                              <Text style={[styles.pendingImageCaloriesValue, { color: '#FFFFFF' }]}>{totals.calories}</Text>
+                              <Text style={styles.pendingImageCaloriesUnit}>kcal</Text>
                             </View>
                           </View>
-                          <View style={styles.pendingMicrosRow}>
-                            <View style={styles.pendingMicro}>
-                              <Text style={[styles.pendingMicroValue, { color: theme.text }]}>
-                                {avgFiber}g
-                              </Text>
-                              <Text style={[styles.pendingMicroLabel, { color: theme.textSecondary }]}>Serat</Text>
+                          <View style={[styles.pendingTotalCard, { backgroundColor: theme.background, borderColor: theme.border }]}>
+                          <View style={styles.pendingStatsSection}>
+                            <View style={styles.pendingMacros}>
+                              <View style={styles.pendingMacro}>
+                                <Text style={styles.pendingMacroEmoji}>🥩</Text>
+                                <Text style={[styles.pendingMacroValue, { color: theme.text }]}>
+                                  {totals.protein}g
+                                </Text>
+                                <Text style={[styles.pendingMacroLabel, { color: theme.textSecondary }]}>Protein</Text>
+                              </View>
+                              <View style={styles.pendingMacro}>
+                                <Text style={styles.pendingMacroEmoji}>🌾</Text>
+                                <Text style={[styles.pendingMacroValue, { color: theme.text }]}>
+                                  {totals.carbs}g
+                                </Text>
+                                <Text style={[styles.pendingMacroLabel, { color: theme.textSecondary }]}>Karbo</Text>
+                              </View>
+                              <View style={styles.pendingMacro}>
+                                <Text style={styles.pendingMacroEmoji}>🥑</Text>
+                                <Text style={[styles.pendingMacroValue, { color: theme.text }]}>
+                                  {totals.fat}g
+                                </Text>
+                                <Text style={[styles.pendingMacroLabel, { color: theme.textSecondary }]}>Lemak</Text>
+                              </View>
                             </View>
-                            <View style={styles.pendingMicro}>
-                              <Text style={[styles.pendingMicroValue, { color: theme.text }]}>
-                                {avgSodium}mg
-                              </Text>
-                              <Text style={[styles.pendingMicroLabel, { color: theme.textSecondary }]}>Natrium</Text>
+                            <View style={styles.pendingMicrosRow}>
+                              <View style={styles.pendingMicro}>
+                                <Text style={[styles.pendingMicroValue, { color: theme.text }]}>
+                                  {avgSugar}g
+                                </Text>
+                                <Text style={[styles.pendingMicroLabel, { color: theme.textSecondary }]}>Gula</Text>
+                              </View>
+                              <View style={styles.pendingMicro}>
+                                <Text style={[styles.pendingMicroValue, { color: theme.text }]}>
+                                  {avgFiber}g
+                                </Text>
+                                <Text style={[styles.pendingMicroLabel, { color: theme.textSecondary }]}>Serat</Text>
+                              </View>
+                              <View style={styles.pendingMicro}>
+                                <Text style={[styles.pendingMicroValue, { color: theme.text }]}>
+                                  {avgSodium}mg
+                                </Text>
+                                <Text style={[styles.pendingMicroLabel, { color: theme.textSecondary }]}>Natrium</Text>
+                              </View>
                             </View>
                           </View>
-                        </View>
+                          </View>
+                        </>
                       );
                     })()}
 

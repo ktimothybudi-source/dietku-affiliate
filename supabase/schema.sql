@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   protein_target NUMERIC(5,2),
   carbs_target NUMERIC(5,2),
   fat_target NUMERIC(5,2),
+  health_connect_enabled BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -35,6 +36,9 @@ CREATE TABLE IF NOT EXISTS food_entries (
   protein NUMERIC(7,2) NOT NULL DEFAULT 0,
   carbs NUMERIC(7,2) NOT NULL DEFAULT 0,
   fat NUMERIC(7,2) NOT NULL DEFAULT 0,
+  sugar NUMERIC(7,2) NOT NULL DEFAULT 0,
+  fiber NUMERIC(7,2) NOT NULL DEFAULT 0,
+  sodium NUMERIC(9,2) NOT NULL DEFAULT 0,
   photo_uri TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -45,7 +49,8 @@ CREATE TABLE IF NOT EXISTS weight_history (
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   weight NUMERIC(5,2) NOT NULL,
   recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, recorded_at)
 );
 
 -- Food database table (for food search)
@@ -166,6 +171,7 @@ CREATE TABLE IF NOT EXISTS favorites (
   protein NUMERIC(7,2) NOT NULL DEFAULT 0,
   carbs NUMERIC(7,2) NOT NULL DEFAULT 0,
   fat NUMERIC(7,2) NOT NULL DEFAULT 0,
+  log_count INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -178,6 +184,7 @@ CREATE TABLE IF NOT EXISTS recent_meals (
   protein NUMERIC(7,2) NOT NULL DEFAULT 0,
   carbs NUMERIC(7,2) NOT NULL DEFAULT 0,
   fat NUMERIC(7,2) NOT NULL DEFAULT 0,
+  log_count INTEGER NOT NULL DEFAULT 1,
   last_logged_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -203,6 +210,18 @@ CREATE TABLE IF NOT EXISTS micronutrients_tracking (
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(user_id, date)
+);
+
+-- Streaks table (daily logging streak per user)
+CREATE TABLE IF NOT EXISTS streaks (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  current_streak INTEGER NOT NULL DEFAULT 0,
+  best_streak INTEGER NOT NULL DEFAULT 0,
+  last_logged_date DATE,
+  grace_used_week BOOLEAN NOT NULL DEFAULT FALSE,
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id)
 );
 
 -- Create indexes for better query performance

@@ -14,19 +14,8 @@ export async function uploadImageToSupabase(
   userId: string
 ): Promise<string> {
   try {
-    // Read file as base64
-    const base64 = await FileSystem.readAsStringAsync(localUri, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
-
-    // Convert base64 to blob
-    const byteCharacters = atob(base64);
-    const byteNumbers = new Array(byteCharacters.length);
-    for (let i = 0; i < byteCharacters.length; i++) {
-      byteNumbers[i] = byteCharacters.charCodeAt(i);
-    }
-    const byteArray = new Uint8Array(byteNumbers);
-    const blob = new Blob([byteArray], { type: 'image/jpeg' });
+    const response = await fetch(localUri);
+    const blob = await response.blob();
 
     // Generate unique filename
     const filename = `${userId}/${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
@@ -107,15 +96,14 @@ export async function uploadBase64ImageToSupabase(
   try {
     // Remove data URL prefix if present
     const base64Data = base64Image.replace(/^data:image\/\w+;base64,/, '');
-    
-    // Convert base64 to blob
-    const byteCharacters = atob(base64Data);
-    const byteNumbers = new Array(byteCharacters.length);
-    for (let i = 0; i < byteCharacters.length; i++) {
-      byteNumbers[i] = byteCharacters.charCodeAt(i);
-    }
-    const byteArray = new Uint8Array(byteNumbers);
-    const blob = new Blob([byteArray], { type: 'image/jpeg' });
+
+    // Use Expo FileSystem to create a temporary file first, then upload as blob.
+    const tempUri = `${FileSystem.cacheDirectory || FileSystem.documentDirectory || 'file:///'}tmp_${Date.now()}.jpg`;
+    await FileSystem.writeAsStringAsync(tempUri, base64Data, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    const response = await fetch(tempUri);
+    const blob = await response.blob();
 
     // Generate unique filename
     const filename = `${userId}/${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
@@ -140,6 +128,12 @@ export async function uploadBase64ImageToSupabase(
 
     if (!urlData?.publicUrl) {
       throw new Error('Failed to get public URL');
+    }
+
+    try {
+      await FileSystem.deleteAsync(tempUri, { idempotent: true });
+    } catch {
+      // no-op
     }
 
     console.log('Image uploaded successfully:', urlData.publicUrl);

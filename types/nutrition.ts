@@ -22,6 +22,9 @@ export interface FoodEntry {
   protein: number;
   carbs: number;
   fat: number;
+  sugar?: number;
+  fiber?: number;
+  sodium?: number;
   photoUri?: string;
 }
 

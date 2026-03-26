@@ -1,5 +1,4 @@
 import createContextHook from '@nkzw/create-context-hook';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Platform } from 'react-native';
@@ -8,16 +7,7 @@ import { ExerciseEntry, StepsData } from '@/types/exercise';
 import { getTodayKey } from '@/utils/nutritionCalculations';
 import { useNutrition } from '@/contexts/NutritionContext';
 import * as Haptics from 'expo-haptics';
-
-const BASE_EXERCISES_KEY = 'exercise_log';
-const BASE_STEPS_KEY = 'steps_data';
-const HEALTH_CONNECT_KEY = 'health_connect_enabled';
-
-const getStorageKey = (baseKey: string, email: string | null) => {
-  if (!email) return baseKey;
-  const sanitizedEmail = email.replace(/[^a-zA-Z0-9]/g, '_');
-  return `${baseKey}_${sanitizedEmail}`;
-};
+import { supabase } from '@/lib/supabase';
 
 const STEPS_CALORIES_FACTOR = 0.04;
 
@@ -54,31 +44,71 @@ export const [ExerciseProvider, useExercise] = createContextHook(() => {
   }, [healthConnectEnabled]);
 
   const exercisesQuery = useQuery({
-    queryKey: ['exercise_log', authState.email],
+    queryKey: ['exercise_log', authState.userId],
     queryFn: async () => {
-      const key = getStorageKey(BASE_EXERCISES_KEY, authState.email);
-      const stored = await AsyncStorage.getItem(key);
-      return stored ? JSON.parse(stored) : {};
+      if (!authState.userId) return {};
+      const { data, error } = await supabase
+        .from('exercise_entries')
+        .select('*')
+        .eq('user_id', authState.userId)
+        .order('created_at', { ascending: false });
+      if (error) {
+        console.error('Error fetching exercise entries:', error);
+        return {};
+      }
+      const grouped: { [date: string]: ExerciseEntry[] } = {};
+      (data || []).forEach((row: any) => {
+        const dateKey = row.date;
+        if (!grouped[dateKey]) grouped[dateKey] = [];
+        grouped[dateKey].push({
+          id: row.id,
+          type: (row.type === 'describe' || row.type === 'manual') ? row.type : 'manual',
+          name: row.name,
+          caloriesBurned: Number(row.calories_burned || 0),
+          duration: row.duration || undefined,
+          description: row.description || undefined,
+          timestamp: new Date(row.created_at).getTime(),
+          date: row.date,
+        });
+      });
+      return grouped;
     },
-    enabled: authState.isSignedIn,
+    enabled: authState.isSignedIn && !!authState.userId,
   });
 
   const stepsQuery = useQuery({
-    queryKey: ['steps_data', authState.email],
+    queryKey: ['steps_data', authState.userId],
     queryFn: async () => {
-      const key = getStorageKey(BASE_STEPS_KEY, authState.email);
-      const stored = await AsyncStorage.getItem(key);
-      return stored ? JSON.parse(stored) : {};
+      if (!authState.userId) return {};
+      const { data, error } = await supabase
+        .from('steps_data')
+        .select('date, steps')
+        .eq('user_id', authState.userId);
+      if (error) {
+        console.error('Error fetching steps data:', error);
+        return {};
+      }
+      return Object.fromEntries((data || []).map((row: any) => [row.date, Number(row.steps || 0)]));
     },
-    enabled: authState.isSignedIn,
+    enabled: authState.isSignedIn && !!authState.userId,
   });
 
   const healthConnectQuery = useQuery({
-    queryKey: ['health_connect_enabled'],
+    queryKey: ['health_connect_enabled', authState.userId],
     queryFn: async () => {
-      const stored = await AsyncStorage.getItem(HEALTH_CONNECT_KEY);
-      return stored === 'true';
+      if (!authState.userId) return false;
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('health_connect_enabled')
+        .eq('id', authState.userId)
+        .maybeSingle();
+      if (error) {
+        console.error('Error fetching health connect state:', error);
+        return false;
+      }
+      return !!(data as any)?.health_connect_enabled;
     },
+    enabled: authState.isSignedIn && !!authState.userId,
   });
 
   useEffect(() => {
@@ -101,31 +131,65 @@ export const [ExerciseProvider, useExercise] = createContextHook(() => {
 
   const saveExercisesMutation = useMutation({
     mutationFn: async (newExercises: { [date: string]: ExerciseEntry[] }) => {
-      const key = getStorageKey(BASE_EXERCISES_KEY, authState.email);
-      await AsyncStorage.setItem(key, JSON.stringify(newExercises));
+      if (!authState.userId) throw new Error('Not authenticated');
+      const { error: deleteError } = await supabase
+        .from('exercise_entries')
+        .delete()
+        .eq('user_id', authState.userId);
+      if (deleteError) throw deleteError;
+      const payload = Object.entries(newExercises).flatMap(([date, entries]) =>
+        entries.map((e) => ({
+          user_id: authState.userId,
+          date,
+          type: (e.type === 'describe' || e.type === 'manual') ? e.type : 'quick',
+          name: e.name,
+          calories_burned: Math.round(e.caloriesBurned),
+          duration: e.duration || null,
+          description: e.description || null,
+        }))
+      );
+      if (payload.length > 0) {
+        const { error: insertError } = await supabase.from('exercise_entries').insert(payload);
+        if (insertError) throw insertError;
+      }
       return newExercises;
     },
     onSuccess: (data) => {
       setExercises(data);
-      queryClient.setQueryData(['exercise_log', authState.email], data);
+      queryClient.setQueryData(['exercise_log', authState.userId], data);
     },
   });
 
   const saveStepsMutation = useMutation({
     mutationFn: async (newSteps: StepsData) => {
-      const key = getStorageKey(BASE_STEPS_KEY, authState.email);
-      await AsyncStorage.setItem(key, JSON.stringify(newSteps));
+      if (!authState.userId) throw new Error('Not authenticated');
+      const payload = Object.entries(newSteps).map(([date, steps]) => ({
+        user_id: authState.userId,
+        date,
+        steps: Math.max(0, Math.round(steps)),
+      }));
+      if (payload.length > 0) {
+        const { error } = await supabase
+          .from('steps_data')
+          .upsert(payload, { onConflict: 'user_id,date' });
+        if (error) throw error;
+      }
       return newSteps;
     },
     onSuccess: (data) => {
       setStepsData(data);
-      queryClient.setQueryData(['steps_data', authState.email], data);
+      queryClient.setQueryData(['steps_data', authState.userId], data);
     },
   });
 
   const saveHealthConnectMutation = useMutation({
     mutationFn: async (enabled: boolean) => {
-      await AsyncStorage.setItem(HEALTH_CONNECT_KEY, enabled ? 'true' : 'false');
+      if (!authState.userId) throw new Error('Not authenticated');
+      const { error } = await supabase
+        .from('profiles')
+        .update({ health_connect_enabled: enabled })
+        .eq('id', authState.userId);
+      if (error) throw error;
       return enabled;
     },
     onSuccess: (data) => {

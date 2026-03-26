@@ -1,12 +1,11 @@
 import createContextHook from '@nkzw/create-context-hook';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { UserProfile, FoodEntry, DailyTargets, MealAnalysis, FavoriteMeal, RecentMeal } from '@/types/nutrition';
 import { calculateDailyTargets, getTodayKey } from '@/utils/nutritionCalculations';
 import { analyzeMealPhoto } from '@/utils/photoAnalysis';
 import { saveImagePermanently } from '@/utils/imageStorage';
-import { supabase, SupabaseProfile, SupabaseFoodEntry, SupabaseWeightHistory } from '@/lib/supabase';
+import { supabase, SupabaseProfile, SupabaseFoodEntry, SupabaseWeightHistory, SupabaseStreak } from '@/lib/supabase';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { Session } from '@supabase/supabase-js';
@@ -34,20 +33,6 @@ interface AuthState {
   email: string | null;
   userId: string | null;
 }
-
-const BASE_STREAK_KEY = 'nutrition_streak';
-const BASE_FAVORITES_KEY = 'nutrition_favorites';
-const BASE_RECENT_MEALS_KEY = 'nutrition_recent_meals';
-const BASE_WATER_KEY = 'nutrition_water';
-const BASE_SUGAR_KEY = 'nutrition_sugar';
-const BASE_FIBER_KEY = 'nutrition_fiber';
-const BASE_SODIUM_KEY = 'nutrition_sodium';
-
-const getStorageKey = (baseKey: string, email: string | null) => {
-  if (!email) return baseKey;
-  const sanitizedEmail = email.replace(/[^a-zA-Z0-9]/g, '_');
-  return `${baseKey}_${sanitizedEmail}`;
-};
 
 export interface PendingFoodEntry {
   id: string;
@@ -92,6 +77,9 @@ const mapSupabaseFoodEntryToFoodEntry = (sfe: SupabaseFoodEntry): FoodEntry => (
   protein: sfe.protein,
   carbs: sfe.carbs,
   fat: sfe.fat,
+  sugar: sfe.sugar ?? 0,
+  fiber: sfe.fiber ?? 0,
+  sodium: sfe.sodium ?? 0,
   photoUri: sfe.photo_uri || undefined,
 });
 
@@ -209,78 +197,172 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
   });
 
   const streakQuery = useQuery({
-    queryKey: ['nutrition_streak', authState.email],
+    queryKey: ['supabase_streak', authState.userId],
     queryFn: async () => {
-      const key = getStorageKey(BASE_STREAK_KEY, authState.email);
-      const stored = await AsyncStorage.getItem(key);
-      return stored ? JSON.parse(stored) : {
-        currentStreak: 0,
-        bestStreak: 0,
-        lastLoggedDate: '',
-        graceUsedThisWeek: false,
-      };
+      if (!authState.userId) {
+        return {
+          currentStreak: 0,
+          bestStreak: 0,
+          lastLoggedDate: '',
+          graceUsedThisWeek: false,
+        };
+      }
+
+      const { data, error } = await supabase
+        .from('streaks')
+        .select('*')
+        .eq('user_id', authState.userId)
+        .maybeSingle<SupabaseStreak>();
+
+      if (error) {
+        console.error('Error fetching streak from Supabase:', error);
+        return {
+          currentStreak: 0,
+          bestStreak: 0,
+          lastLoggedDate: '',
+          graceUsedThisWeek: false,
+        };
+      }
+
+      if (!data) {
+        return {
+          currentStreak: 0,
+          bestStreak: 0,
+          lastLoggedDate: '',
+          graceUsedThisWeek: false,
+        };
+      }
+
+      return {
+        currentStreak: data.current_streak ?? 0,
+        bestStreak: data.best_streak ?? 0,
+        lastLoggedDate: data.last_logged_date ?? '',
+        graceUsedThisWeek: data.grace_used_week ?? false,
+      } as StreakData;
     },
-    enabled: authState.isSignedIn,
+    enabled: authState.isSignedIn && !!authState.userId,
   });
 
   const favoritesQuery = useQuery({
-    queryKey: ['nutrition_favorites', authState.email],
+    queryKey: ['nutrition_favorites', authState.userId],
     queryFn: async () => {
-      const key = getStorageKey(BASE_FAVORITES_KEY, authState.email);
-      const stored = await AsyncStorage.getItem(key);
-      return stored ? JSON.parse(stored) : [];
+      if (!authState.userId) return [];
+      const { data, error } = await supabase
+        .from('favorites')
+        .select('*')
+        .eq('user_id', authState.userId)
+        .order('created_at', { ascending: false });
+      if (error) {
+        console.error('Error fetching favorites:', error);
+        return [];
+      }
+      return (data || []).map((f: any) => ({
+        id: f.id,
+        name: f.name,
+        calories: Number(f.calories || 0),
+        protein: Number(f.protein || 0),
+        carbs: Number(f.carbs || 0),
+        fat: Number(f.fat || 0),
+        createdAt: new Date(f.created_at).getTime(),
+        logCount: Number(f.log_count || 0),
+      })) as FavoriteMeal[];
     },
-    enabled: authState.isSignedIn,
+    enabled: authState.isSignedIn && !!authState.userId,
   });
 
   const waterQuery = useQuery({
-    queryKey: ['nutrition_water', authState.email],
+    queryKey: ['nutrition_water', authState.userId],
     queryFn: async () => {
-      const key = getStorageKey(BASE_WATER_KEY, authState.email);
-      const stored = await AsyncStorage.getItem(key);
-      return stored ? JSON.parse(stored) : {};
+      if (!authState.userId) return {};
+      const { data, error } = await supabase
+        .from('water_tracking')
+        .select('date, cups')
+        .eq('user_id', authState.userId);
+      if (error) {
+        console.error('Error fetching water tracking:', error);
+        return {};
+      }
+      return Object.fromEntries((data || []).map((r: any) => [r.date, Number(r.cups || 0)]));
     },
-    enabled: authState.isSignedIn,
+    enabled: authState.isSignedIn && !!authState.userId,
   });
 
   const sugarQuery = useQuery({
-    queryKey: ['nutrition_sugar', authState.email],
+    queryKey: ['nutrition_sugar', authState.userId],
     queryFn: async () => {
-      const key = getStorageKey(BASE_SUGAR_KEY, authState.email);
-      const stored = await AsyncStorage.getItem(key);
-      return stored ? JSON.parse(stored) : {};
+      if (!authState.userId) return {};
+      const { data, error } = await supabase
+        .from('micronutrients_tracking')
+        .select('date, sugar_units')
+        .eq('user_id', authState.userId);
+      if (error) {
+        console.error('Error fetching sugar tracking:', error);
+        return {};
+      }
+      return Object.fromEntries((data || []).map((r: any) => [r.date, Number(r.sugar_units || 0)]));
     },
-    enabled: authState.isSignedIn,
+    enabled: authState.isSignedIn && !!authState.userId,
   });
 
   const fiberQuery = useQuery({
-    queryKey: ['nutrition_fiber', authState.email],
+    queryKey: ['nutrition_fiber', authState.userId],
     queryFn: async () => {
-      const key = getStorageKey(BASE_FIBER_KEY, authState.email);
-      const stored = await AsyncStorage.getItem(key);
-      return stored ? JSON.parse(stored) : {};
+      if (!authState.userId) return {};
+      const { data, error } = await supabase
+        .from('micronutrients_tracking')
+        .select('date, fiber_units')
+        .eq('user_id', authState.userId);
+      if (error) {
+        console.error('Error fetching fiber tracking:', error);
+        return {};
+      }
+      return Object.fromEntries((data || []).map((r: any) => [r.date, Number(r.fiber_units || 0)]));
     },
-    enabled: authState.isSignedIn,
+    enabled: authState.isSignedIn && !!authState.userId,
   });
 
   const sodiumQuery = useQuery({
-    queryKey: ['nutrition_sodium', authState.email],
+    queryKey: ['nutrition_sodium', authState.userId],
     queryFn: async () => {
-      const key = getStorageKey(BASE_SODIUM_KEY, authState.email);
-      const stored = await AsyncStorage.getItem(key);
-      return stored ? JSON.parse(stored) : {};
+      if (!authState.userId) return {};
+      const { data, error } = await supabase
+        .from('micronutrients_tracking')
+        .select('date, sodium_units')
+        .eq('user_id', authState.userId);
+      if (error) {
+        console.error('Error fetching sodium tracking:', error);
+        return {};
+      }
+      return Object.fromEntries((data || []).map((r: any) => [r.date, Number(r.sodium_units || 0)]));
     },
-    enabled: authState.isSignedIn,
+    enabled: authState.isSignedIn && !!authState.userId,
   });
 
   const recentMealsQuery = useQuery({
-    queryKey: ['nutrition_recent_meals', authState.email],
+    queryKey: ['nutrition_recent_meals', authState.userId],
     queryFn: async () => {
-      const key = getStorageKey(BASE_RECENT_MEALS_KEY, authState.email);
-      const stored = await AsyncStorage.getItem(key);
-      return stored ? JSON.parse(stored) : [];
+      if (!authState.userId) return [];
+      const { data, error } = await supabase
+        .from('recent_meals')
+        .select('*')
+        .eq('user_id', authState.userId)
+        .order('last_logged_at', { ascending: false });
+      if (error) {
+        console.error('Error fetching recent meals:', error);
+        return [];
+      }
+      return (data || []).map((r: any) => ({
+        id: r.id,
+        name: r.name,
+        calories: Number(r.calories || 0),
+        protein: Number(r.protein || 0),
+        carbs: Number(r.carbs || 0),
+        fat: Number(r.fat || 0),
+        lastLogged: new Date(r.last_logged_at).getTime(),
+        logCount: Number(r.log_count || 1),
+      })) as RecentMeal[];
     },
-    enabled: authState.isSignedIn,
+    enabled: authState.isSignedIn && !!authState.userId,
   });
 
   useEffect(() => {
@@ -295,7 +377,8 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
     if (foodEntriesQuery.data) {
       const grouped: FoodLog = {};
       foodEntriesQuery.data.forEach(entry => {
-        const dateKey = entry.date;
+        const rawDate = entry.date as unknown as string;
+        const dateKey = rawDate.split('T')[0];
         if (!grouped[dateKey]) grouped[dateKey] = [];
         grouped[dateKey].push(mapSupabaseFoodEntryToFoodEntry(entry));
       });
@@ -405,27 +488,29 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
   });
 
   const saveFoodEntryMutation = useMutation({
-    mutationFn: async (entry: Omit<FoodEntry, 'id' | 'timestamp'>) => {
+    mutationFn: async ({ entry, dateKey }: { entry: Omit<FoodEntry, 'id' | 'timestamp'>; dateKey: string }) => {
       if (!authState.userId) {
         console.error('Save food entry failed: Not authenticated, userId:', authState.userId);
         throw new Error('Not authenticated');
       }
       
-      const todayKey = getTodayKey();
       console.log('Saving food entry to Supabase:', {
         userId: authState.userId,
-        date: todayKey,
+        date: dateKey,
         entry: entry,
       });
       
       const insertData = {
         user_id: authState.userId,
-        date: todayKey,
+        date: dateKey,
         food_name: entry.name,
         calories: Math.round(entry.calories || 0),
         protein: Math.round(entry.protein || 0),
         carbs: Math.round(entry.carbs || 0),
         fat: Math.round(entry.fat || 0),
+        sugar: Math.round((entry.sugar || 0) * 10) / 10,
+        fiber: Math.round((entry.fiber || 0) * 10) / 10,
+        sodium: Math.round(entry.sodium || 0),
         photo_uri: entry.photoUri || null,
       };
       
@@ -508,19 +593,86 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
       if (!authState.userId) throw new Error('Not authenticated');
       
       console.log('Saving weight to Supabase:', { dateKey, weight });
-      const { error } = await supabase
+      const recordedAt = new Date(`${dateKey}T00:00:00.000Z`).toISOString();
+      const utcDayStart = recordedAt;
+      const utcNext = new Date(utcDayStart);
+      utcNext.setUTCDate(utcNext.getUTCDate() + 1);
+      const utcDayEnd = utcNext.toISOString();
+
+      const [year, month, day] = dateKey.split('-').map(Number);
+      const localDayStartDate = new Date(year, month - 1, day);
+      localDayStartDate.setHours(0, 0, 0, 0);
+      const localDayStart = localDayStartDate.toISOString();
+      const localDayEndDate = new Date(localDayStartDate);
+      localDayEndDate.setDate(localDayEndDate.getDate() + 1);
+      const localDayEnd = localDayEndDate.toISOString();
+
+      const { data: existingRowsUtc, error: selectUtcError } = await supabase
         .from('weight_history')
-        .upsert({
-          user_id: authState.userId,
-          weight,
-          recorded_at: new Date(dateKey).toISOString(),
-        }, {
-          onConflict: 'user_id,recorded_at',
-        });
-      
-      if (error) {
-        console.error('Error saving weight:', error);
-        throw error;
+        .select('id, recorded_at')
+        .eq('user_id', authState.userId)
+        .gte('recorded_at', utcDayStart)
+        .lt('recorded_at', utcDayEnd);
+
+      if (selectUtcError) {
+        console.error('Error checking existing weight row (UTC window):', selectUtcError);
+        throw selectUtcError;
+      }
+
+      const { data: existingRowsLocal, error: selectLocalError } = await supabase
+        .from('weight_history')
+        .select('id, recorded_at')
+        .eq('user_id', authState.userId)
+        .gte('recorded_at', localDayStart)
+        .lt('recorded_at', localDayEnd);
+
+      if (selectLocalError) {
+        console.error('Error checking existing weight row (local window):', selectLocalError);
+        throw selectLocalError;
+      }
+
+      const merged = [...(existingRowsUtc || []), ...(existingRowsLocal || [])];
+      const uniqueById = Array.from(new Map(merged.map((row: any) => [row.id, row])).values());
+      const existingRow = uniqueById.sort((a: any, b: any) => b.recorded_at.localeCompare(a.recorded_at))[0];
+
+      if (existingRow?.id) {
+        const { error: updateError } = await supabase
+          .from('weight_history')
+          .update({ weight })
+          .eq('id', existingRow.id)
+          .eq('user_id', authState.userId);
+
+        if (updateError) {
+          console.error('Error updating existing weight row:', updateError);
+          throw updateError;
+        }
+
+        if (uniqueById.length > 1) {
+          const duplicateIds = uniqueById.filter((row: any) => row.id !== existingRow.id).map((row: any) => row.id);
+          if (duplicateIds.length > 0) {
+            const { error: deleteDupError } = await supabase
+              .from('weight_history')
+              .delete()
+              .in('id', duplicateIds)
+              .eq('user_id', authState.userId);
+            if (deleteDupError) {
+              console.error('Error deleting duplicate weight rows:', deleteDupError);
+            }
+          }
+        }
+      } else {
+        const { error: insertError } = await supabase
+          .from('weight_history')
+          .insert({
+            user_id: authState.userId,
+            weight,
+            recorded_at: recordedAt,
+          });
+
+        if (insertError) {
+          console.error('Error inserting weight row:', insertError);
+          throw insertError;
+        }
       }
     },
     onSuccess: () => {
@@ -531,13 +683,54 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
   const deleteWeightHistoryMutation = useMutation({
     mutationFn: async (dateKey: string) => {
       if (!authState.userId) throw new Error('Not authenticated');
-      
+      const recordedAt = new Date(`${dateKey}T00:00:00.000Z`).toISOString();
+      const utcDayStart = recordedAt;
+      const utcNext = new Date(utcDayStart);
+      utcNext.setUTCDate(utcNext.getUTCDate() + 1);
+      const utcDayEnd = utcNext.toISOString();
+
+      const [year, month, day] = dateKey.split('-').map(Number);
+      const localDayStartDate = new Date(year, month - 1, day);
+      localDayStartDate.setHours(0, 0, 0, 0);
+      const localDayStart = localDayStartDate.toISOString();
+      const localDayEndDate = new Date(localDayStartDate);
+      localDayEndDate.setDate(localDayEndDate.getDate() + 1);
+      const localDayEnd = localDayEndDate.toISOString();
+
+      const { data: rowsUtc, error: selectUtcError } = await supabase
+        .from('weight_history')
+        .select('id')
+        .eq('user_id', authState.userId)
+        .gte('recorded_at', utcDayStart)
+        .lt('recorded_at', utcDayEnd);
+
+      if (selectUtcError) {
+        console.error('Error selecting weight rows for deletion (UTC):', selectUtcError);
+        throw selectUtcError;
+      }
+
+      const { data: rowsLocal, error: selectLocalError } = await supabase
+        .from('weight_history')
+        .select('id')
+        .eq('user_id', authState.userId)
+        .gte('recorded_at', localDayStart)
+        .lt('recorded_at', localDayEnd);
+
+      if (selectLocalError) {
+        console.error('Error selecting weight rows for deletion (local):', selectLocalError);
+        throw selectLocalError;
+      }
+
+      const mergedRows = [...(rowsUtc || []), ...(rowsLocal || [])];
+      const ids = Array.from(new Set(mergedRows.map((row: any) => row.id)));
+
+      if (ids.length === 0) return;
+
       const { error } = await supabase
         .from('weight_history')
         .delete()
         .eq('user_id', authState.userId)
-        .gte('recorded_at', `${dateKey}T00:00:00`)
-        .lt('recorded_at', `${dateKey}T23:59:59`);
+        .in('id', ids);
       
       if (error) {
         console.error('Error deleting weight:', error);
@@ -551,126 +744,268 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
 
   const saveStreakMutation = useMutation({
     mutationFn: async (newStreak: StreakData) => {
-      const key = getStorageKey(BASE_STREAK_KEY, authState.email);
-      await AsyncStorage.setItem(key, JSON.stringify(newStreak));
+      if (!authState.userId) {
+        throw new Error('Not authenticated');
+      }
+
+      const payload = {
+        user_id: authState.userId,
+        current_streak: newStreak.currentStreak,
+        best_streak: newStreak.bestStreak,
+        last_logged_date: newStreak.lastLoggedDate || null,
+        grace_used_week: newStreak.graceUsedThisWeek,
+        updated_at: new Date().toISOString(),
+      };
+
+      const { data, error } = await supabase
+        .from('streaks')
+        .upsert(payload, {
+          onConflict: 'user_id',
+        })
+        .select()
+        .maybeSingle<SupabaseStreak>();
+
+      if (error) {
+        console.error('Error saving streak to Supabase:', error);
+        throw error;
+      }
+
       return newStreak;
     },
     onSuccess: (data) => {
       setStreakData(data);
-      queryClient.setQueryData(['nutrition_streak', authState.email], data);
+      queryClient.setQueryData(['supabase_streak', authState.userId], data);
     },
   });
 
   const saveFavoritesMutation = useMutation({
     mutationFn: async (newFavorites: FavoriteMeal[]) => {
-      const key = getStorageKey(BASE_FAVORITES_KEY, authState.email);
-      await AsyncStorage.setItem(key, JSON.stringify(newFavorites));
-      return newFavorites;
+      if (!authState.userId) throw new Error('Not authenticated');
+      const { error: deleteError } = await supabase
+        .from('favorites')
+        .delete()
+        .eq('user_id', authState.userId);
+      if (deleteError) throw deleteError;
+      if (newFavorites.length > 0) {
+        const payload = newFavorites.map((f) => ({
+          user_id: authState.userId,
+          name: f.name,
+          calories: f.calories,
+          protein: f.protein,
+          carbs: f.carbs,
+          fat: f.fat,
+          log_count: Math.max(0, Math.round(f.logCount || 0)),
+        }));
+        const { error: insertError } = await supabase.from('favorites').insert(payload);
+        if (insertError) throw insertError;
+      }
+      const { data, error } = await supabase
+        .from('favorites')
+        .select('*')
+        .eq('user_id', authState.userId)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return (data || []).map((f: any) => ({
+        id: f.id,
+        name: f.name,
+        calories: Number(f.calories || 0),
+        protein: Number(f.protein || 0),
+        carbs: Number(f.carbs || 0),
+        fat: Number(f.fat || 0),
+        createdAt: new Date(f.created_at).getTime(),
+        logCount: Number(f.log_count || 0),
+      })) as FavoriteMeal[];
     },
     onSuccess: (data) => {
       setFavorites(data);
-      queryClient.setQueryData(['nutrition_favorites', authState.email], data);
+      queryClient.setQueryData(['nutrition_favorites', authState.userId], data);
     },
   });
 
   const saveWaterMutation = useMutation({
     mutationFn: async (newWater: { [date: string]: number }) => {
-      const key = getStorageKey(BASE_WATER_KEY, authState.email);
-      await AsyncStorage.setItem(key, JSON.stringify(newWater));
+      if (!authState.userId) throw new Error('Not authenticated');
+      const upserts = Object.entries(newWater).map(([date, cups]) => ({
+        user_id: authState.userId,
+        date,
+        cups: Math.max(0, Math.round(cups)),
+      }));
+      if (upserts.length > 0) {
+        const { error } = await supabase
+          .from('water_tracking')
+          .upsert(upserts, { onConflict: 'user_id,date' });
+        if (error) throw error;
+      }
       return newWater;
     },
     onSuccess: (data) => {
       setWaterCups(data);
-      queryClient.setQueryData(['nutrition_water', authState.email], data);
+      queryClient.setQueryData(['nutrition_water', authState.userId], data);
     },
   });
 
   const saveSugarMutation = useMutation({
     mutationFn: async (newData: { [date: string]: number }) => {
-      const key = getStorageKey(BASE_SUGAR_KEY, authState.email);
-      await AsyncStorage.setItem(key, JSON.stringify(newData));
+      if (!authState.userId) throw new Error('Not authenticated');
+      const upserts = Object.entries(newData).map(([date, sugarUnitsValue]) => ({
+        user_id: authState.userId,
+        date,
+        sugar_units: Math.max(0, Number(sugarUnitsValue || 0)),
+      }));
+      if (upserts.length > 0) {
+        const { error } = await supabase
+          .from('micronutrients_tracking')
+          .upsert(upserts, { onConflict: 'user_id,date' });
+        if (error) throw error;
+      }
       return newData;
     },
     onSuccess: (data) => {
       setSugarUnits(data);
-      queryClient.setQueryData(['nutrition_sugar', authState.email], data);
+      queryClient.setQueryData(['nutrition_sugar', authState.userId], data);
     },
   });
 
   const saveFiberMutation = useMutation({
     mutationFn: async (newData: { [date: string]: number }) => {
-      const key = getStorageKey(BASE_FIBER_KEY, authState.email);
-      await AsyncStorage.setItem(key, JSON.stringify(newData));
+      if (!authState.userId) throw new Error('Not authenticated');
+      const upserts = Object.entries(newData).map(([date, fiberUnitsValue]) => ({
+        user_id: authState.userId,
+        date,
+        fiber_units: Math.max(0, Number(fiberUnitsValue || 0)),
+      }));
+      if (upserts.length > 0) {
+        const { error } = await supabase
+          .from('micronutrients_tracking')
+          .upsert(upserts, { onConflict: 'user_id,date' });
+        if (error) throw error;
+      }
       return newData;
     },
     onSuccess: (data) => {
       setFiberUnits(data);
-      queryClient.setQueryData(['nutrition_fiber', authState.email], data);
+      queryClient.setQueryData(['nutrition_fiber', authState.userId], data);
     },
   });
 
   const saveSodiumMutation = useMutation({
     mutationFn: async (newData: { [date: string]: number }) => {
-      const key = getStorageKey(BASE_SODIUM_KEY, authState.email);
-      await AsyncStorage.setItem(key, JSON.stringify(newData));
+      if (!authState.userId) throw new Error('Not authenticated');
+      const upserts = Object.entries(newData).map(([date, sodiumUnitsValue]) => ({
+        user_id: authState.userId,
+        date,
+        sodium_units: Math.max(0, Math.round(Number(sodiumUnitsValue || 0))),
+      }));
+      if (upserts.length > 0) {
+        const { error } = await supabase
+          .from('micronutrients_tracking')
+          .upsert(upserts, { onConflict: 'user_id,date' });
+        if (error) throw error;
+      }
       return newData;
     },
     onSuccess: (data) => {
       setSodiumUnits(data);
-      queryClient.setQueryData(['nutrition_sodium', authState.email], data);
+      queryClient.setQueryData(['nutrition_sodium', authState.userId], data);
     },
   });
 
   const saveRecentMealsMutation = useMutation({
     mutationFn: async (newRecent: RecentMeal[]) => {
-      const key = getStorageKey(BASE_RECENT_MEALS_KEY, authState.email);
-      await AsyncStorage.setItem(key, JSON.stringify(newRecent));
-      return newRecent;
+      if (!authState.userId) throw new Error('Not authenticated');
+      const { error: deleteError } = await supabase
+        .from('recent_meals')
+        .delete()
+        .eq('user_id', authState.userId);
+      if (deleteError) throw deleteError;
+      if (newRecent.length > 0) {
+        const payload = newRecent.slice(0, 50).map((r) => ({
+          user_id: authState.userId,
+          name: r.name,
+          calories: r.calories,
+          protein: r.protein,
+          carbs: r.carbs,
+          fat: r.fat,
+          log_count: Math.max(0, Math.round(r.logCount || 1)),
+          last_logged_at: new Date(r.lastLogged).toISOString(),
+        }));
+        const { error: insertError } = await supabase.from('recent_meals').insert(payload);
+        if (insertError) throw insertError;
+      }
+      const { data, error } = await supabase
+        .from('recent_meals')
+        .select('*')
+        .eq('user_id', authState.userId)
+        .order('last_logged_at', { ascending: false });
+      if (error) throw error;
+      return (data || []).map((r: any) => ({
+        id: r.id,
+        name: r.name,
+        calories: Number(r.calories || 0),
+        protein: Number(r.protein || 0),
+        carbs: Number(r.carbs || 0),
+        fat: Number(r.fat || 0),
+        lastLogged: new Date(r.last_logged_at).getTime(),
+        logCount: Number(r.log_count || 1),
+      })) as RecentMeal[];
     },
     onSuccess: (data) => {
       setRecentMeals(data);
-      queryClient.setQueryData(['nutrition_recent_meals', authState.email], data);
+      queryClient.setQueryData(['nutrition_recent_meals', authState.userId], data);
     },
   });
 
   const updateStreak = (dateKey: string) => {
     const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayKey = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
-    
-    const daysSinceLastLog = streakData.lastLoggedDate ? 
-      Math.floor((today.getTime() - new Date(streakData.lastLoggedDate).getTime()) / (1000 * 60 * 60 * 24)) : 0;
+    const todayKey = getTodayKey();
+
+    // Normalize new log date
+    const [year, month, day] = dateKey.split('-').map(Number);
+    const logDate = new Date(year, month - 1, day);
+    logDate.setHours(0, 0, 0, 0);
 
     let newStreak = { ...streakData };
 
-    if (dateKey === streakData.lastLoggedDate) {
-      return;
-    }
+    // If we've never logged before, start streak at this date (as long as it's not in the future)
+    if (!newStreak.lastLoggedDate) {
+      if (dateKey <= todayKey) {
+        newStreak.currentStreak = 1;
+        newStreak.lastLoggedDate = dateKey;
+      }
+    } else {
+      const lastDateParts = newStreak.lastLoggedDate.split('-').map(Number);
+      const lastLogDate = new Date(lastDateParts[0], lastDateParts[1] - 1, lastDateParts[2]);
+      lastLogDate.setHours(0, 0, 0, 0);
 
-    if (streakData.lastLoggedDate === '') {
-      newStreak.currentStreak = 1;
-      newStreak.lastLoggedDate = dateKey;
-    } else if (streakData.lastLoggedDate === yesterdayKey) {
-      newStreak.currentStreak = streakData.currentStreak + 1;
-      newStreak.lastLoggedDate = dateKey;
-    } else if (daysSinceLastLog === 1) {
-      newStreak.currentStreak = streakData.currentStreak + 1;
-      newStreak.lastLoggedDate = dateKey;
-    } else if (daysSinceLastLog === 2 && !streakData.graceUsedThisWeek) {
-      newStreak.currentStreak = streakData.currentStreak + 1;
-      newStreak.graceUsedThisWeek = true;
-      newStreak.lastLoggedDate = dateKey;
-    } else if (daysSinceLastLog > 1) {
-      newStreak.currentStreak = 1;
-      newStreak.lastLoggedDate = dateKey;
-    }
+      const diffDays = Math.round((logDate.getTime() - lastLogDate.getTime()) / (1000 * 60 * 60 * 24));
 
-    const startOfWeek = new Date(today);
-    startOfWeek.setDate(today.getDate() - today.getDay());
-    const lastLogDate = new Date(streakData.lastLoggedDate);
-    if (lastLogDate < startOfWeek) {
-      newStreak.graceUsedThisWeek = false;
+      // Ignore logs that are before the last logged date (backfilling earlier history)
+      if (diffDays <= 0) {
+        return;
+      }
+
+      if (diffDays === 1) {
+        // Perfect consecutive day, extend streak
+        newStreak.currentStreak = newStreak.currentStreak + 1;
+        newStreak.lastLoggedDate = dateKey;
+      } else if (diffDays === 2 && !newStreak.graceUsedThisWeek) {
+        // One missed day, consume grace and still extend
+        newStreak.currentStreak = newStreak.currentStreak + 1;
+        newStreak.graceUsedThisWeek = true;
+        newStreak.lastLoggedDate = dateKey;
+      } else if (diffDays > 0) {
+        // Bigger gap: start a new streak from this date
+        newStreak.currentStreak = 1;
+        newStreak.lastLoggedDate = dateKey;
+      }
+
+      // Weekly reset of grace flag based on calendar week
+      const startOfWeek = new Date(today);
+      startOfWeek.setHours(0, 0, 0, 0);
+      startOfWeek.setDate(today.getDate() - today.getDay());
+      if (lastLogDate < startOfWeek) {
+        newStreak.graceUsedThisWeek = false;
+      }
     }
 
     if (newStreak.currentStreak > newStreak.bestStreak) {
@@ -705,19 +1040,25 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
       return;
     }
     
-    const todayKey = getTodayKey();
-    saveFoodEntryMutation.mutate(entry);
-    updateStreak(todayKey);
-    updateRecentMeals(entry);
+    const logDateKey = selectedDate || getTodayKey();
+    saveFoodEntryMutation.mutate(
+      { entry, dateKey: logDateKey },
+      {
+        onSuccess: () => {
+          updateStreak(logDateKey);
+          updateRecentMeals(entry);
 
-    if (autoPostToCommunity) {
-      const eventData = {
-        foodEntry: entry,
-        timestamp: Date.now(),
-      };
-      eventEmitter.emit('foodEntryAdded', eventData);
-    }
-  }, [saveFoodEntryMutation, authState]);
+          if (autoPostToCommunity) {
+            const eventData = {
+              foodEntry: entry,
+              timestamp: Date.now(),
+            };
+            eventEmitter.emit('foodEntryAdded', eventData);
+          }
+        },
+      }
+    );
+  }, [saveFoodEntryMutation, authState, selectedDate, updateRecentMeals]);
 
   const updateRecentMeals = (entry: Omit<FoodEntry, 'id' | 'timestamp'>) => {
     const normalizedName = entry.name.toLowerCase().trim();
@@ -970,84 +1311,84 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
   }, [queryClient]);
 
   const addWaterCup = useCallback(() => {
-    const todayKey = getTodayKey();
-    const current = waterCups[todayKey] || 0;
-    const updated = { ...waterCups, [todayKey]: current + 1 };
+    const dateKey = selectedDate || getTodayKey();
+    const current = waterCups[dateKey] || 0;
+    const updated = { ...waterCups, [dateKey]: current + 1 };
     saveWaterMutation.mutate(updated);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  }, [waterCups, saveWaterMutation]);
+  }, [waterCups, saveWaterMutation, selectedDate]);
 
   const removeWaterCup = useCallback(() => {
-    const todayKey = getTodayKey();
-    const current = waterCups[todayKey] || 0;
+    const dateKey = selectedDate || getTodayKey();
+    const current = waterCups[dateKey] || 0;
     if (current <= 0) return;
-    const updated = { ...waterCups, [todayKey]: current - 1 };
+    const updated = { ...waterCups, [dateKey]: current - 1 };
     saveWaterMutation.mutate(updated);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  }, [waterCups, saveWaterMutation]);
+  }, [waterCups, saveWaterMutation, selectedDate]);
 
   const getTodayWaterCups = useCallback(() => {
     return waterCups[selectedDate] || 0;
   }, [waterCups, selectedDate]);
 
   const addSugarUnit = useCallback((amount: number = 1) => {
-    const todayKey = getTodayKey();
-    const current = sugarUnits[todayKey] || 0;
-    const updated = { ...sugarUnits, [todayKey]: Math.round((current + amount) * 10) / 10 };
+    const dateKey = selectedDate || getTodayKey();
+    const current = sugarUnits[dateKey] || 0;
+    const updated = { ...sugarUnits, [dateKey]: Math.round((current + amount) * 10) / 10 };
     saveSugarMutation.mutate(updated);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  }, [sugarUnits, saveSugarMutation]);
+  }, [sugarUnits, saveSugarMutation, selectedDate]);
 
   const removeSugarUnit = useCallback(() => {
-    const todayKey = getTodayKey();
-    const current = sugarUnits[todayKey] || 0;
+    const dateKey = selectedDate || getTodayKey();
+    const current = sugarUnits[dateKey] || 0;
     if (current <= 0) return;
-    const updated = { ...sugarUnits, [todayKey]: current - 1 };
+    const updated = { ...sugarUnits, [dateKey]: current - 1 };
     saveSugarMutation.mutate(updated);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  }, [sugarUnits, saveSugarMutation]);
+  }, [sugarUnits, saveSugarMutation, selectedDate]);
 
   const getTodaySugarUnits = useCallback(() => {
     return sugarUnits[selectedDate] || 0;
   }, [sugarUnits, selectedDate]);
 
   const addFiberUnit = useCallback((amount: number = 1) => {
-    const todayKey = getTodayKey();
-    const current = fiberUnits[todayKey] || 0;
-    const updated = { ...fiberUnits, [todayKey]: Math.round((current + amount) * 10) / 10 };
+    const dateKey = selectedDate || getTodayKey();
+    const current = fiberUnits[dateKey] || 0;
+    const updated = { ...fiberUnits, [dateKey]: Math.round((current + amount) * 10) / 10 };
     saveFiberMutation.mutate(updated);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  }, [fiberUnits, saveFiberMutation]);
+  }, [fiberUnits, saveFiberMutation, selectedDate]);
 
   const removeFiberUnit = useCallback(() => {
-    const todayKey = getTodayKey();
-    const current = fiberUnits[todayKey] || 0;
+    const dateKey = selectedDate || getTodayKey();
+    const current = fiberUnits[dateKey] || 0;
     if (current <= 0) return;
-    const updated = { ...fiberUnits, [todayKey]: current - 1 };
+    const updated = { ...fiberUnits, [dateKey]: current - 1 };
     saveFiberMutation.mutate(updated);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  }, [fiberUnits, saveFiberMutation]);
+  }, [fiberUnits, saveFiberMutation, selectedDate]);
 
   const getTodayFiberUnits = useCallback(() => {
     return fiberUnits[selectedDate] || 0;
   }, [fiberUnits, selectedDate]);
 
   const addSodiumUnit = useCallback((amount: number = 1) => {
-    const todayKey = getTodayKey();
-    const current = sodiumUnits[todayKey] || 0;
-    const updated = { ...sodiumUnits, [todayKey]: Math.round(current + amount) };
+    const dateKey = selectedDate || getTodayKey();
+    const current = sodiumUnits[dateKey] || 0;
+    const updated = { ...sodiumUnits, [dateKey]: Math.round(current + amount) };
     saveSodiumMutation.mutate(updated);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  }, [sodiumUnits, saveSodiumMutation]);
+  }, [sodiumUnits, saveSodiumMutation, selectedDate]);
 
   const removeSodiumUnit = useCallback(() => {
-    const todayKey = getTodayKey();
-    const current = sodiumUnits[todayKey] || 0;
+    const dateKey = selectedDate || getTodayKey();
+    const current = sodiumUnits[dateKey] || 0;
     if (current <= 0) return;
-    const updated = { ...sodiumUnits, [todayKey]: current - 1 };
+    const updated = { ...sodiumUnits, [dateKey]: current - 1 };
     saveSodiumMutation.mutate(updated);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  }, [sodiumUnits, saveSodiumMutation]);
+  }, [sodiumUnits, saveSodiumMutation, selectedDate]);
 
   const getTodaySodiumUnits = useCallback(() => {
     return sodiumUnits[selectedDate] || 0;
@@ -1063,7 +1404,12 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
     console.log('Adding weight entry:', { dateKey, weight });
     saveWeightHistoryMutation.mutate({ dateKey, weight });
     
-    if (profile) {
+    const latestDateKey = weightHistory.length > 0
+      ? [...weightHistory].sort((a, b) => a.date.localeCompare(b.date))[weightHistory.length - 1].date
+      : null;
+    const shouldAffectCurrentWeight = !latestDateKey || dateKey >= latestDateKey;
+
+    if (profile && shouldAffectCurrentWeight) {
       const updatedProfile = { ...profile, weight };
       saveProfileMutation.mutate(updatedProfile);
     }
@@ -1073,10 +1419,7 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
     console.log('Updating weight entry:', { dateKey, newWeight });
     saveWeightHistoryMutation.mutate({ dateKey, weight: newWeight });
     
-    const sortedHistory = [...weightHistory].sort(
-      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-    );
-    const latestEntry = sortedHistory[0];
+    const latestEntry = [...weightHistory].sort((a, b) => b.date.localeCompare(a.date))[0];
     
     if (profile && latestEntry && latestEntry.date === dateKey) {
       const updatedProfile = { ...profile, weight: newWeight };
@@ -1312,15 +1655,19 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
     addWaterCup,
     removeWaterCup,
     getTodayWaterCups,
+    waterCups,
     addSugarUnit,
     removeSugarUnit,
     getTodaySugarUnits,
+    sugarUnits,
     addFiberUnit,
     removeFiberUnit,
     getTodayFiberUnits,
+    fiberUnits,
     addSodiumUnit,
     removeSodiumUnit,
     getTodaySodiumUnits,
+    sodiumUnits,
     addWeightEntry,
     authState,
     signIn,

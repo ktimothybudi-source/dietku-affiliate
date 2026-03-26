@@ -9,7 +9,7 @@ export const communityStyles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingBottom: 14,
+    paddingBottom: 6,
     zIndex: 10,
   },
   headerTitle: {
@@ -101,7 +101,7 @@ export const communityStyles = StyleSheet.create({
     fontWeight: '600' as const,
   },
   headerContent: {
-    paddingTop: 12,
+    paddingTop: 4,
   },
   groupCard: {
     marginHorizontal: 16,
@@ -147,8 +147,17 @@ export const communityStyles = StyleSheet.create({
   tabRow: {
     flexDirection: 'row',
     marginHorizontal: 16,
-    marginTop: 14,
+    marginTop: 6,
     gap: 8,
+  },
+  tabUnderlay: {
+    height: 8,
+    marginHorizontal: 16,
+    marginTop: 4,
+    marginBottom: 2,
+    borderRadius: 6,
+    backgroundColor: '#000000',
+    opacity: 0.2,
   },
   tabButton: {
     flex: 1,
@@ -237,6 +246,12 @@ export const communityStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    marginBottom: 12,
+  },
+  postFoodImage: {
+    width: '100%',
+    height: 170,
+    borderRadius: 10,
     marginBottom: 12,
   },
   foodName: {

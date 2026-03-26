@@ -126,7 +126,7 @@ export const storyShareStyles = StyleSheet.create({
   },
   trackedByBrand: {
     fontWeight: '700' as const,
-    color: '#6C63FF',
+    color: '#22C55E',
   },
   previewCaloriesUnit: {
     fontSize: 24,
@@ -173,12 +173,12 @@ export const storyShareStyles = StyleSheet.create({
   },
   nameEditInput: {
     fontSize: 13,
-    color: '#6C63FF',
+    color: '#22C55E',
     marginTop: 2,
     paddingVertical: 4,
     paddingHorizontal: 0,
     borderBottomWidth: 1,
-    borderBottomColor: '#6C63FF',
+    borderBottomColor: '#22C55E',
   },
   nameEditTouchable: {
     flexDirection: 'row',
@@ -247,8 +247,8 @@ export const storyShareStyles = StyleSheet.create({
     justifyContent: 'center',
   },
   toggleCheckActive: {
-    backgroundColor: '#6C63FF',
-    borderColor: '#6C63FF',
+    backgroundColor: '#22C55E',
+    borderColor: '#22C55E',
   },
   watermarkRow: {
     flexDirection: 'row',
@@ -384,7 +384,7 @@ export const storyShareStyles = StyleSheet.create({
   addLocationBtn: {
     fontSize: 15,
     fontWeight: '600' as const,
-    color: '#6C63FF',
+    color: '#22C55E',
     paddingHorizontal: 12,
   },
   presetsTitle: {

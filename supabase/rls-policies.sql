@@ -17,6 +17,7 @@ ALTER TABLE favorites ENABLE ROW LEVEL SECURITY;
 ALTER TABLE recent_meals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE water_tracking ENABLE ROW LEVEL SECURITY;
 ALTER TABLE micronutrients_tracking ENABLE ROW LEVEL SECURITY;
+ALTER TABLE streaks ENABLE ROW LEVEL SECURITY;
 
 -- Food table is public read-only
 ALTER TABLE food ENABLE ROW LEVEL SECURITY;
@@ -295,4 +296,17 @@ CREATE POLICY "Users can update their own micronutrients tracking"
 
 CREATE POLICY "Users can delete their own micronutrients tracking"
   ON micronutrients_tracking FOR DELETE
+  USING (auth.uid() = user_id);
+
+-- Streaks policies
+CREATE POLICY "Users can view their own streak"
+  ON streaks FOR SELECT
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert their own streak"
+  ON streaks FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update their own streak"
+  ON streaks FOR UPDATE
   USING (auth.uid() = user_id);

@@ -1,372 +1,501 @@
 import createContextHook from '@nkzw/create-context-hook';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { CommunityProfile, FoodPost, PostComment, CommunityGroup, GroupMember, AVATAR_COLORS, generateInviteCode } from '@/types/community';
-import { MOCK_POSTS, MOCK_COMMENTS, MOCK_GROUPS } from '@/mocks/communityPosts';
+import { CommunityProfile, FoodPost, PostComment, CommunityGroup, GroupMember, generateInviteCode } from '@/types/community';
 import { useNutrition } from '@/contexts/NutritionContext';
 import { FoodEntry } from '@/types/nutrition';
 import { eventEmitter } from '@/utils/eventEmitter';
+import { supabase } from '@/lib/supabase';
+import { uploadImageToSupabase, deleteImageFromSupabase } from '@/utils/supabaseStorage';
 
-const COMMUNITY_PROFILE_KEY = 'community_profile';
-const COMMUNITY_POSTS_KEY = 'community_posts';
-const COMMUNITY_COMMENTS_KEY = 'community_comments';
-const USER_GROUPS_KEY = 'community_user_groups';
-const ACTIVE_GROUP_KEY = 'community_active_group';
-const CUSTOM_GROUPS_KEY = 'community_custom_groups';
+const COMMUNITY_POST_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+type DbProfile = {
+  user_id: string;
+  username: string;
+  display_name: string;
+  avatar_color: string;
+  bio: string | null;
+  created_at: string;
+};
+
+type DbGroup = {
+  id: string;
+  name: string;
+  description: string | null;
+  cover_image: string | null;
+  invite_code: string;
+  created_by: string;
+  privacy: 'private' | 'public';
+  created_at: string;
+};
+
+type DbGroupMember = {
+  group_id: string;
+  user_id: string;
+  role: 'admin' | 'member';
+  joined_at: string;
+};
+
+type DbPost = {
+  id: string;
+  user_id: string;
+  group_id: string;
+  caption: string | null;
+  meal_type: 'breakfast' | 'lunch' | 'dinner' | 'snack' | null;
+  food_name: string;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  photo_uri: string | null;
+  created_at: string;
+};
+
+type DbLike = {
+  post_id: string;
+  user_id: string;
+};
+
+type DbComment = {
+  id: string;
+  post_id: string;
+  user_id: string;
+  content: string;
+  created_at: string;
+};
+
+const toTs = (iso: string | null | undefined) => (iso ? new Date(iso).getTime() : Date.now());
+const isRemoteImage = (uri?: string | null) => !!uri && /^https?:\/\//i.test(uri);
 
 export const [CommunityProvider, useCommunity] = createContextHook(() => {
   const queryClient = useQueryClient();
-  const { authState, profile } = useNutrition();
-
-  const [communityProfile, setCommunityProfile] = useState<CommunityProfile | null>(null);
-  const [posts, setPosts] = useState<FoodPost[]>([]);
-  const [comments, setComments] = useState<PostComment[]>([]);
-  const [joinedGroupIds, setJoinedGroupIds] = useState<string[]>([]);
+  const { authState } = useNutrition();
+  const userId = authState.userId;
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
-  const [allGroups, setAllGroups] = useState<CommunityGroup[]>([...MOCK_GROUPS]);
-
-  const joinedGroupIdsQuery = useQuery({
-    queryKey: ['community_user_groups'],
-    queryFn: async () => {
-      const stored = await AsyncStorage.getItem(USER_GROUPS_KEY);
-      console.log('Community joined groups:', stored);
-      return stored ? JSON.parse(stored) as string[] : [];
-    },
-  });
-
-  const activeGroupQuery = useQuery({
-    queryKey: ['community_active_group'],
-    queryFn: async () => {
-      const stored = await AsyncStorage.getItem(ACTIVE_GROUP_KEY);
-      console.log('Community active group:', stored);
-      return stored || null;
-    },
-  });
-
-  const customGroupsQuery = useQuery({
-    queryKey: ['community_custom_groups'],
-    queryFn: async () => {
-      const stored = await AsyncStorage.getItem(CUSTOM_GROUPS_KEY);
-      console.log('Community custom groups:', stored);
-      return stored ? JSON.parse(stored) as CommunityGroup[] : [];
-    },
-  });
-
-  useEffect(() => {
-    if (joinedGroupIdsQuery.data !== undefined) {
-      setJoinedGroupIds(joinedGroupIdsQuery.data);
-    }
-  }, [joinedGroupIdsQuery.data]);
-
-  useEffect(() => {
-    if (activeGroupQuery.data !== undefined) {
-      setActiveGroupId(activeGroupQuery.data);
-    }
-  }, [activeGroupQuery.data]);
-
-  useEffect(() => {
-    if (customGroupsQuery.data) {
-      const merged = [...MOCK_GROUPS];
-      for (const cg of customGroupsQuery.data) {
-        if (!merged.find(g => g.id === cg.id)) {
-          merged.push(cg);
-        }
-      }
-      setAllGroups(merged);
-    }
-  }, [customGroupsQuery.data]);
 
   const profileQuery = useQuery({
-    queryKey: ['community_profile', authState.email],
+    queryKey: ['community_profile', userId],
+    enabled: !!userId,
     queryFn: async () => {
-      if (!authState.email) return null;
-      const key = `${COMMUNITY_PROFILE_KEY}_${authState.email.replace(/[^a-zA-Z0-9]/g, '_')}`;
-      const stored = await AsyncStorage.getItem(key);
-      if (stored) {
-        console.log('Community profile loaded:', stored);
-        return JSON.parse(stored) as CommunityProfile;
-      }
-      return null;
-    },
-    enabled: !!authState.email,
-  });
-
-  const postsQuery = useQuery({
-    queryKey: ['community_posts'],
-    queryFn: async () => {
-      const stored = await AsyncStorage.getItem(COMMUNITY_POSTS_KEY);
-      if (stored) {
-        const userPosts = JSON.parse(stored) as FoodPost[];
-        console.log('Loaded user posts:', userPosts.length);
-        return userPosts;
-      }
-      return [];
+      const { data, error } = await supabase
+        .from('community_profiles')
+        .select('user_id, username, display_name, avatar_color, bio, created_at')
+        .eq('user_id', userId!)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) return null;
+      const row = data as unknown as DbProfile;
+      const mapped: CommunityProfile = {
+        userId: row.user_id,
+        username: row.username,
+        displayName: row.display_name,
+        avatarColor: row.avatar_color,
+        bio: row.bio ?? undefined,
+        joinedAt: toTs(row.created_at),
+      };
+      return mapped;
     },
   });
 
-  const commentsQuery = useQuery({
-    queryKey: ['community_comments'],
+  const membershipsQuery = useQuery({
+    queryKey: ['community_memberships', userId],
+    enabled: !!userId,
     queryFn: async () => {
-      const stored = await AsyncStorage.getItem(COMMUNITY_COMMENTS_KEY);
-      if (stored) {
-        const userComments = JSON.parse(stored) as PostComment[];
-        console.log('Loaded user comments:', userComments.length);
-        return userComments;
-      }
-      return [];
+      const { data, error } = await supabase
+        .from('community_group_members')
+        .select('group_id, user_id, role, joined_at')
+        .eq('user_id', userId!);
+      if (error) throw error;
+      return (data || []) as unknown as DbGroupMember[];
     },
   });
+
+  const joinedGroupIds = useMemo(
+    () => (membershipsQuery.data || []).map((m) => m.group_id),
+    [membershipsQuery.data]
+  );
+
+  const groupsQuery = useQuery({
+    queryKey: ['community_groups_joined', joinedGroupIds.join('|')],
+    enabled: joinedGroupIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('community_groups')
+        .select('id, name, description, cover_image, invite_code, created_by, privacy, created_at')
+        .in('id', joinedGroupIds);
+      if (error) throw error;
+      return (data || []) as unknown as DbGroup[];
+    },
+  });
+
+  const groupMembersQuery = useQuery({
+    queryKey: ['community_group_members_all', joinedGroupIds.join('|')],
+    enabled: joinedGroupIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('community_group_members')
+        .select('group_id, user_id, role, joined_at')
+        .in('group_id', joinedGroupIds);
+      if (error) throw error;
+      const members = (data || []) as unknown as DbGroupMember[];
+      const profileIds = Array.from(new Set(members.map((m) => m.user_id)));
+      let profileMap: Record<string, DbProfile> = {};
+      if (profileIds.length > 0) {
+        const { data: profilesData, error: profilesError } = await supabase
+          .from('community_profiles')
+          .select('user_id, username, display_name, avatar_color, bio, created_at')
+          .in('user_id', profileIds);
+        if (profilesError) throw profilesError;
+        profileMap = Object.fromEntries(
+          ((profilesData || []) as unknown as DbProfile[]).map((p) => [p.user_id, p])
+        );
+      }
+      return { members, profileMap };
+    },
+  });
+
+  const postsRawQuery = useQuery({
+    queryKey: ['community_posts', joinedGroupIds.join('|')],
+    enabled: joinedGroupIds.length > 0,
+    queryFn: async () => {
+      const oldestIso = new Date(Date.now() - COMMUNITY_POST_TTL_MS).toISOString();
+      const { data, error } = await supabase
+        .from('community_posts')
+        .select('id, user_id, group_id, caption, meal_type, food_name, calories, protein, carbs, fat, photo_uri, created_at')
+        .in('group_id', joinedGroupIds)
+        .gte('created_at', oldestIso)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return (data || []) as unknown as DbPost[];
+    },
+  });
+
+  const likesQuery = useQuery({
+    queryKey: ['community_likes', (postsRawQuery.data || []).map((p) => p.id).join('|')],
+    enabled: (postsRawQuery.data || []).length > 0,
+    queryFn: async () => {
+      const postIds = (postsRawQuery.data || []).map((p) => p.id);
+      const { data, error } = await supabase
+        .from('community_post_likes')
+        .select('post_id, user_id')
+        .in('post_id', postIds);
+      if (error) throw error;
+      return (data || []) as unknown as DbLike[];
+    },
+  });
+
+  const commentsRawQuery = useQuery({
+    queryKey: ['community_comments', (postsRawQuery.data || []).map((p) => p.id).join('|')],
+    enabled: (postsRawQuery.data || []).length > 0,
+    queryFn: async () => {
+      const postIds = (postsRawQuery.data || []).map((p) => p.id);
+      const { data, error } = await supabase
+        .from('community_comments')
+        .select('id, post_id, user_id, content, created_at')
+        .in('post_id', postIds)
+        .order('created_at', { ascending: true });
+      if (error) throw error;
+      const rows = (data || []) as unknown as DbComment[];
+      const userIds = Array.from(new Set(rows.map((c) => c.user_id)));
+      let profileMap: Record<string, DbProfile> = {};
+      if (userIds.length > 0) {
+        const { data: profilesData, error: pErr } = await supabase
+          .from('community_profiles')
+          .select('user_id, username, display_name, avatar_color, bio, created_at')
+          .in('user_id', userIds);
+        if (pErr) throw pErr;
+        profileMap = Object.fromEntries(
+          ((profilesData || []) as unknown as DbProfile[]).map((p) => [p.user_id, p])
+        );
+      }
+      return { rows, profileMap };
+    },
+  });
+
+  const allGroups = useMemo<CommunityGroup[]>(() => {
+    const groups = groupsQuery.data || [];
+    const members = groupMembersQuery.data?.members || [];
+    const profileMap = groupMembersQuery.data?.profileMap || {};
+    return groups.map((g) => {
+      const groupMembers: GroupMember[] = members
+        .filter((m) => m.group_id === g.id)
+        .map((m) => {
+          const p = profileMap[m.user_id];
+          return {
+            userId: m.user_id,
+            username: p?.username || 'user',
+            displayName: p?.display_name || 'User',
+            avatarColor: p?.avatar_color || '#22C55E',
+            role: m.role,
+            joinedAt: toTs(m.joined_at),
+          };
+        });
+      return {
+        id: g.id,
+        name: g.name,
+        description: g.description || '',
+        coverImage: g.cover_image || '',
+        inviteCode: g.invite_code,
+        privacy: (g.privacy || 'private') as 'private' | 'public',
+        creatorId: g.created_by,
+        members: groupMembers,
+        createdAt: toTs(g.created_at),
+      };
+    });
+  }, [groupsQuery.data, groupMembersQuery.data]);
+
+  const communityProfile = profileQuery.data || null;
+
+  const comments = useMemo<PostComment[]>(() => {
+    const rows = commentsRawQuery.data?.rows || [];
+    const profileMap = commentsRawQuery.data?.profileMap || {};
+    return rows.map((c) => {
+      const p = profileMap[c.user_id];
+      return {
+        id: c.id,
+        postId: c.post_id,
+        userId: c.user_id,
+        username: p?.username || 'user',
+        displayName: p?.display_name || 'User',
+        avatarColor: p?.avatar_color || '#22C55E',
+        text: c.content,
+        createdAt: toTs(c.created_at),
+      };
+    });
+  }, [commentsRawQuery.data]);
+
+  const posts = useMemo<FoodPost[]>(() => {
+    const rows = postsRawQuery.data || [];
+    const likes = likesQuery.data || [];
+    const likesByPost: Record<string, string[]> = {};
+    likes.forEach((l) => {
+      if (!likesByPost[l.post_id]) likesByPost[l.post_id] = [];
+      likesByPost[l.post_id].push(l.user_id);
+    });
+    const commentsCountByPost: Record<string, number> = {};
+    comments.forEach((c) => {
+      commentsCountByPost[c.postId] = (commentsCountByPost[c.postId] || 0) + 1;
+    });
+    const profileMap = groupMembersQuery.data?.profileMap || {};
+    return rows.map((p) => {
+      const author = profileMap[p.user_id];
+      return {
+        id: p.id,
+        userId: p.user_id,
+        username: author?.username || 'user',
+        displayName: author?.display_name || 'User',
+        avatarColor: author?.avatar_color || '#22C55E',
+        caption: p.caption || '',
+        foodName: p.food_name,
+        calories: Math.round(Number(p.calories || 0)),
+        protein: Math.round(Number(p.protein || 0)),
+        carbs: Math.round(Number(p.carbs || 0)),
+        fat: Math.round(Number(p.fat || 0)),
+        photoUri: p.photo_uri || undefined,
+        likes: likesByPost[p.id] || [],
+        commentCount: commentsCountByPost[p.id] || 0,
+        createdAt: toTs(p.created_at),
+        mealType: p.meal_type || undefined,
+        groupId: p.group_id,
+      };
+    });
+  }, [postsRawQuery.data, likesQuery.data, comments, groupMembersQuery.data?.profileMap]);
 
   useEffect(() => {
-    if (profileQuery.data) {
-      setCommunityProfile(profileQuery.data);
+    if (!activeGroupId) {
+      setActiveGroupId(joinedGroupIds[0] || null);
+      return;
     }
-  }, [profileQuery.data]);
-
-  useEffect(() => {
-    const userPosts = postsQuery.data || [];
-    const allPosts = [...MOCK_POSTS, ...userPosts].sort((a, b) => b.createdAt - a.createdAt);
-    setPosts(allPosts);
-  }, [postsQuery.data]);
-
-  useEffect(() => {
-    const userComments = commentsQuery.data || [];
-    const allComments = [...MOCK_COMMENTS, ...userComments].sort((a, b) => a.createdAt - b.createdAt);
-    setComments(allComments);
-  }, [commentsQuery.data]);
+    if (activeGroupId && !joinedGroupIds.includes(activeGroupId)) {
+      setActiveGroupId(joinedGroupIds[0] || null);
+    }
+  }, [joinedGroupIds, activeGroupId]);
 
   const saveProfileMutation = useMutation({
     mutationFn: async (newProfile: CommunityProfile) => {
-      if (!authState.email) throw new Error('Not signed in');
-      const key = `${COMMUNITY_PROFILE_KEY}_${authState.email.replace(/[^a-zA-Z0-9]/g, '_')}`;
-      await AsyncStorage.setItem(key, JSON.stringify(newProfile));
-      return newProfile;
+      if (!userId) throw new Error('Not authenticated');
+      const { error } = await supabase.from('community_profiles').upsert(
+        {
+          user_id: userId,
+          username: newProfile.username,
+          display_name: newProfile.displayName,
+          avatar_color: newProfile.avatarColor,
+          bio: newProfile.bio || null,
+        },
+        { onConflict: 'user_id' }
+      );
+      if (error) throw error;
     },
-    onSuccess: (data) => {
-      setCommunityProfile(data);
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['community_profile'] });
-      console.log('Community profile saved:', data.username);
-    },
-  });
-
-  const savePostMutation = useMutation({
-    mutationFn: async (newPost: FoodPost) => {
-      const stored = await AsyncStorage.getItem(COMMUNITY_POSTS_KEY);
-      const existing = stored ? JSON.parse(stored) as FoodPost[] : [];
-      const updated = [newPost, ...existing];
-      await AsyncStorage.setItem(COMMUNITY_POSTS_KEY, JSON.stringify(updated));
-      return updated;
-    },
-    onSuccess: (data) => {
-      const allPosts = [...MOCK_POSTS, ...data].sort((a, b) => b.createdAt - a.createdAt);
-      setPosts(allPosts);
-      queryClient.invalidateQueries({ queryKey: ['community_posts'] });
-      console.log('Post saved, total user posts:', data.length);
-    },
-  });
-
-  const toggleLikeMutation = useMutation({
-    mutationFn: async ({ postId, userId }: { postId: string; userId: string }) => {
-      const isMockPost = MOCK_POSTS.some(p => p.id === postId);
-      if (isMockPost) {
-        return { postId, userId, source: 'mock' as const };
-      }
-      const stored = await AsyncStorage.getItem(COMMUNITY_POSTS_KEY);
-      const userPosts = stored ? JSON.parse(stored) as FoodPost[] : [];
-      const updated = userPosts.map(post => {
-        if (post.id === postId) {
-          const liked = post.likes.includes(userId);
-          return {
-            ...post,
-            likes: liked ? post.likes.filter(id => id !== userId) : [...post.likes, userId],
-          };
-        }
-        return post;
-      });
-      await AsyncStorage.setItem(COMMUNITY_POSTS_KEY, JSON.stringify(updated));
-      return { postId, userId, source: 'user' as const };
-    },
-    onSuccess: (result) => {
-      setPosts(prev => prev.map(post => {
-        if (post.id === result.postId) {
-          const liked = post.likes.includes(result.userId);
-          return {
-            ...post,
-            likes: liked ? post.likes.filter(id => id !== result.userId) : [...post.likes, result.userId],
-          };
-        }
-        return post;
-      }));
-    },
-  });
-
-  const addCommentMutation = useMutation({
-    mutationFn: async (newComment: PostComment) => {
-      const stored = await AsyncStorage.getItem(COMMUNITY_COMMENTS_KEY);
-      const existing = stored ? JSON.parse(stored) as PostComment[] : [];
-      const updated = [...existing, newComment];
-      await AsyncStorage.setItem(COMMUNITY_COMMENTS_KEY, JSON.stringify(updated));
-      return newComment;
-    },
-    onSuccess: (newComment) => {
-      setComments(prev => [...prev, newComment].sort((a, b) => a.createdAt - b.createdAt));
-      setPosts(prev => prev.map(post => {
-        if (post.id === newComment.postId) {
-          return { ...post, commentCount: post.commentCount + 1 };
-        }
-        return post;
-      }));
-      queryClient.invalidateQueries({ queryKey: ['community_comments'] });
-      console.log('Comment added to post:', newComment.postId);
-    },
-  });
-
-  const deletePostMutation = useMutation({
-    mutationFn: async (postId: string) => {
-      const stored = await AsyncStorage.getItem(COMMUNITY_POSTS_KEY);
-      const existing = stored ? JSON.parse(stored) as FoodPost[] : [];
-      const updated = existing.filter(p => p.id !== postId);
-      await AsyncStorage.setItem(COMMUNITY_POSTS_KEY, JSON.stringify(updated));
-      const storedComments = await AsyncStorage.getItem(COMMUNITY_COMMENTS_KEY);
-      const existingComments = storedComments ? JSON.parse(storedComments) as PostComment[] : [];
-      const updatedComments = existingComments.filter(c => c.postId !== postId);
-      await AsyncStorage.setItem(COMMUNITY_COMMENTS_KEY, JSON.stringify(updatedComments));
-      return postId;
-    },
-    onSuccess: (postId) => {
-      setPosts(prev => prev.filter(p => p.id !== postId));
-      setComments(prev => prev.filter(c => c.postId !== postId));
-      queryClient.invalidateQueries({ queryKey: ['community_posts'] });
-      queryClient.invalidateQueries({ queryKey: ['community_comments'] });
-    },
-  });
-
-  const joinGroupMutation = useMutation({
-    mutationFn: async (groupId: string) => {
-      const current = await AsyncStorage.getItem(USER_GROUPS_KEY);
-      const ids = current ? JSON.parse(current) as string[] : [];
-      if (!ids.includes(groupId)) {
-        ids.push(groupId);
-      }
-      await AsyncStorage.setItem(USER_GROUPS_KEY, JSON.stringify(ids));
-      await AsyncStorage.setItem(ACTIVE_GROUP_KEY, groupId);
-
-      if (communityProfile) {
-        const stored = await AsyncStorage.getItem(CUSTOM_GROUPS_KEY);
-        const customGroups = stored ? JSON.parse(stored) as CommunityGroup[] : [];
-        const groupIdx = customGroups.findIndex(g => g.id === groupId);
-        if (groupIdx >= 0) {
-          const alreadyMember = customGroups[groupIdx].members.some(m => m.userId === communityProfile.userId);
-          if (!alreadyMember) {
-            customGroups[groupIdx].members.push({
-              userId: communityProfile.userId,
-              displayName: communityProfile.displayName,
-              username: communityProfile.username,
-              avatarColor: communityProfile.avatarColor,
-              role: 'member',
-              joinedAt: Date.now(),
-            });
-            await AsyncStorage.setItem(CUSTOM_GROUPS_KEY, JSON.stringify(customGroups));
-          }
-        }
-      }
-
-      return { ids, activeId: groupId };
-    },
-    onSuccess: (data) => {
-      setJoinedGroupIds(data.ids);
-      setActiveGroupId(data.activeId);
-      queryClient.invalidateQueries({ queryKey: ['community_user_groups'] });
-      queryClient.invalidateQueries({ queryKey: ['community_active_group'] });
-      queryClient.invalidateQueries({ queryKey: ['community_custom_groups'] });
-      console.log('Joined group:', data.activeId);
-    },
-  });
-
-  const leaveGroupMutation = useMutation({
-    mutationFn: async (groupId: string) => {
-      const current = await AsyncStorage.getItem(USER_GROUPS_KEY);
-      const ids = current ? JSON.parse(current) as string[] : [];
-      const updated = ids.filter(id => id !== groupId);
-      await AsyncStorage.setItem(USER_GROUPS_KEY, JSON.stringify(updated));
-
-      const currentActive = await AsyncStorage.getItem(ACTIVE_GROUP_KEY);
-      let newActive: string | null = currentActive;
-      if (currentActive === groupId) {
-        newActive = updated.length > 0 ? updated[0] : null;
-        if (newActive) {
-          await AsyncStorage.setItem(ACTIVE_GROUP_KEY, newActive);
-        } else {
-          await AsyncStorage.removeItem(ACTIVE_GROUP_KEY);
-        }
-      }
-
-      return { ids: updated, activeId: newActive };
-    },
-    onSuccess: (data) => {
-      setJoinedGroupIds(data.ids);
-      setActiveGroupId(data.activeId);
-      queryClient.invalidateQueries({ queryKey: ['community_user_groups'] });
-      queryClient.invalidateQueries({ queryKey: ['community_active_group'] });
-      console.log('Left group, remaining:', data.ids.length);
+      queryClient.invalidateQueries({ queryKey: ['community_group_members_all'] });
     },
   });
 
   const createGroupMutation = useMutation({
     mutationFn: async (group: Omit<CommunityGroup, 'id' | 'createdAt' | 'inviteCode' | 'members'>) => {
-      const newGroup: CommunityGroup = {
-        ...group,
-        id: `group_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
-        inviteCode: generateInviteCode(),
-        members: communityProfile ? [{
-          userId: communityProfile.userId,
-          displayName: communityProfile.displayName,
-          username: communityProfile.username,
-          avatarColor: communityProfile.avatarColor,
-          role: 'admin' as const,
-          joinedAt: Date.now(),
-        }] : [],
-        createdAt: Date.now(),
-      };
-
-      const stored = await AsyncStorage.getItem(CUSTOM_GROUPS_KEY);
-      const existing = stored ? JSON.parse(stored) as CommunityGroup[] : [];
-      const updated = [newGroup, ...existing];
-      await AsyncStorage.setItem(CUSTOM_GROUPS_KEY, JSON.stringify(updated));
-
-      const currentIds = await AsyncStorage.getItem(USER_GROUPS_KEY);
-      const ids = currentIds ? JSON.parse(currentIds) as string[] : [];
-      ids.push(newGroup.id);
-      await AsyncStorage.setItem(USER_GROUPS_KEY, JSON.stringify(ids));
-      await AsyncStorage.setItem(ACTIVE_GROUP_KEY, newGroup.id);
-
-      return { group: newGroup, ids };
+      if (!userId) throw new Error('Not authenticated');
+      const inviteCode = generateInviteCode();
+      const { data, error } = await supabase
+        .from('community_groups')
+        .insert({
+          name: group.name,
+          description: group.description || '',
+          cover_image: group.coverImage || null,
+          invite_code: inviteCode,
+          created_by: userId,
+          privacy: group.privacy,
+        })
+        .select('id')
+        .single();
+      if (error) throw error;
+      const newGroupId = (data as any).id as string;
+      const { error: memberError } = await supabase
+        .from('community_group_members')
+        .insert({ group_id: newGroupId, user_id: userId, role: 'admin' });
+      if (memberError) throw memberError;
+      return newGroupId;
     },
-    onSuccess: (data) => {
-      setAllGroups(prev => {
-        const exists = prev.find(g => g.id === data.group.id);
-        if (exists) return prev;
-        return [data.group, ...prev];
-      });
-      setJoinedGroupIds(data.ids);
-      setActiveGroupId(data.group.id);
-      queryClient.invalidateQueries({ queryKey: ['community_custom_groups'] });
-      queryClient.invalidateQueries({ queryKey: ['community_user_groups'] });
-      queryClient.invalidateQueries({ queryKey: ['community_active_group'] });
-      console.log('Created group:', data.group.name, 'code:', data.group.inviteCode);
+    onSuccess: (newGroupId) => {
+      setActiveGroupId(newGroupId);
+      queryClient.invalidateQueries({ queryKey: ['community_memberships'] });
+      queryClient.invalidateQueries({ queryKey: ['community_groups_joined'] });
+      queryClient.invalidateQueries({ queryKey: ['community_group_members_all'] });
     },
   });
 
-  const switchActiveGroupMutation = useMutation({
+  const joinGroupMutation = useMutation({
     mutationFn: async (groupId: string) => {
-      await AsyncStorage.setItem(ACTIVE_GROUP_KEY, groupId);
+      if (!userId) throw new Error('Not authenticated');
+      const { error } = await supabase
+        .from('community_group_members')
+        .insert({ group_id: groupId, user_id: userId, role: 'member' });
+      if (error && error.code !== '23505') throw error;
       return groupId;
     },
     onSuccess: (groupId) => {
       setActiveGroupId(groupId);
-      queryClient.invalidateQueries({ queryKey: ['community_active_group'] });
-      console.log('Switched active group to:', groupId);
+      queryClient.invalidateQueries({ queryKey: ['community_memberships'] });
+      queryClient.invalidateQueries({ queryKey: ['community_groups_joined'] });
+      queryClient.invalidateQueries({ queryKey: ['community_group_members_all'] });
+    },
+  });
+
+  const leaveGroupMutation = useMutation({
+    mutationFn: async (groupId: string) => {
+      if (!userId) throw new Error('Not authenticated');
+      const { error } = await supabase
+        .from('community_group_members')
+        .delete()
+        .eq('group_id', groupId)
+        .eq('user_id', userId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['community_memberships'] });
+      queryClient.invalidateQueries({ queryKey: ['community_groups_joined'] });
+      queryClient.invalidateQueries({ queryKey: ['community_group_members_all'] });
+      queryClient.invalidateQueries({ queryKey: ['community_posts'] });
+      queryClient.invalidateQueries({ queryKey: ['community_comments'] });
+      queryClient.invalidateQueries({ queryKey: ['community_likes'] });
+    },
+  });
+
+  const createPostMutation = useMutation({
+    mutationFn: async (post: Omit<FoodPost, 'id' | 'createdAt' | 'likes' | 'commentCount'>) => {
+      if (!userId || !activeGroupId) throw new Error('Missing auth or active group');
+      let photoUri = post.photoUri || null;
+      if (photoUri && !isRemoteImage(photoUri)) {
+        try {
+          photoUri = await uploadImageToSupabase(photoUri, userId);
+        } catch (error) {
+          console.error('Failed to upload community photo, keeping local URI:', error);
+        }
+      }
+      const { error } = await supabase.from('community_posts').insert({
+        user_id: userId,
+        group_id: activeGroupId,
+        caption: post.caption || '',
+        meal_type: post.mealType || null,
+        food_name: post.foodName,
+        calories: post.calories,
+        protein: post.protein,
+        carbs: post.carbs,
+        fat: post.fat,
+        photo_uri: photoUri,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['community_posts'] });
+    },
+  });
+
+  const toggleLikeMutation = useMutation({
+    mutationFn: async ({ postId }: { postId: string }) => {
+      if (!userId) throw new Error('Not authenticated');
+      const { data, error } = await supabase
+        .from('community_post_likes')
+        .select('id')
+        .eq('post_id', postId)
+        .eq('user_id', userId)
+        .maybeSingle();
+      if (error) throw error;
+      if (data) {
+        const { error: deleteError } = await supabase.from('community_post_likes').delete().eq('id', (data as any).id);
+        if (deleteError) throw deleteError;
+        return;
+      }
+      const { error: insertError } = await supabase.from('community_post_likes').insert({ post_id: postId, user_id: userId });
+      if (insertError) throw insertError;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['community_likes'] });
+    },
+  });
+
+  const addCommentMutation = useMutation({
+    mutationFn: async ({ postId, text }: { postId: string; text: string }) => {
+      if (!userId) throw new Error('Not authenticated');
+      const { error } = await supabase.from('community_comments').insert({
+        post_id: postId,
+        user_id: userId,
+        content: text,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['community_comments'] });
+    },
+  });
+
+  const deletePostMutation = useMutation({
+    mutationFn: async (postId: string) => {
+      const { data: existingPost, error: selectError } = await supabase
+        .from('community_posts')
+        .select('photo_uri')
+        .eq('id', postId)
+        .maybeSingle();
+      if (selectError) throw selectError;
+
+      const { error } = await supabase.from('community_posts').delete().eq('id', postId);
+      if (error) throw error;
+
+      const photoUri = (existingPost as { photo_uri?: string | null } | null)?.photo_uri;
+      if (photoUri && isRemoteImage(photoUri)) {
+        try {
+          await deleteImageFromSupabase(photoUri);
+        } catch (storageError) {
+          // Keep post deletion successful even if storage cleanup fails.
+          console.error('Failed to delete community post image from storage:', storageError);
+        }
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['community_posts'] });
+      queryClient.invalidateQueries({ queryKey: ['community_comments'] });
+      queryClient.invalidateQueries({ queryKey: ['community_likes'] });
     },
   });
 
@@ -375,97 +504,44 @@ export const [CommunityProvider, useCommunity] = createContextHook(() => {
   }, [saveProfileMutation]);
 
   const createPost = useCallback((post: Omit<FoodPost, 'id' | 'createdAt' | 'likes' | 'commentCount'>) => {
-    const newPost: FoodPost = {
-      ...post,
-      id: `post_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      createdAt: Date.now(),
-      likes: [],
-      commentCount: 0,
-      groupId: activeGroupId || undefined,
-    };
-    savePostMutation.mutate(newPost);
-    return newPost;
-  }, [savePostMutation, activeGroupId]);
+    createPostMutation.mutate(post);
+    return null;
+  }, [createPostMutation]);
 
   const toggleLike = useCallback((postId: string) => {
-    const userId = communityProfile?.userId || authState.userId || 'anonymous';
-    toggleLikeMutation.mutate({ postId, userId });
-  }, [toggleLikeMutation, communityProfile, authState.userId]);
+    toggleLikeMutation.mutate({ postId });
+  }, [toggleLikeMutation]);
 
   const addComment = useCallback((postId: string, text: string) => {
-    if (!communityProfile) return;
-    const newComment: PostComment = {
-      id: `comment_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      postId,
-      userId: communityProfile.userId,
-      username: communityProfile.username,
-      displayName: communityProfile.displayName,
-      avatarColor: communityProfile.avatarColor,
-      text,
-      createdAt: Date.now(),
-    };
-    addCommentMutation.mutate(newComment);
-  }, [addCommentMutation, communityProfile]);
+    addCommentMutation.mutate({ postId, text });
+  }, [addCommentMutation]);
 
   const deletePost = useCallback((postId: string) => {
     deletePostMutation.mutate(postId);
   }, [deletePostMutation]);
 
-  const getPostComments = useCallback((postId: string) => {
-    return comments.filter(c => c.postId === postId);
-  }, [comments]);
-
-  const joinGroup = useCallback((groupId: string) => {
-    joinGroupMutation.mutate(groupId);
-  }, [joinGroupMutation]);
-
-  const leaveGroup = useCallback((groupId: string) => {
-    leaveGroupMutation.mutate(groupId);
-  }, [leaveGroupMutation]);
-
-  const createGroup = useCallback((group: Omit<CommunityGroup, 'id' | 'createdAt' | 'inviteCode' | 'members'>) => {
-    createGroupMutation.mutate(group);
-  }, [createGroupMutation]);
-
-  const switchActiveGroup = useCallback((groupId: string) => {
-    switchActiveGroupMutation.mutate(groupId);
-  }, [switchActiveGroupMutation]);
-
+  const getPostComments = useCallback((postId: string) => comments.filter((c) => c.postId === postId), [comments]);
+  const joinGroup = useCallback((groupId: string) => joinGroupMutation.mutate(groupId), [joinGroupMutation]);
+  const leaveGroup = useCallback((groupId: string) => leaveGroupMutation.mutate(groupId), [leaveGroupMutation]);
+  const createGroup = useCallback((group: Omit<CommunityGroup, 'id' | 'createdAt' | 'inviteCode' | 'members'>) => createGroupMutation.mutate(group), [createGroupMutation]);
+  const switchActiveGroup = useCallback((groupId: string) => setActiveGroupId(groupId), []);
   const findGroupByInviteCode = useCallback((code: string): CommunityGroup | undefined => {
     const upperCode = code.toUpperCase().trim();
-    return allGroups.find(g => g.inviteCode === upperCode);
+    return allGroups.find((g) => g.inviteCode === upperCode);
   }, [allGroups]);
 
-  const discoverableGroups = useMemo(() => {
-    return allGroups.filter(g => g.privacy === 'public' && !joinedGroupIds.includes(g.id));
-  }, [allGroups, joinedGroupIds]);
-
-  const joinedGroups = useMemo(() => {
-    return allGroups.filter(g => joinedGroupIds.includes(g.id));
-  }, [allGroups, joinedGroupIds]);
-
-  const activeGroup = useMemo(() => {
-    if (!activeGroupId) return null;
-    return allGroups.find(g => g.id === activeGroupId) || null;
-  }, [allGroups, activeGroupId]);
-
-  const hasJoinedGroup = joinedGroupIds.length > 0;
+  const discoverableGroups: CommunityGroup[] = [];
+  const joinedGroups = useMemo(() => allGroups.filter((g) => joinedGroupIds.includes(g.id)), [allGroups, joinedGroupIds]);
+  const activeGroup = useMemo(() => (activeGroupId ? allGroups.find((g) => g.id === activeGroupId) || null : null), [allGroups, activeGroupId]);
+  const hasJoinedGroup = joinedGroups.length > 0;
   const hasProfile = !!communityProfile;
-  const isLoading = profileQuery.isLoading || postsQuery.isLoading || joinedGroupIdsQuery.isLoading;
+  const isLoading = profileQuery.isLoading || membershipsQuery.isLoading || groupsQuery.isLoading;
 
   useEffect(() => {
     const handleFoodEntryAdded = (data: any) => {
       const { foodEntry } = data as { foodEntry: Omit<FoodEntry, 'id' | 'timestamp'> };
-      
-      if (!communityProfile || !hasJoinedGroup) {
-        console.log('Skipping auto-post: No profile or not in a group');
-        return;
-      }
-
-      console.log('Auto-posting food entry to community:', foodEntry.name);
-      
-      const newPost: FoodPost = {
-        id: `post_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      if (!communityProfile || !hasJoinedGroup || !activeGroupId) return;
+      createPostMutation.mutate({
         userId: communityProfile.userId,
         username: communityProfile.username,
         displayName: communityProfile.displayName,
@@ -476,18 +552,14 @@ export const [CommunityProvider, useCommunity] = createContextHook(() => {
         protein: Math.round(foodEntry.protein),
         carbs: Math.round(foodEntry.carbs),
         fat: Math.round(foodEntry.fat),
-        createdAt: Date.now(),
-        likes: [],
-        commentCount: 0,
-        groupId: activeGroupId || undefined,
-      };
-      
-      savePostMutation.mutate(newPost);
+        photoUri: foodEntry.photoUri,
+        mealType: undefined,
+      });
     };
 
     eventEmitter.on('foodEntryAdded', handleFoodEntryAdded);
     return () => eventEmitter.off('foodEntryAdded', handleFoodEntryAdded);
-  }, [communityProfile, hasJoinedGroup, activeGroupId, savePostMutation]);
+  }, [communityProfile, hasJoinedGroup, activeGroupId, createPostMutation]);
 
   return {
     communityProfile,

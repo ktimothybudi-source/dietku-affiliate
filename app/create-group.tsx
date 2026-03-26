@@ -16,10 +16,10 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { useCommunity } from '@/contexts/CommunityContext';
 import { useNutrition } from '@/contexts/NutritionContext';
 import { GROUP_COVERS } from '@/types/community';
-import { Check, Lock, Globe, Camera } from 'lucide-react-native';
+import { Check, Lock, Camera } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 
-type Privacy = 'public' | 'private';
+type Privacy = 'private';
 
 export default function CreateGroupScreen() {
   const { theme } = useTheme();
@@ -27,8 +27,7 @@ export default function CreateGroupScreen() {
   const { authState } = useNutrition();
 
   const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [privacy, setPrivacy] = useState<Privacy>('public');
+  const [privacy, setPrivacy] = useState<Privacy>('private');
   const [selectedCover, setSelectedCover] = useState(GROUP_COVERS[0]);
 
   const handleCreate = useCallback(() => {
@@ -41,14 +40,9 @@ export default function CreateGroupScreen() {
       Alert.alert('Nama Terlalu Pendek', 'Nama grup minimal 3 karakter.');
       return;
     }
-    if (!description.trim()) {
-      Alert.alert('Deskripsi Diperlukan', 'Tambahkan deskripsi singkat untuk grup.');
-      return;
-    }
-
     createGroup({
       name: name.trim(),
-      description: description.trim(),
+      description: '',
       coverImage: selectedCover,
       privacy,
       creatorId: authState.userId || 'local',
@@ -56,7 +50,7 @@ export default function CreateGroupScreen() {
 
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     router.back();
-  }, [name, description, privacy, selectedCover, createGroup, authState.userId]);
+  }, [name, privacy, selectedCover, createGroup, authState.userId]);
 
   return (
     <>
@@ -129,21 +123,6 @@ export default function CreateGroupScreen() {
               <Text style={[styles.charCount, { color: theme.textTertiary }]}>{name.length}/40</Text>
             </View>
 
-            <View style={styles.field}>
-              <Text style={[styles.label, { color: theme.text }]}>Deskripsi</Text>
-              <TextInput
-                style={[styles.textArea, { backgroundColor: theme.surfaceElevated, borderColor: theme.border, color: theme.text }]}
-                value={description}
-                onChangeText={setDescription}
-                placeholder="Ceritakan tentang grup ini..."
-                placeholderTextColor={theme.textTertiary}
-                multiline
-                maxLength={200}
-                textAlignVertical="top"
-                testID="create-group-desc"
-              />
-              <Text style={[styles.charCount, { color: theme.textTertiary }]}>{description.length}/200</Text>
-            </View>
           </View>
 
           <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -152,36 +131,7 @@ export default function CreateGroupScreen() {
             <TouchableOpacity
               style={[
                 styles.privacyOption,
-                { borderColor: privacy === 'public' ? theme.primary : theme.border },
-                privacy === 'public' && { backgroundColor: theme.primary + '0A' },
-              ]}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setPrivacy('public');
-              }}
-              activeOpacity={0.8}
-              testID="create-group-public"
-            >
-              <View style={[styles.privacyIcon, { backgroundColor: theme.success + '18' }]}>
-                <Globe size={18} color={theme.success} />
-              </View>
-              <View style={styles.privacyText}>
-                <Text style={[styles.privacyTitle, { color: theme.text }]}>Publik</Text>
-                <Text style={[styles.privacyDesc, { color: theme.textSecondary }]}>
-                  Siapa saja bisa menemukan dan bergabung
-                </Text>
-              </View>
-              {privacy === 'public' && (
-                <View style={[styles.privacyCheck, { backgroundColor: theme.primary }]}>
-                  <Check size={14} color="#FFFFFF" strokeWidth={3} />
-                </View>
-              )}
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.privacyOption,
-                { borderColor: privacy === 'private' ? theme.primary : theme.border, marginTop: 10 },
+                { borderColor: privacy === 'private' ? theme.primary : theme.border },
                 privacy === 'private' && { backgroundColor: theme.primary + '0A' },
               ]}
               onPress={() => {
