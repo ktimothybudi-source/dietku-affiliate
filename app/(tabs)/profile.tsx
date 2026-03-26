@@ -344,6 +344,7 @@ export default function ProfileScreen() {
               style={styles.row}
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.push('/legal-terms');
               }}
               activeOpacity={0.7}
             >
@@ -358,6 +359,7 @@ export default function ProfileScreen() {
               style={[styles.row, { borderTopColor: theme.border }]}
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.push('/legal-privacy');
               }}
               activeOpacity={0.7}
             >
@@ -372,6 +374,7 @@ export default function ProfileScreen() {
               style={[styles.row, { borderTopColor: theme.border }]}
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.push('/legal-restore-purchase');
               }}
               activeOpacity={0.7}
             >

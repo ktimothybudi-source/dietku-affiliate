@@ -1,6 +1,6 @@
 const USDA_API_KEY = process.env.EXPO_PUBLIC_USDA_API_KEY;
 const USDA_BASE_URL = 'https://api.nal.usda.gov/fdc/v1';
-const OPENAI_API_KEY = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
+const AI_PROXY_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || process.env.EXPO_PUBLIC_RORK_API_BASE_URL || 'http://localhost:3000';
 
 export interface USDAFoodItem {
   fdcId: number;
@@ -47,33 +47,14 @@ function extractNutrientValue(nutrients: USDANutrient[], nutrientNumber: string)
 }
 
 async function translateToEnglish(indonesianQuery: string): Promise<string> {
-  if (!OPENAI_API_KEY) {
-    console.warn('OpenAI API key not configured, returning original query');
-    return indonesianQuery;
-  }
-
   try {
     console.log('Translating to English:', indonesianQuery);
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await fetch(`${AI_PROXY_BASE_URL}/api/ai/translate`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENAI_API_KEY}`,
       },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are a food translator. Translate Indonesian food names to English. Only return the English translation, nothing else. If the input is already in English, return it as is.',
-          },
-          {
-            role: 'user',
-            content: indonesianQuery,
-          },
-        ],
-        temperature: 0.3,
-      }),
+      body: JSON.stringify({ query: indonesianQuery }),
     });
 
     if (!response.ok) {
@@ -82,7 +63,7 @@ async function translateToEnglish(indonesianQuery: string): Promise<string> {
     }
 
     const data = await response.json();
-    const translation = data.choices[0]?.message?.content?.trim() || indonesianQuery;
+    const translation = data?.choices?.[0]?.message?.content?.trim() || indonesianQuery;
     console.log('Translated to:', translation);
     return translation;
   } catch (error) {
@@ -92,35 +73,20 @@ async function translateToEnglish(indonesianQuery: string): Promise<string> {
 }
 
 async function rankUSDAResults(originalQuery: string, results: USDAFoodItem[]): Promise<USDAFoodItem[]> {
-  if (!OPENAI_API_KEY || results.length === 0) {
+  if (results.length === 0) {
     return results;
   }
 
   try {
     console.log('Ranking USDA results for:', originalQuery);
-    const resultDescriptions = results.map((r, idx) => 
-      `${idx + 1}. ${r.description}${r.brandName ? ` (${r.brandName})` : ''}`
-    ).join('\n');
-
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await fetch(`${AI_PROXY_BASE_URL}/api/ai/rank-usda`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are a food matching expert. Given a food query and a list of USDA foods, rank them by relevance. Return ONLY a comma-separated list of numbers (e.g., "3,1,5,2,4") representing the ranking from most to least relevant. No explanation.',
-          },
-          {
-            role: 'user',
-            content: `Query: "${originalQuery}"\n\nFoods:\n${resultDescriptions}\n\nRank these by relevance:`,
-          },
-        ],
-        temperature: 0.3,
+        query: originalQuery,
+        options: results.map((r) => `${r.description}${r.brandName ? ` (${r.brandName})` : ''}`),
       }),
     });
 
@@ -130,7 +96,7 @@ async function rankUSDAResults(originalQuery: string, results: USDAFoodItem[]): 
     }
 
     const data = await response.json();
-    const ranking = data.choices[0]?.message?.content?.trim();
+    const ranking = data?.choices?.[0]?.message?.content?.trim();
     
     if (!ranking) {
       return results;

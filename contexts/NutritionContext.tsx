@@ -1031,6 +1031,35 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
     }
   }, [profile, weightHistory, saveProfileMutation, saveWeightHistoryMutation]);
 
+  const updateRecentMeals = useCallback((entry: Omit<FoodEntry, 'id' | 'timestamp'>) => {
+    const normalizedName = entry.name.toLowerCase().trim();
+    const existingIndex = recentMeals.findIndex(
+      m => m.name.toLowerCase().trim() === normalizedName
+    );
+
+    let updatedRecent: RecentMeal[];
+    if (existingIndex >= 0) {
+      const existing = recentMeals[existingIndex];
+      updatedRecent = [
+        { ...existing, lastLogged: Date.now(), logCount: existing.logCount + 1 },
+        ...recentMeals.filter((_, i) => i !== existingIndex),
+      ];
+    } else {
+      const newRecent: RecentMeal = {
+        id: Date.now().toString(),
+        name: entry.name,
+        calories: entry.calories,
+        protein: entry.protein,
+        carbs: entry.carbs,
+        fat: entry.fat,
+        lastLogged: Date.now(),
+        logCount: 1,
+      };
+      updatedRecent = [newRecent, ...recentMeals].slice(0, 50);
+    }
+    saveRecentMealsMutation.mutate(updatedRecent);
+  }, [recentMeals, saveRecentMealsMutation]);
+
   const addFoodEntry = useCallback((entry: Omit<FoodEntry, 'id' | 'timestamp'>, autoPostToCommunity: boolean = true) => {
     console.log('[addFoodEntry] Adding entry:', entry);
     console.log('[addFoodEntry] Auth state:', authState);
@@ -1059,35 +1088,6 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
       }
     );
   }, [saveFoodEntryMutation, authState, selectedDate, updateRecentMeals]);
-
-  const updateRecentMeals = (entry: Omit<FoodEntry, 'id' | 'timestamp'>) => {
-    const normalizedName = entry.name.toLowerCase().trim();
-    const existingIndex = recentMeals.findIndex(
-      m => m.name.toLowerCase().trim() === normalizedName
-    );
-
-    let updatedRecent: RecentMeal[];
-    if (existingIndex >= 0) {
-      const existing = recentMeals[existingIndex];
-      updatedRecent = [
-        { ...existing, lastLogged: Date.now(), logCount: existing.logCount + 1 },
-        ...recentMeals.filter((_, i) => i !== existingIndex),
-      ];
-    } else {
-      const newRecent: RecentMeal = {
-        id: Date.now().toString(),
-        name: entry.name,
-        calories: entry.calories,
-        protein: entry.protein,
-        carbs: entry.carbs,
-        fat: entry.fat,
-        lastLogged: Date.now(),
-        logCount: 1,
-      };
-      updatedRecent = [newRecent, ...recentMeals].slice(0, 50);
-    }
-    saveRecentMealsMutation.mutate(updatedRecent);
-  };
 
   const { mutate: mutateFavorites } = saveFavoritesMutation;
 

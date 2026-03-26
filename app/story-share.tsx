@@ -8,10 +8,11 @@ import {
   Animated,
   Share,
   Alert,
-  Dimensions,
   Image,
   TextInput,
   Platform,
+  ActivityIndicator,
+  Linking,
 } from 'react-native';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -34,6 +35,9 @@ import {
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
+import * as MediaLibrary from 'expo-media-library';
+import ShareLib from 'react-native-share';
+import { captureRef } from 'react-native-view-shot';
 import { useTheme } from '@/contexts/ThemeContext';
 import {
   StoryShareData,
@@ -44,8 +48,6 @@ import {
 import { LOCATION_PRESETS } from '@/constants/storyShare';
 import { ANIMATION_DURATION, SPRING_CONFIG } from '@/constants/animations';
 import { storyShareStyles as styles } from '@/styles/storyShareStyles';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export default function StoryShareScreen() {
   useTheme();
@@ -89,11 +91,13 @@ export default function StoryShareScreen() {
   const [showWatermark, setShowWatermark] = useState(true);
   const [showShareSheet, setShowShareSheet] = useState(false);
   const [isLoadingLocation, setIsLoadingLocation] = useState(false);
+  const [isPreparingStory, setIsPreparingStory] = useState(false);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const locationSheetAnim = useRef(new Animated.Value(0)).current;
   const shareSheetAnim = useRef(new Animated.Value(0)).current;
+  const previewRef = useRef<View>(null);
 
   useEffect(() => {
     Animated.timing(fadeAnim, {
@@ -192,37 +196,93 @@ export default function StoryShareScreen() {
     });
   };
 
+  const captureStoryImage = async (): Promise<string> => {
+    if (!previewRef.current) throw new Error('Story preview belum siap.');
+    const uri = await captureRef(previewRef, {
+      format: 'jpg',
+      quality: 0.95,
+      result: 'tmpfile',
+    });
+    if (!uri) throw new Error('Gagal menangkap gambar story.');
+    return uri;
+  };
+
+  const saveStoryImage = async (imageUri: string): Promise<void> => {
+    const permission = await MediaLibrary.requestPermissionsAsync();
+    if (permission.status !== 'granted') {
+      throw new Error('Izin galeri diperlukan untuk menyimpan gambar.');
+    }
+    await MediaLibrary.saveToLibraryAsync(imageUri);
+  };
+
+  const openInstagramApp = async () => {
+    const candidateUrls = ['instagram://camera', 'instagram://app'];
+    for (const url of candidateUrls) {
+      const supported = await Linking.canOpenURL(url);
+      if (supported) {
+        await Linking.openURL(url);
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const openInstagramStoryComposer = async (imageUri: string) => {
+    await ShareLib.shareSingle({
+      social: ShareLib.Social.INSTAGRAM_STORIES as any,
+      backgroundImage: imageUri,
+      appId: 'app.rork.dietku-clone-jlejfwy',
+    });
+  };
+
   const handleShareInstagram = async () => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    if (isPreparingStory) return;
+    setIsPreparingStory(true);
     try {
-      const healthInfo = HEALTH_RATINGS.find(r => r.id === healthRating);
-      let message = `${customMealName} - ${storyData.calories} kcal 🔥`;
-      if (includeOptions.macros) {
-        message += `\n💪 ${storyData.protein}g protein • 🍞 ${storyData.carbs}g carbs • 🥑 ${storyData.fat}g fat`;
+      const imageUri = await captureStoryImage();
+      await saveStoryImage(imageUri);
+      try {
+        await openInstagramStoryComposer(imageUri);
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } catch (storyError) {
+        console.warn('Instagram Story composer failed, falling back to opening app:', storyError);
+        const opened = await openInstagramApp();
+        if (opened) {
+          Alert.alert(
+            'Foto Tersimpan',
+            'Instagram dibuka. Pilih foto yang baru disimpan dari galeri untuk Story kamu.'
+          );
+        } else {
+          Alert.alert(
+            'Instagram Tidak Ditemukan',
+            'Foto sudah disimpan ke galeri. Install Instagram lalu pilih foto ini dari Story.'
+          );
+        }
       }
-      if (includeOptions.healthRating && healthInfo) {
-        message += `\n${healthInfo.icon} ${healthInfo.label}`;
-      }
-      if (includeOptions.location && locationName) {
-        message += `\n📍 ${locationName}`;
-      }
-      if (showWatermark) {
-        message += '\n\nTracked with DietKu';
-      }
-      
-      await Share.share({ message });
     } catch (error) {
-      console.error('Share error:', error);
+      console.error('Share Instagram error:', error);
+      const message = error instanceof Error ? error.message : 'Gagal menyiapkan story.';
+      Alert.alert('Gagal Share Story', message);
+    } finally {
+      setIsPreparingStory(false);
     }
   };
 
   const handleSaveImage = async () => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    Alert.alert(
-      'Save Image',
-      'Image save feature coming soon. For now, you can take a screenshot.',
-      [{ text: 'OK' }]
-    );
+    if (isPreparingStory) return;
+    setIsPreparingStory(true);
+    try {
+      const imageUri = await captureStoryImage();
+      await saveStoryImage(imageUri);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert('Berhasil', 'Story berhasil disimpan ke galeri.');
+    } catch (error) {
+      console.error('Save story image error:', error);
+      const message = error instanceof Error ? error.message : 'Gagal menyimpan gambar.';
+      Alert.alert('Gagal Simpan', message);
+    } finally {
+      setIsPreparingStory(false);
+    }
   };
 
   const handleMoreOptions = async () => {
@@ -270,7 +330,7 @@ export default function StoryShareScreen() {
           <Text style={styles.sheetTitle}>Share to</Text>
 
           <View style={styles.shareGrid}>
-            <TouchableOpacity style={styles.shareAppItem} onPress={() => { closeShareSheet(); handleShareInstagram(); }}>
+            <TouchableOpacity style={styles.shareAppItem} onPress={() => { closeShareSheet(); void handleShareInstagram(); }}>
               <LinearGradient
                 colors={['#833AB4', '#E1306C', '#F77737']}
                 style={styles.shareAppIcon}
@@ -280,7 +340,7 @@ export default function StoryShareScreen() {
               <Text style={styles.shareAppLabel}>Instagram{"\n"}Story</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.shareAppItem} onPress={() => { closeShareSheet(); handleShareInstagram(); }}>
+            <TouchableOpacity style={styles.shareAppItem} onPress={() => { closeShareSheet(); void handleShareInstagram(); }}>
               <LinearGradient
                 colors={['#833AB4', '#E1306C', '#F77737']}
                 style={styles.shareAppIcon}
@@ -304,7 +364,7 @@ export default function StoryShareScreen() {
               <Text style={styles.shareAppLabel}>Message</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.shareAppItem} onPress={() => { closeShareSheet(); handleSaveImage(); }}>
+            <TouchableOpacity style={styles.shareAppItem} onPress={() => { closeShareSheet(); void handleSaveImage(); }}>
               <View style={[styles.shareAppIcon, styles.shareAppIconOutline]}>
                 <ImageIcon size={24} color="#FFFFFF" />
               </View>
@@ -333,7 +393,7 @@ export default function StoryShareScreen() {
   const hasAnyPills = includeOptions.healthRating && currentHealthRating;
 
   const renderPreview = () => (
-    <View style={styles.previewContainer}>
+    <View ref={previewRef} collapsable={false} style={styles.previewContainer}>
       {storyData.photoUri ? (
         <Image
           source={{ uri: storyData.photoUri }}
@@ -754,8 +814,9 @@ export default function StoryShareScreen() {
             style={styles.headerShareButton}
             onPress={openShareSheet}
             activeOpacity={0.7}
+            disabled={isPreparingStory}
           >
-            <Share2 size={20} color="#FFFFFF" />
+            {isPreparingStory ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Share2 size={20} color="#FFFFFF" />}
           </TouchableOpacity>
         </Animated.View>
 

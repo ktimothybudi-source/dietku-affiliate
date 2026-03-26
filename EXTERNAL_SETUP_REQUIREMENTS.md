@@ -75,7 +75,7 @@ This document lists everything that needs to be configured outside of the codeba
 4. Go to API Keys section
 5. Create new secret key
 6. Copy key (starts with `sk-...`)
-7. Add to `.env` as `EXPO_PUBLIC_OPENAI_API_KEY`
+7. Add to `.env` as `OPENAI_API_KEY` (server-side only)
 8. Set usage limits in Billing → Usage limits
 
 **Cost:** Pay-per-use, ~$0.15 per 1M tokens (gpt-4o-mini)
@@ -110,7 +110,7 @@ EXPO_PUBLIC_SUPABASE_URL=https://xxxxx.supabase.co
 EXPO_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 # OpenAI (REQUIRED)
-EXPO_PUBLIC_OPENAI_API_KEY=sk-...
+OPENAI_API_KEY=sk-...
 
 # USDA (OPTIONAL)
 EXPO_PUBLIC_USDA_API_KEY=your_usda_api_key

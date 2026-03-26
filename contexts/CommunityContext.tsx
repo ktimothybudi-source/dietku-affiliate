@@ -9,6 +9,17 @@ import { supabase } from '@/lib/supabase';
 import { uploadImageToSupabase, deleteImageFromSupabase } from '@/utils/supabaseStorage';
 
 const COMMUNITY_POST_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const COMMUNITY_PHOTO_BUCKET = 'meal-photos';
+const genUuid = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+};
 
 type DbProfile = {
   user_id: string;
@@ -67,6 +78,26 @@ type DbComment = {
 
 const toTs = (iso: string | null | undefined) => (iso ? new Date(iso).getTime() : Date.now());
 const isRemoteImage = (uri?: string | null) => !!uri && /^https?:\/\//i.test(uri);
+const getStoragePathFromUrl = (uri: string): string | null => {
+  if (!uri) return null;
+  if (!isRemoteImage(uri)) {
+    // Already a storage object path (e.g. "userId/file.jpg")
+    return uri;
+  }
+  const publicMarker = `/storage/v1/object/public/${COMMUNITY_PHOTO_BUCKET}/`;
+  const signMarker = `/storage/v1/object/sign/${COMMUNITY_PHOTO_BUCKET}/`;
+  const objectMarker = `/storage/v1/object/${COMMUNITY_PHOTO_BUCKET}/`;
+  if (uri.includes(publicMarker)) {
+    return decodeURIComponent(uri.split(publicMarker)[1]?.split('?')[0] || '');
+  }
+  if (uri.includes(signMarker)) {
+    return decodeURIComponent(uri.split(signMarker)[1]?.split('?')[0] || '');
+  }
+  if (uri.includes(objectMarker)) {
+    return decodeURIComponent(uri.split(objectMarker)[1]?.split('?')[0] || '');
+  }
+  return null;
+};
 
 export const [CommunityProvider, useCommunity] = createContextHook(() => {
   const queryClient = useQueryClient();
@@ -167,7 +198,41 @@ export const [CommunityProvider, useCommunity] = createContextHook(() => {
         .gte('created_at', oldestIso)
         .order('created_at', { ascending: false });
       if (error) throw error;
-      return (data || []) as unknown as DbPost[];
+      const rows = ((data || []) as unknown as DbPost[]);
+      const withSignedUrls = await Promise.all(rows.map(async (row) => {
+        if (!row.photo_uri) return row;
+        const path = getStoragePathFromUrl(row.photo_uri);
+        if (!path) return row;
+        const { data: signedData, error: signedError } = await supabase.storage
+          .from(COMMUNITY_PHOTO_BUCKET)
+          .createSignedUrl(path, 60 * 60 * 24 * 30);
+        if (!signedError && signedData?.signedUrl) {
+          return { ...row, photo_uri: signedData.signedUrl };
+        }
+        console.warn('Failed to create signed URL for community photo path:', path, signedError?.message);
+        const { data: publicData } = supabase.storage.from(COMMUNITY_PHOTO_BUCKET).getPublicUrl(path);
+        if (publicData?.publicUrl) {
+          return { ...row, photo_uri: publicData.publicUrl };
+        }
+        // Keep original value for debugging instead of silently dropping it.
+        return row;
+      }));
+      return withSignedUrls;
+    },
+  });
+
+  const postAuthorsQuery = useQuery({
+    queryKey: ['community_post_authors', (postsRawQuery.data || []).map((p) => p.user_id).join('|')],
+    enabled: (postsRawQuery.data || []).length > 0,
+    queryFn: async () => {
+      const authorIds = Array.from(new Set((postsRawQuery.data || []).map((p) => p.user_id)));
+      if (authorIds.length === 0) return {} as Record<string, DbProfile>;
+      const { data, error } = await supabase
+        .from('community_profiles')
+        .select('user_id, username, display_name, avatar_color, bio, created_at')
+        .in('user_id', authorIds);
+      if (error) throw error;
+      return Object.fromEntries(((data || []) as unknown as DbProfile[]).map((p) => [p.user_id, p])) as Record<string, DbProfile>;
     },
   });
 
@@ -277,7 +342,7 @@ export const [CommunityProvider, useCommunity] = createContextHook(() => {
     comments.forEach((c) => {
       commentsCountByPost[c.postId] = (commentsCountByPost[c.postId] || 0) + 1;
     });
-    const profileMap = groupMembersQuery.data?.profileMap || {};
+    const profileMap = postAuthorsQuery.data || {};
     return rows.map((p) => {
       const author = profileMap[p.user_id];
       return {
@@ -292,7 +357,13 @@ export const [CommunityProvider, useCommunity] = createContextHook(() => {
         protein: Math.round(Number(p.protein || 0)),
         carbs: Math.round(Number(p.carbs || 0)),
         fat: Math.round(Number(p.fat || 0)),
-        photoUri: p.photo_uri || undefined,
+        photoUri: p.photo_uri
+          ? (
+            isRemoteImage(p.photo_uri)
+              ? p.photo_uri
+              : supabase.storage.from(COMMUNITY_PHOTO_BUCKET).getPublicUrl(p.photo_uri).data.publicUrl
+          )
+          : undefined,
         likes: likesByPost[p.id] || [],
         commentCount: commentsCountByPost[p.id] || 0,
         createdAt: toTs(p.created_at),
@@ -300,7 +371,7 @@ export const [CommunityProvider, useCommunity] = createContextHook(() => {
         groupId: p.group_id,
       };
     });
-  }, [postsRawQuery.data, likesQuery.data, comments, groupMembersQuery.data?.profileMap]);
+  }, [postsRawQuery.data, likesQuery.data, comments, postAuthorsQuery.data]);
 
   useEffect(() => {
     if (!activeGroupId) {
@@ -337,20 +408,19 @@ export const [CommunityProvider, useCommunity] = createContextHook(() => {
     mutationFn: async (group: Omit<CommunityGroup, 'id' | 'createdAt' | 'inviteCode' | 'members'>) => {
       if (!userId) throw new Error('Not authenticated');
       const inviteCode = generateInviteCode();
-      const { data, error } = await supabase
+      const newGroupId = genUuid();
+      const { error } = await supabase
         .from('community_groups')
         .insert({
+          id: newGroupId,
           name: group.name,
           description: group.description || '',
           cover_image: group.coverImage || null,
           invite_code: inviteCode,
           created_by: userId,
           privacy: group.privacy,
-        })
-        .select('id')
-        .single();
+        });
       if (error) throw error;
-      const newGroupId = (data as any).id as string;
       const { error: memberError } = await supabase
         .from('community_group_members')
         .insert({ group_id: newGroupId, user_id: userId, role: 'admin' });
@@ -362,6 +432,9 @@ export const [CommunityProvider, useCommunity] = createContextHook(() => {
       queryClient.invalidateQueries({ queryKey: ['community_memberships'] });
       queryClient.invalidateQueries({ queryKey: ['community_groups_joined'] });
       queryClient.invalidateQueries({ queryKey: ['community_group_members_all'] });
+    },
+    onError: (error) => {
+      console.error('Failed to create community group:', JSON.stringify(error));
     },
   });
 
@@ -406,13 +479,24 @@ export const [CommunityProvider, useCommunity] = createContextHook(() => {
     mutationFn: async (post: Omit<FoodPost, 'id' | 'createdAt' | 'likes' | 'commentCount'>) => {
       if (!userId || !activeGroupId) throw new Error('Missing auth or active group');
       let photoUri = post.photoUri || null;
+      console.log('Community createPost incoming photoUri:', photoUri);
       if (photoUri && !isRemoteImage(photoUri)) {
         try {
           photoUri = await uploadImageToSupabase(photoUri, userId);
+          console.log('Community createPost uploaded photo storage path:', photoUri);
         } catch (error) {
-          console.error('Failed to upload community photo, keeping local URI:', error);
+          console.error('Failed to upload community photo, dropping invalid local URI:', error);
+          photoUri = null;
         }
       }
+      // Persist storage path in DB (more stable than storing temporary signed URLs).
+      if (photoUri) {
+        const normalizedPath = getStoragePathFromUrl(photoUri);
+        if (normalizedPath) {
+          photoUri = normalizedPath;
+        }
+      }
+      console.log('Community createPost final photo_uri payload:', photoUri);
       const { error } = await supabase.from('community_posts').insert({
         user_id: userId,
         group_id: activeGroupId,
@@ -429,6 +513,9 @@ export const [CommunityProvider, useCommunity] = createContextHook(() => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['community_posts'] });
+    },
+    onError: (error) => {
+      console.error('Failed to create community post:', error);
     },
   });
 
@@ -483,9 +570,19 @@ export const [CommunityProvider, useCommunity] = createContextHook(() => {
       if (error) throw error;
 
       const photoUri = (existingPost as { photo_uri?: string | null } | null)?.photo_uri;
-      if (photoUri && isRemoteImage(photoUri)) {
+      if (photoUri) {
         try {
-          await deleteImageFromSupabase(photoUri);
+          const storagePath = getStoragePathFromUrl(photoUri);
+          if (storagePath) {
+            const { error: storageError } = await supabase.storage
+              .from(COMMUNITY_PHOTO_BUCKET)
+              .remove([storagePath]);
+            if (storageError) {
+              throw storageError;
+            }
+          } else if (isRemoteImage(photoUri)) {
+            await deleteImageFromSupabase(photoUri);
+          }
         } catch (storageError) {
           // Keep post deletion successful even if storage cleanup fails.
           console.error('Failed to delete community post image from storage:', storageError);
@@ -522,8 +619,13 @@ export const [CommunityProvider, useCommunity] = createContextHook(() => {
 
   const getPostComments = useCallback((postId: string) => comments.filter((c) => c.postId === postId), [comments]);
   const joinGroup = useCallback((groupId: string) => joinGroupMutation.mutate(groupId), [joinGroupMutation]);
+  const joinGroupAsync = useCallback(async (groupId: string) => {
+    return await joinGroupMutation.mutateAsync(groupId);
+  }, [joinGroupMutation]);
   const leaveGroup = useCallback((groupId: string) => leaveGroupMutation.mutate(groupId), [leaveGroupMutation]);
-  const createGroup = useCallback((group: Omit<CommunityGroup, 'id' | 'createdAt' | 'inviteCode' | 'members'>) => createGroupMutation.mutate(group), [createGroupMutation]);
+  const createGroup = useCallback(async (group: Omit<CommunityGroup, 'id' | 'createdAt' | 'inviteCode' | 'members'>) => {
+    await createGroupMutation.mutateAsync(group);
+  }, [createGroupMutation]);
   const switchActiveGroup = useCallback((groupId: string) => setActiveGroupId(groupId), []);
   const findGroupByInviteCode = useCallback((code: string): CommunityGroup | undefined => {
     const upperCode = code.toUpperCase().trim();
@@ -575,6 +677,7 @@ export const [CommunityProvider, useCommunity] = createContextHook(() => {
     allGroups,
     discoverableGroups,
     joinGroup,
+    joinGroupAsync,
     leaveGroup,
     createGroup,
     switchActiveGroup,

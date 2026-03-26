@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { MealAnalysis } from '@/types/nutrition';
+import { callAIProxy } from '@/utils/aiProxy';
 
 const foodItemSchema = z.object({
   name: z.string().describe('Name of the food item'),
@@ -31,47 +32,16 @@ const mealAnalysisSchema = z.object({
 });
 
 export async function analyzeMealPhoto(base64Image: string): Promise<MealAnalysis> {
-  // Temporary offline implementation: generate deterministic pseudo-random values
-  // based on the image size so the UI keeps working without calling OpenAI.
-  const hash = base64Image.length || 1;
+  const json = await callAIProxy<any>('meal-analysis', { base64Image });
+  const content: string | undefined = json?.choices?.[0]?.message?.content;
+  if (!content) {
+    throw new Error('OpenAI returned empty response');
+  }
 
-  const baseCalories = 300 + (hash % 400); // 300–699
-  const protein = 10 + (hash % 30); // 10–39 g
-  const carbs = 20 + (hash % 60); // 20–79 g
-  const fat = 5 + (hash % 25); // 5–29 g
-  const sugar = 5 + (hash % 20); // 5–24 g
-  const fiber = 3 + (hash % 10); // 3–12 g
-  const sodium = 200 + (hash % 800); // 200–999 mg
-
-  const meal: MealAnalysis = {
-    items: [
-      {
-        name: 'Makanan',
-        portion: '1 porsi',
-        caloriesMin: baseCalories - 50,
-        caloriesMax: baseCalories + 50,
-        proteinMin: protein - 3,
-        proteinMax: protein + 3,
-        carbsMin: carbs - 5,
-        carbsMax: carbs + 5,
-        fatMin: fat - 2,
-        fatMax: fat + 2,
-        sugarMin: sugar - 2,
-        sugarMax: sugar + 2,
-        fiberMin: fiber - 1,
-        fiberMax: fiber + 1,
-        sodiumMin: sodium - 100,
-        sodiumMax: sodium + 100,
-      },
-    ],
-    totalCaloriesMin: baseCalories - 50,
-    totalCaloriesMax: baseCalories + 50,
-    totalProteinMin: protein - 3,
-    totalProteinMax: protein + 3,
-    confidence: 'low',
-    tips: [],
-  };
-
-  const validated = mealAnalysisSchema.parse(meal);
-  return validated;
+  const cleaned = content
+    .replace(/```json/g, '')
+    .replace(/```/g, '')
+    .trim();
+  const parsed = JSON.parse(cleaned);
+  return mealAnalysisSchema.parse(parsed);
 }

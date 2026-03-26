@@ -77,6 +77,7 @@ const PostCard = React.memo(({ post, onLike, onComment, onDelete, currentUserId,
   const isOwn = currentUserId === post.userId;
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const isAutoLog = (post as { isAutoLog?: boolean }).isAutoLog ?? !post.caption;
+  const [imageFailed, setImageFailed] = useState(false);
 
   const handleLike = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -138,8 +139,13 @@ const PostCard = React.memo(({ post, onLike, onComment, onDelete, currentUserId,
             </View>
           )}
         </View>
-        {post.photoUri ? (
-          <Image source={{ uri: post.photoUri }} style={styles.postFoodImage} resizeMode="cover" />
+        {post.photoUri && !imageFailed ? (
+          <Image
+            source={{ uri: post.photoUri }}
+            style={styles.postFoodImage}
+            resizeMode="cover"
+            onError={() => setImageFailed(true)}
+          />
         ) : null}
         <View style={styles.macroRow}>
           <View style={styles.macroItem}>
@@ -192,6 +198,8 @@ const PostCard = React.memo(({ post, onLike, onComment, onDelete, currentUserId,
     </View>
   );
 });
+
+PostCard.displayName = 'PostCard';
 
 type GroupTab = 'feed' | 'chat' | 'leaderboard';
 
@@ -521,6 +529,15 @@ export default function CommunityScreen() {
               >
                 <Plus size={18} color={theme.primary} strokeWidth={2.5} />
                 <Text style={[styles.createGroupBtnText, { color: theme.text }]}>Buat Grup Baru</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.createGroupBtn, { borderColor: theme.border, backgroundColor: theme.card }]}
+                onPress={() => router.push('/browse-groups')}
+                activeOpacity={0.8}
+                testID="community-join-group-by-code"
+              >
+                <Search size={18} color={theme.primary} strokeWidth={2.5} />
+                <Text style={[styles.createGroupBtnText, { color: theme.text }]}>Gabung dengan Kode</Text>
               </TouchableOpacity>
             </View>
 

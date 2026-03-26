@@ -3,9 +3,7 @@ import {
   View,
   Text,
   StyleSheet,
-  FlatList,
   TouchableOpacity,
-  Image,
   TextInput,
   Alert,
   KeyboardAvoidingView,
@@ -15,14 +13,61 @@ import { Stack, router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useCommunity } from '@/contexts/CommunityContext';
 import { useNutrition } from '@/contexts/NutritionContext';
-import { CommunityGroup } from '@/types/community';
-import { Search, Users, Lock, Globe, Ticket, ArrowRight } from 'lucide-react-native';
+import { supabase } from '@/lib/supabase';
+import { Ticket, ArrowRight } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 
 export default function BrowseGroupsScreen() {
   const { theme } = useTheme();
-  const {} = useCommunity();
-  const {} = useNutrition();
+  const { joinGroupAsync, hasProfile } = useCommunity();
+  const { authState } = useNutrition();
+  const [inviteCode, setInviteCode] = useState('');
+  const [isJoining, setIsJoining] = useState(false);
+
+  const handleJoinByCode = useCallback(async () => {
+    const code = inviteCode.trim().toUpperCase();
+    if (!code) {
+      Alert.alert('Kode Kosong', 'Masukkan kode undangan grup.');
+      return;
+    }
+    if (!authState.isSignedIn) {
+      Alert.alert('Masuk Diperlukan', 'Silakan masuk terlebih dahulu.');
+      return;
+    }
+    if (!hasProfile) {
+      Alert.alert('Profil Komunitas', 'Silakan lengkapi profil komunitas terlebih dahulu.');
+      router.push('/setup-community-profile');
+      return;
+    }
+
+    setIsJoining(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    try {
+      const { data, error } = await supabase
+        .from('community_groups')
+        .select('id')
+        .eq('invite_code', code)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data?.id) {
+        Alert.alert('Kode Tidak Ditemukan', 'Kode grup tidak valid. Coba cek lagi.');
+        return;
+      }
+
+      await joinGroupAsync(data.id);
+      Alert.alert('Berhasil', 'Kamu berhasil bergabung ke grup.');
+      router.back();
+    } catch (error) {
+      console.error('Join group by code error:', error);
+      if (error instanceof Error) {
+        Alert.alert('Gagal Gabung Grup', error.message || 'Terjadi kesalahan saat memproses kode.');
+      } else {
+        Alert.alert('Gagal Gabung Grup', 'Terjadi kesalahan saat memproses kode.');
+      }
+    } finally {
+      setIsJoining(false);
+    }
+  }, [inviteCode, authState.isSignedIn, hasProfile, joinGroupAsync]);
 
   return (
     <>
@@ -35,22 +80,46 @@ export default function BrowseGroupsScreen() {
         }}
       />
 
-      <View style={[styles.container, { backgroundColor: theme.background }]}>
-        <View style={styles.emptyState}>
-          <Users size={40} color={theme.textTertiary} />
-          <Text style={[styles.emptyTitle, { color: theme.text }]}>Fitur Dinonaktifkan</Text>
-          <Text style={[styles.emptyDesc, { color: theme.textSecondary }]}>
-            Fitur grup publik dinonaktifkan sementara. Silakan kembali ke halaman Komunitas.
-          </Text>
-          <TouchableOpacity
-            style={[styles.joinCodeBtn, { backgroundColor: theme.primary, marginTop: 12 }]}
-            onPress={() => router.back()}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.joinCodeBtnText}>Kembali</Text>
-          </TouchableOpacity>
+      <KeyboardAvoidingView
+        style={[styles.container, { backgroundColor: theme.background }]}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <View style={styles.codeSection}>
+          <View style={[styles.codeCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <View style={[styles.codeIconWrap, { backgroundColor: theme.primary + '12' }]}>
+              <Ticket size={34} color={theme.primary} />
+            </View>
+            <Text style={[styles.codeTitle, { color: theme.text }]}>Gabung Dengan Kode</Text>
+            <Text style={[styles.codeDesc, { color: theme.textSecondary }]}>
+              Masukkan kode undangan dari admin grup untuk langsung bergabung ke grup privat.
+            </Text>
+            <View style={[styles.codeInputWrap, { borderColor: theme.border }]}>
+              <TextInput
+                style={[styles.codeInput, { color: theme.text }]}
+                value={inviteCode}
+                onChangeText={(text) => setInviteCode(text.replace(/[^A-Za-z0-9]/g, '').toUpperCase())}
+                placeholder="ABC123"
+                placeholderTextColor={theme.textTertiary}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                maxLength={6}
+                returnKeyType="done"
+              />
+            </View>
+            <TouchableOpacity
+              style={[styles.joinCodeBtn, { backgroundColor: theme.primary }]}
+              onPress={handleJoinByCode}
+              activeOpacity={0.8}
+              disabled={isJoining}
+            >
+              <Text style={[styles.joinCodeBtnText, { color: '#FFFFFF' }]}>
+                {isJoining ? 'Menggabungkan...' : 'Gabung Grup'}
+              </Text>
+              {!isJoining ? <ArrowRight size={18} color="#FFFFFF" /> : null}
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </>
   );
 }

@@ -64,7 +64,7 @@ EXPO_PUBLIC_SUPABASE_URL=https://xxxxx.supabase.co
 EXPO_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 # OpenAI API Key
-EXPO_PUBLIC_OPENAI_API_KEY=sk-...
+OPENAI_API_KEY=sk-...
 
 # USDA API Key (optional)
 EXPO_PUBLIC_USDA_API_KEY=your_usda_api_key
@@ -93,7 +93,7 @@ RORK_PROJECT_ID=your_rork_project_id
 1. Go to API Keys section
 2. Click "Create new secret key"
 3. Copy the key (starts with `sk-...`)
-4. Add to `.env` as `EXPO_PUBLIC_OPENAI_API_KEY`
+4. Add to `.env` as `OPENAI_API_KEY` (server-side only)
 
 ### 3. Set Usage Limits (Recommended)
 1. Go to Billing → Usage limits

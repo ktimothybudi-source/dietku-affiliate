@@ -17,7 +17,7 @@ import { useNutrition } from '@/contexts/NutritionContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useNotifications } from '@/contexts/NotificationContext';
 import { Goal, ActivityLevel, Sex } from '@/types/nutrition';
-import { ArrowRight, ArrowLeft, Sparkles, Globe, Footprints, Heart } from 'lucide-react-native';
+import { ArrowRight, ArrowLeft, Sparkles, Globe } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { Svg, Path, Circle, G } from 'react-native-svg';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -26,7 +26,6 @@ import { ANIMATION_DURATION, SPRING_CONFIG } from '@/constants/animations';
 import * as WebBrowser from 'expo-web-browser';
 import { makeRedirectUri } from 'expo-auth-session';
 import { supabase } from '@/lib/supabase';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { onboardingStyles as styles } from '@/styles/onboardingStyles';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -258,7 +257,8 @@ export default function OnboardingScreen() {
   const handleNext = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
-    if (step === 13) {
+    // Show fake loading right before the final plan page.
+    if (step === 12) {
       Keyboard.dismiss();
       Animated.timing(fadeAnim, {
         toValue: 0,
@@ -456,21 +456,6 @@ export default function OnboardingScreen() {
   //   openSubscription();
   // }, [openSubscription]);
 
-  const handleEnableHealthConnect = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    try {
-      AsyncStorage.setItem('health_connect_enabled', 'true');
-    } catch (e) {
-      console.log('Error saving health connect preference:', e);
-    }
-    handleNext();
-  }, [handleNext]);
-
-  const handleSkipHealthConnect = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    handleNext();
-  }, [handleNext]);
-
   const handleEnableNotifications = useCallback(async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     await enableNotifications();
@@ -500,7 +485,7 @@ export default function OnboardingScreen() {
         }}
         activeOpacity={0.7}
       >
-        <Globe size={16} color="#6C63FF" />
+        <Globe size={16} color="#22C55E" />
         <Text style={styles.languageText}>{language === 'id' ? 'ID' : 'EN'}</Text>
       </TouchableOpacity>
 
@@ -563,7 +548,7 @@ export default function OnboardingScreen() {
         <TouchableOpacity style={styles.introPrimaryButton} onPress={handleNext} activeOpacity={0.85}>
           <Text style={styles.introPrimaryButtonText}>Mulai Perjalananmu</Text>
           <View style={styles.introButtonIconCircle}>
-            <ArrowRight size={16} color="#6C63FF" />
+            <ArrowRight size={16} color="#22C55E" />
           </View>
         </TouchableOpacity>
 
@@ -663,10 +648,10 @@ export default function OnboardingScreen() {
         >
           <View style={[styles.genderIconCircle, sex === 'male' && styles.genderIconCircleActive]}>
             <Svg width="60" height="60" viewBox="0 0 24 24" fill="none">
-              <Circle cx="12" cy="12" r="5" stroke={sex === 'male' ? '#6C63FF' : '#999999'} strokeWidth="2" />
+              <Circle cx="12" cy="12" r="5" stroke={sex === 'male' ? '#22C55E' : '#999999'} strokeWidth="2" />
               <Path
                 d="M17 7L22 2M22 2h-5M22 2v5"
-                stroke={sex === 'male' ? '#6C63FF' : '#999999'}
+                stroke={sex === 'male' ? '#22C55E' : '#999999'}
                 strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -686,10 +671,10 @@ export default function OnboardingScreen() {
         >
           <View style={[styles.genderIconCircle, sex === 'female' && styles.genderIconCircleActive]}>
             <Svg width="60" height="60" viewBox="0 0 24 24" fill="none">
-              <Circle cx="12" cy="9" r="5" stroke={sex === 'female' ? '#6C63FF' : '#999999'} strokeWidth="2" />
+              <Circle cx="12" cy="9" r="5" stroke={sex === 'female' ? '#22C55E' : '#999999'} strokeWidth="2" />
               <Path
                 d="M12 14v8M9 19h6"
-                stroke={sex === 'female' ? '#6C63FF' : '#999999'}
+                stroke={sex === 'female' ? '#22C55E' : '#999999'}
                 strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -878,7 +863,7 @@ export default function OnboardingScreen() {
           <Svg width="64" height="64" viewBox="0 0 24 24" fill="none">
             <Path
               d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-              stroke="#6C63FF"
+              stroke="#22C55E"
               strokeWidth="2"
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -1150,7 +1135,7 @@ export default function OnboardingScreen() {
             <Svg width="64" height="64" viewBox="0 0 24 24" fill="none">
               <Path
                 d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                stroke="#6C63FF"
+                stroke="#22C55E"
                 strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -1277,7 +1262,7 @@ export default function OnboardingScreen() {
           <Svg width="64" height="64" viewBox="0 0 24 24" fill="none">
             <Path
               d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
-              fill="#6C63FF"
+              fill="#22C55E"
             />
           </Svg>
         </View>
@@ -1294,45 +1279,6 @@ export default function OnboardingScreen() {
     </View>
   );
   */
-
-  const renderHealthConnect = () => (
-    <View style={styles.stepContainer}>
-      <View style={styles.reassuranceContainer}>
-        <View style={[styles.reassuranceIconCircle, { backgroundColor: 'rgba(59, 130, 246, 0.12)' }]}> 
-          <Footprints size={48} color="#3B82F6" />
-        </View>
-        <Text style={styles.reassuranceTitle}>Lacak langkah{'\n'}& aktivitas Anda</Text>
-        <Text style={styles.reassuranceSubtitle}>
-          Hubungkan dengan Apple Health atau Google Fit untuk melacak langkah dan kalori terbakar secara otomatis.
-        </Text>
-      </View>
-
-      <View style={styles.healthFeatures}>
-        <View style={styles.healthFeatureRow}>
-          <View style={styles.healthFeatureDot}>
-            <Footprints size={16} color="#3B82F6" />
-          </View>
-          <Text style={styles.healthFeatureText}>Langkah harian otomatis</Text>
-        </View>
-        <View style={styles.healthFeatureRow}>
-          <View style={[styles.healthFeatureDot, { backgroundColor: 'rgba(239, 68, 68, 0.1)' }]}> 
-            <Heart size={16} color="#EF4444" />
-          </View>
-          <Text style={styles.healthFeatureText}>Kalori terbakar dari aktivitas</Text>
-        </View>
-      </View>
-
-      <View style={styles.notificationButtons}>
-        <TouchableOpacity style={[styles.primaryButton, { backgroundColor: '#3B82F6' }]} onPress={handleEnableHealthConnect} activeOpacity={0.8}>
-          <Text style={styles.primaryButtonText}>Hubungkan Sekarang</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.skipButton} onPress={handleSkipHealthConnect} activeOpacity={0.7}>
-          <Text style={styles.skipButtonText}>Nanti saja</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
 
   const renderNotificationPermission = () => (
     <View style={styles.stepContainer}>
@@ -1375,7 +1321,7 @@ export default function OnboardingScreen() {
                 cx="70"
                 cy="70"
                 r="60"
-                stroke="#6C63FF"
+                stroke="#22C55E"
                 strokeWidth="8"
                 fill="none"
                 strokeLinecap="round"
@@ -1385,7 +1331,7 @@ export default function OnboardingScreen() {
             </G>
           </Svg>
           <View style={styles.circularProgressTextContainer}>
-            <Sparkles size={32} color="#6C63FF" />
+            <Sparkles size={32} color="#22C55E" />
           </View>
         </View>
         <Text style={styles.loadingTitle}>Membuat rencana{'\n'}khusus Anda</Text>
@@ -1462,7 +1408,7 @@ export default function OnboardingScreen() {
                   cx="100"
                   cy="100"
                   r="70"
-                  stroke="#6C63FF"
+                  stroke="#22C55E"
                   strokeWidth="22"
                   fill="none"
                   strokeDasharray={`${(proteinPercent / 100) * 439.8} 439.8`}
@@ -1492,7 +1438,7 @@ export default function OnboardingScreen() {
               <Text style={styles.legendText}>Karbo {carbsPercent}%</Text>
             </View>
             <View style={styles.legendItem}>
-              <View style={[styles.legendDot, { backgroundColor: '#6C63FF' }]} />
+              <View style={[styles.legendDot, { backgroundColor: '#22C55E' }]} />
               <Text style={styles.legendText}>Protein {proteinPercent}%</Text>
             </View>
             <View style={styles.legendItem}>
@@ -1721,7 +1667,7 @@ export default function OnboardingScreen() {
           <Svg width="64" height="64" viewBox="0 0 24 24" fill="none">
             <Path
               d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-              fill="#6C63FF"
+              fill="#22C55E"
             />
           </Svg>
         </View>
@@ -1835,6 +1781,7 @@ export default function OnboardingScreen() {
           <View style={styles.dividerLine} />
         </View>
 
+        {false && (
         <TouchableOpacity style={styles.googleButton} onPress={handleGoogleSignIn} activeOpacity={0.7} disabled={isGoogleSigningIn}>
           <Svg width="20" height="20" viewBox="0 0 24 24" fill="none">
             <Path
@@ -1856,6 +1803,7 @@ export default function OnboardingScreen() {
           </Svg>
           <Text style={styles.googleButtonText}>{isGoogleSigningIn ? 'Memproses...' : 'Lanjutkan dengan Google'}</Text>
         </TouchableOpacity>
+        )}
       </View>
     </View>
   );
@@ -1891,16 +1839,16 @@ export default function OnboardingScreen() {
       case 12:
         return renderDietType();
       case 13:
-        // HIDDEN: Third carousel (renderThanks)
         return renderFinal();
       case 14:
-        return renderFinal();
-      case 15:
         return renderSignIn();
-      case 16:
+      case 15:
         return renderThankYouName();
+      case 16:
+        return renderNotificationPermission();
       case 17:
-        return renderHealthConnect();
+        // Keep compatibility for older saved step states.
+        return renderNotificationPermission();
       case 18:
         return renderNotificationPermission();
       default:

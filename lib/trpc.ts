@@ -7,7 +7,7 @@ import type { AppRouter } from "@/backend/trpc/app-router";
 export const trpc = createTRPCReact<AppRouter>();
 
 const getBaseUrl = (): string => {
-  const envUrl = process.env.EXPO_PUBLIC_RORK_API_BASE_URL;
+  const envUrl = process.env.EXPO_PUBLIC_API_BASE_URL || process.env.EXPO_PUBLIC_RORK_API_BASE_URL;
 
   if (envUrl) {
     return envUrl;
@@ -28,14 +28,14 @@ const getBaseUrl = (): string => {
 
   if (webOrigin) {
     console.warn(
-      "[trpc] EXPO_PUBLIC_RORK_API_BASE_URL is missing. Falling back to web origin.",
+      "[trpc] EXPO_PUBLIC_API_BASE_URL is missing. Falling back to web origin.",
     );
     return webOrigin;
   }
 
   const localFallback = "http://localhost:8081";
   console.warn(
-    "[trpc] EXPO_PUBLIC_RORK_API_BASE_URL is missing. Falling back to http://localhost:8081.",
+    "[trpc] EXPO_PUBLIC_API_BASE_URL is missing. Falling back to http://localhost:8081.",
   );
   return localFallback;
 };

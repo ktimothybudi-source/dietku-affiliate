@@ -29,9 +29,11 @@ export default function CreateGroupScreen() {
   const [name, setName] = useState('');
   const [privacy, setPrivacy] = useState<Privacy>('private');
   const [selectedCover, setSelectedCover] = useState(GROUP_COVERS[0]);
+  const [isCreating, setIsCreating] = useState(false);
 
-  const handleCreate = useCallback(() => {
+  const handleCreate = useCallback(async () => {
     console.log('create-group:submit', name, privacy);
+    if (isCreating) return;
     if (!name.trim()) {
       Alert.alert('Nama Diperlukan', 'Masukkan nama untuk grup kamu.');
       return;
@@ -40,17 +42,36 @@ export default function CreateGroupScreen() {
       Alert.alert('Nama Terlalu Pendek', 'Nama grup minimal 3 karakter.');
       return;
     }
-    createGroup({
-      name: name.trim(),
-      description: '',
-      coverImage: selectedCover,
-      privacy,
-      creatorId: authState.userId || 'local',
-    });
+    if (!authState.userId) {
+      Alert.alert('Masuk Diperlukan', 'Silakan masuk kembali lalu coba buat grup.');
+      return;
+    }
 
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    router.back();
-  }, [name, privacy, selectedCover, createGroup, authState.userId]);
+    if (!hasProfile) {
+      Alert.alert('Profil Komunitas Diperlukan', 'Buat profil komunitas dulu sebelum membuat grup.');
+      return;
+    }
+
+    try {
+      setIsCreating(true);
+      await createGroup({
+        name: name.trim(),
+        description: '',
+        coverImage: selectedCover,
+        privacy,
+        creatorId: authState.userId,
+      });
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      router.back();
+    } catch (error) {
+      console.error('create-group failed:', error);
+      const message = error instanceof Error ? error.message : 'Gagal membuat grup. Coba lagi.';
+      Alert.alert('Gagal Buat Grup', message);
+    } finally {
+      setIsCreating(false);
+    }
+  }, [name, privacy, selectedCover, createGroup, authState.userId, hasProfile, isCreating]);
 
   return (
     <>
@@ -159,12 +180,13 @@ export default function CreateGroupScreen() {
           </View>
 
           <TouchableOpacity
-            style={[styles.createBtn, { backgroundColor: theme.primary }]}
+            style={[styles.createBtn, { backgroundColor: theme.primary }, isCreating && { opacity: 0.6 }]}
             onPress={handleCreate}
             activeOpacity={0.8}
+            disabled={isCreating}
             testID="create-group-submit"
           >
-            <Text style={styles.createBtnText}>Buat Grup</Text>
+            <Text style={styles.createBtnText}>{isCreating ? 'Membuat...' : 'Buat Grup'}</Text>
           </TouchableOpacity>
 
           <View style={{ height: 60 }} />

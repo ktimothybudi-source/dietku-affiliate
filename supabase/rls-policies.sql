@@ -131,17 +131,56 @@ CREATE POLICY "Group creators can update their groups"
   USING (auth.uid() = created_by);
 
 -- Community group members policies
+CREATE OR REPLACE FUNCTION public.is_member_of_group(p_group_id uuid, p_user_id uuid)
+RETURNS boolean
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM community_group_members m
+    WHERE m.group_id = p_group_id
+      AND m.user_id = p_user_id
+  );
+$$;
+
+REVOKE ALL ON FUNCTION public.is_member_of_group(uuid, uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.is_member_of_group(uuid, uuid) TO authenticated;
+
 CREATE POLICY "Users can view group members"
   ON community_group_members FOR SELECT
-  USING (true);
+  USING (
+    auth.uid() = user_id
+    OR public.is_member_of_group(group_id, auth.uid())
+    OR EXISTS (
+      SELECT 1 FROM community_groups
+      WHERE community_groups.id = community_group_members.group_id
+      AND community_groups.created_by = auth.uid()
+    )
+  );
 
 CREATE POLICY "Users can join groups"
   ON community_group_members FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
+  WITH CHECK (
+    auth.uid() = user_id
+    OR EXISTS (
+      SELECT 1 FROM community_groups
+      WHERE community_groups.id = community_group_members.group_id
+      AND community_groups.created_by = auth.uid()
+    )
+  );
 
 CREATE POLICY "Users can leave groups"
   ON community_group_members FOR DELETE
-  USING (auth.uid() = user_id);
+  USING (
+    auth.uid() = user_id
+    OR EXISTS (
+      SELECT 1 FROM community_groups
+      WHERE community_groups.id = community_group_members.group_id
+      AND community_groups.created_by = auth.uid()
+    )
+  );
 
 -- Community posts policies
 CREATE POLICY "Users can view posts in groups they're members of"

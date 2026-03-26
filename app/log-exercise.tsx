@@ -17,6 +17,7 @@ import { ArrowLeft, X, Check, Flame, Clock, Zap, MessageSquare, Edit3, Footprint
 import { useTheme } from '@/contexts/ThemeContext';
 import { useExercise } from '@/contexts/ExerciseContext';
 import { QUICK_EXERCISES, QuickExercise, ExerciseType } from '@/types/exercise';
+import { estimateExerciseFromText } from '@/utils/exerciseAi';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -74,54 +75,7 @@ export default function LogExerciseScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
-      const apiKey = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
-      if (!apiKey) {
-        const estimatedCalories = Math.round(50 + Math.random() * 200);
-        addExercise({
-          type: 'describe' as ExerciseType,
-          name: description.trim(),
-          caloriesBurned: estimatedCalories,
-          description: description.trim(),
-        });
-        setDescription('');
-        setIsAnalyzing(false);
-        return;
-      }
-
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [
-            {
-              role: 'system',
-              content: 'You estimate calories burned from exercise descriptions. Return ONLY a JSON object with "calories" (number) and "name" (short exercise name in Indonesian). Example: {"calories": 250, "name": "Renang 30 menit"}'
-            },
-            {
-              role: 'user',
-              content: `Estimate calories burned: "${description.trim()}"`
-            }
-          ],
-          max_tokens: 100,
-          temperature: 0.3,
-        }),
-      });
-
-      const data = await response.json();
-      const content = data.choices?.[0]?.message?.content || '';
-      console.log('AI exercise estimation:', content);
-
-      let parsed: { calories: number; name: string };
-      try {
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
-        parsed = JSON.parse(jsonMatch ? jsonMatch[0] : content);
-      } catch {
-        parsed = { calories: 150, name: description.trim().slice(0, 30) };
-      }
+      const parsed = await estimateExerciseFromText(description.trim());
 
       addExercise({
         type: 'describe' as ExerciseType,

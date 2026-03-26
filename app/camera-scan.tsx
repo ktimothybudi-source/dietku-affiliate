@@ -1,5 +1,5 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import React, { useMemo, useRef, useState, useEffect } from 'react';
+import React, { useMemo, useRef, useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   Pressable,
   Linking,
   Animated,
+  Alert,
 } from 'react-native';
 import { Stack, router } from 'expo-router';
 import { X, HelpCircle, Zap, ZapOff, ImageIcon } from 'lucide-react-native';
@@ -19,12 +20,21 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNutrition } from '@/contexts/NutritionContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ANIMATION_DURATION } from '@/constants/animations';
+import { callAIProxy } from '@/utils/aiProxy';
 
 type FlashMode = 'off' | 'auto' | 'on';
+const SCAN_LIMIT = 3;
+
+type ScanQuotaResponse = {
+  allowed: boolean;
+  limit: number;
+  remaining: number;
+  resetInSec: number;
+};
 
 export default function CameraScanScreen() {
   const insets = useSafeAreaInsets();
-  const { addPendingEntry } = useNutrition();
+  const { addPendingEntry, authState } = useNutrition();
 
   const cameraRef = useRef<CameraView>(null);
 
@@ -33,18 +43,26 @@ export default function CameraScanScreen() {
   const [flashMode, setFlashMode] = useState<FlashMode>('off');
   const [helpOpen, setHelpOpen] = useState(false);
   const [showHelper, setShowHelper] = useState(false);
+  const [remainingScans, setRemainingScans] = useState(SCAN_LIMIT);
+  const [timeUntilResetMs, setTimeUntilResetMs] = useState(0);
 
   const logo = useMemo(() => require('@/assets/images/icon.png'), []);
-
   const shutterScale = useRef(new Animated.Value(1)).current;
   const cornerPulse = useRef(new Animated.Value(1)).current;
 
-  useEffect(() => {
-    checkHelperText();
-    startCornerPulse();
-  }, []);
+  const refreshScanQuota = useCallback(async () => {
+    try {
+      const quota = await callAIProxy<ScanQuotaResponse>('meal-analysis-quota', {
+        userId: authState.userId || undefined,
+      });
+      setRemainingScans(Math.max(0, quota.remaining));
+      setTimeUntilResetMs(Math.max(0, quota.resetInSec * 1000));
+    } catch (error) {
+      console.error('Failed to fetch scan quota:', error);
+    }
+  }, [authState.userId]);
 
-  const checkHelperText = async () => {
+  const checkHelperText = useCallback(async () => {
     try {
       const seen = await AsyncStorage.getItem('camera_helper_seen');
       if (!seen) {
@@ -55,9 +73,9 @@ export default function CameraScanScreen() {
     } catch {
       // no-op
     }
-  };
+  }, []);
 
-  const startCornerPulse = () => {
+  const startCornerPulse = useCallback(() => {
     Animated.loop(
       Animated.sequence([
         Animated.timing(cornerPulse, {
@@ -72,6 +90,53 @@ export default function CameraScanScreen() {
         }),
       ])
     ).start();
+  }, [cornerPulse]);
+
+  useEffect(() => {
+    checkHelperText();
+    startCornerPulse();
+  }, [checkHelperText, startCornerPulse]);
+
+  useEffect(() => {
+    refreshScanQuota();
+  }, [refreshScanQuota]);
+
+  useEffect(() => {
+    const tick = () => setTimeUntilResetMs((prev) => Math.max(0, prev - 1000));
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      refreshScanQuota();
+    }, 15_000);
+    return () => clearInterval(interval);
+  }, [refreshScanQuota]);
+
+  const hasReachedLimit = remainingScans === 0;
+
+  const formatDuration = (ms: number) => {
+    const totalSeconds = Math.ceil(Math.max(0, ms) / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  };
+
+  const consumeScanQuota = async (): Promise<boolean> => {
+    try {
+      const quota = await callAIProxy<ScanQuotaResponse>('meal-analysis-quota', {
+        userId: authState.userId || undefined,
+        consume: true,
+      });
+      setRemainingScans(Math.max(0, quota.remaining));
+      setTimeUntilResetMs(Math.max(0, quota.resetInSec * 1000));
+      return quota.allowed;
+    } catch (error) {
+      console.error('Failed to consume scan quota:', error);
+      return false;
+    }
   };
 
   const ensureCameraPermission = async () => {
@@ -89,6 +154,11 @@ export default function CameraScanScreen() {
   };
 
   const handleTakePhoto = async () => {
+    if (hasReachedLimit) {
+      Alert.alert('Batas scan tercapai', `Maksimal ${SCAN_LIMIT} scan per 24 jam. Coba lagi dalam ${formatDuration(timeUntilResetMs)}.`);
+      return;
+    }
+
     const ok = await ensureCameraPermission();
     if (!ok) return;
 
@@ -120,6 +190,12 @@ export default function CameraScanScreen() {
         return;
       }
 
+      const allowed = await consumeScanQuota();
+      if (!allowed) {
+        Alert.alert('Batas scan tercapai', `Maksimal ${SCAN_LIMIT} scan per 24 jam. Coba lagi dalam ${formatDuration(timeUntilResetMs)}.`);
+        return;
+      }
+
       addPendingEntry(photo.uri, photo.base64);
       router.back();
     } catch (error) {
@@ -128,6 +204,11 @@ export default function CameraScanScreen() {
   };
 
   const handleGalleryPick = async () => {
+    if (hasReachedLimit) {
+      Alert.alert('Batas scan tercapai', `Maksimal ${SCAN_LIMIT} scan per 24 jam. Coba lagi dalam ${formatDuration(timeUntilResetMs)}.`);
+      return;
+    }
+
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
     try {
@@ -141,6 +222,12 @@ export default function CameraScanScreen() {
       if (!result.canceled && result.assets[0]) {
         const asset = result.assets[0];
         if (asset.uri && asset.base64) {
+          const allowed = await consumeScanQuota();
+          if (!allowed) {
+            Alert.alert('Batas scan tercapai', `Maksimal ${SCAN_LIMIT} scan per 24 jam. Coba lagi dalam ${formatDuration(timeUntilResetMs)}.`);
+            return;
+          }
+
           addPendingEntry(asset.uri, asset.base64);
           router.back();
         }
@@ -243,6 +330,14 @@ export default function CameraScanScreen() {
               {showHelper && (
                 <Text style={styles.helperText}>Posisikan makanan di dalam area</Text>
               )}
+              <View style={styles.scanLimitPill}>
+                <Text style={styles.scanLimitText}>
+                  {`Scan tersisa: ${remainingScans}/${SCAN_LIMIT}`}
+                </Text>
+                <Text style={styles.scanLimitSubtext}>
+                  {`Reset dalam ${formatDuration(timeUntilResetMs)}`}
+                </Text>
+              </View>
               <View style={styles.focusFrame}>
                 <Animated.View 
                   style={[
@@ -294,19 +389,20 @@ export default function CameraScanScreen() {
 
               <Animated.View style={{ transform: [{ scale: shutterScale }] }}>
                 <TouchableOpacity
-                  style={[styles.shutterOuter, !granted && { opacity: 0.55 }]}
+                  style={[styles.shutterOuter, (!granted || hasReachedLimit) && { opacity: 0.55 }]}
                   onPress={handleTakePhoto}
                   activeOpacity={0.9}
-                  disabled={!granted}
+                  disabled={!granted || hasReachedLimit}
                 >
                   <View style={styles.shutterInner} />
                 </TouchableOpacity>
               </Animated.View>
 
               <TouchableOpacity
-                style={styles.galleryButton}
+                style={[styles.galleryButton, hasReachedLimit && styles.controlDisabled]}
                 onPress={handleGalleryPick}
                 activeOpacity={0.9}
+                disabled={hasReachedLimit}
               >
                 <ImageIcon size={22} color="rgba(255,255,255,0.75)" strokeWidth={1.5} />
               </TouchableOpacity>
@@ -424,6 +520,28 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 16,
   },
+  scanLimitPill: {
+    position: 'absolute',
+    top: '17%',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.52)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.20)',
+    alignItems: 'center',
+  },
+  scanLimitText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700' as const,
+  },
+  scanLimitSubtext: {
+    marginTop: 3,
+    color: 'rgba(255,255,255,0.78)',
+    fontSize: 11,
+    fontWeight: '500' as const,
+  },
   focusFrame: {
     width: FOCUS_SIZE,
     height: FOCUS_SIZE,
@@ -495,6 +613,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.10)',
+  },
+  controlDisabled: {
+    opacity: 0.45,
   },
   shutterOuter: {
     width: 92,

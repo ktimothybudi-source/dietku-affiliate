@@ -43,6 +43,7 @@ import { QUICK_EXERCISES, QuickExercise, ExerciseType } from '@/types/exercise';
 import { ANIMATION_DURATION } from '@/constants/animations';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getTimeBasedMessage, getProgressMessage, getCalorieFeedback, MotivationalMessage } from '@/constants/motivationalMessages';
+import { estimateExerciseFromText } from '@/utils/exerciseAi';
 
 export default function HomeScreen() {
   const { profile, dailyTargets, todayEntries, todayTotals, addFoodEntry, deleteFoodEntry, isLoading, streakData, selectedDate, setSelectedDate, pendingEntries, confirmPendingEntry, removePendingEntry, retryPendingEntry, favorites, recentMeals, addToFavorites, removeFromFavorites, isFavorite, logFromFavorite, logFromRecent, removeFromRecent, shouldSuggestFavorite, addWaterCup, removeWaterCup, getTodayWaterCups } = useNutrition();
@@ -481,6 +482,9 @@ export default function HomeScreen() {
         protein: Math.round(entry.protein / itemCount),
         carbs: Math.round(entry.carbs / itemCount),
         fat: Math.round(entry.fat / itemCount),
+        sugar: 0,
+        fiber: 0,
+        sodium: 0,
       };
     });
     
@@ -1338,21 +1342,7 @@ export default function HomeScreen() {
                               setIsAnalyzingExercise(true);
                               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                               try {
-                                const apiKey = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
-                                if (!apiKey) {
-                                  addExercise({ type: 'describe' as ExerciseType, name: exerciseDescription.trim(), caloriesBurned: Math.round(50 + Math.random() * 200), description: exerciseDescription.trim() });
-                                  setExerciseDescription('');
-                                  return;
-                                }
-                                const response = await fetch('https://api.openai.com/v1/chat/completions', {
-                                  method: 'POST',
-                                  headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-                                  body: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'system', content: 'You estimate calories burned from exercise descriptions. Return ONLY a JSON object with "calories" (number) and "name" (short exercise name in Indonesian). Example: {"calories": 250, "name": "Renang 30 menit"}' }, { role: 'user', content: `Estimate calories burned: "${exerciseDescription.trim()}"` }], max_tokens: 100, temperature: 0.3 }),
-                                });
-                                const data = await response.json();
-                                const aiContent = data.choices?.[0]?.message?.content || '';
-                                let parsed: { calories: number; name: string };
-                                try { const m = aiContent.match(/\{[\s\S]*\}/); parsed = JSON.parse(m ? m[0] : aiContent); } catch { parsed = { calories: 150, name: exerciseDescription.trim().slice(0, 30) }; }
+                                const parsed = await estimateExerciseFromText(exerciseDescription.trim());
                                 addExercise({ type: 'describe' as ExerciseType, name: parsed.name || exerciseDescription.trim().slice(0, 30), caloriesBurned: parsed.calories || 150, description: exerciseDescription.trim() });
                                 setExerciseDescription('');
                               } catch (error) {
@@ -1580,11 +1570,11 @@ export default function HomeScreen() {
           >
             <View style={[
               styles.motivationalToastContent,
-              motivationalMessage.isWarning && styles.motivationalToastWarning,
-              motivationalMessage.isCelebration && styles.motivationalToastCelebration
+              motivationalMessage?.isWarning && styles.motivationalToastWarning,
+              motivationalMessage?.isCelebration && styles.motivationalToastCelebration
             ]}>
-              <Text style={styles.motivationalToastEmoji}>{motivationalMessage.emoji}</Text>
-              <Text style={styles.motivationalToastText}>{motivationalMessage.text}</Text>
+              <Text style={styles.motivationalToastEmoji}>{motivationalMessage?.emoji}</Text>
+              <Text style={styles.motivationalToastText}>{motivationalMessage?.text}</Text>
             </View>
           </Animated.View>
         )}

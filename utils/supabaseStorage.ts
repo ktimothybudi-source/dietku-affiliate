@@ -2,12 +2,23 @@ import { supabase } from '@/lib/supabase';
 import * as FileSystem from 'expo-file-system/legacy';
 
 const STORAGE_BUCKET = 'meal-photos';
+const SIGNED_URL_EXPIRY_SECONDS = 60 * 60 * 24 * 30; // 30 days
+
+function inferExtensionFromMime(mimeType?: string | null): string {
+  const normalized = (mimeType || '').toLowerCase();
+  if (normalized.includes('heic')) return 'heic';
+  if (normalized.includes('heif')) return 'heif';
+  if (normalized.includes('png')) return 'png';
+  if (normalized.includes('webp')) return 'webp';
+  if (normalized.includes('gif')) return 'gif';
+  return 'jpg';
+}
 
 /**
  * Upload an image file to Supabase Storage
  * @param localUri - Local file URI to upload
  * @param userId - User ID for organizing files
- * @returns Public URL of the uploaded image
+ * @returns Storage object path of the uploaded image
  */
 export async function uploadImageToSupabase(
   localUri: string,
@@ -16,15 +27,17 @@ export async function uploadImageToSupabase(
   try {
     const response = await fetch(localUri);
     const blob = await response.blob();
+    const contentType = blob.type || 'image/jpeg';
+    const extension = inferExtensionFromMime(contentType) || 'jpg';
 
     // Generate unique filename
-    const filename = `${userId}/${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+    const filename = `${userId}/${Date.now()}_${Math.random().toString(36).substring(7)}.${extension}`;
 
     // Upload to Supabase Storage
     const { data, error } = await supabase.storage
       .from(STORAGE_BUCKET)
       .upload(filename, blob, {
-        contentType: 'image/jpeg',
+        contentType,
         upsert: false,
       });
 
@@ -33,17 +46,8 @@ export async function uploadImageToSupabase(
       throw new Error(`Failed to upload image: ${error.message}`);
     }
 
-    // Get public URL
-    const { data: urlData } = supabase.storage
-      .from(STORAGE_BUCKET)
-      .getPublicUrl(data.path);
-
-    if (!urlData?.publicUrl) {
-      throw new Error('Failed to get public URL');
-    }
-
-    console.log('Image uploaded successfully:', urlData.publicUrl);
-    return urlData.publicUrl;
+    console.log('Image uploaded successfully (storage path):', data.path);
+    return data.path;
   } catch (error) {
     console.error('Error in uploadImageToSupabase:', error);
     throw error;
@@ -104,15 +108,17 @@ export async function uploadBase64ImageToSupabase(
     });
     const response = await fetch(tempUri);
     const blob = await response.blob();
+    const contentType = blob.type || 'image/jpeg';
+    const extension = inferExtensionFromMime(contentType);
 
     // Generate unique filename
-    const filename = `${userId}/${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+    const filename = `${userId}/${Date.now()}_${Math.random().toString(36).substring(7)}.${extension}`;
 
     // Upload to Supabase Storage
     const { data, error } = await supabase.storage
       .from(STORAGE_BUCKET)
       .upload(filename, blob, {
-        contentType: 'image/jpeg',
+        contentType,
         upsert: false,
       });
 
@@ -121,14 +127,9 @@ export async function uploadBase64ImageToSupabase(
       throw new Error(`Failed to upload image: ${error.message}`);
     }
 
-    // Get public URL
-    const { data: urlData } = supabase.storage
+    const { data: signedData, error: signedError } = await supabase.storage
       .from(STORAGE_BUCKET)
-      .getPublicUrl(data.path);
-
-    if (!urlData?.publicUrl) {
-      throw new Error('Failed to get public URL');
-    }
+      .createSignedUrl(data.path, SIGNED_URL_EXPIRY_SECONDS);
 
     try {
       await FileSystem.deleteAsync(tempUri, { idempotent: true });
@@ -136,7 +137,19 @@ export async function uploadBase64ImageToSupabase(
       // no-op
     }
 
-    console.log('Image uploaded successfully:', urlData.publicUrl);
+    if (!signedError && signedData?.signedUrl) {
+      console.log('Image uploaded successfully (signed URL):', signedData.signedUrl);
+      return signedData.signedUrl;
+    }
+
+    // Fallback to public URL if signed URL creation fails.
+    const { data: urlData } = supabase.storage
+      .from(STORAGE_BUCKET)
+      .getPublicUrl(data.path);
+    if (!urlData?.publicUrl) {
+      throw new Error('Failed to get signed/public URL');
+    }
+    console.log('Image uploaded successfully (public URL fallback):', urlData.publicUrl);
     return urlData.publicUrl;
   } catch (error) {
     console.error('Error in uploadBase64ImageToSupabase:', error);

@@ -275,7 +275,7 @@ export default function SignInScreen() {
               <Svg width="64" height="64" viewBox="0 0 24 24" fill="none">
                 <Path
                   d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-                  fill="#6C63FF"
+                  fill="#22C55E"
                 />
               </Svg>
             </View>
@@ -435,7 +435,7 @@ const styles = StyleSheet.create({
     width: 100,
     height: 100,
     borderRadius: 50,
-    backgroundColor: 'rgba(108, 99, 255, 0.08)',
+    backgroundColor: 'rgba(34, 197, 94, 0.08)',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 24,
@@ -476,7 +476,7 @@ const styles = StyleSheet.create({
     color: '#1A1A2E',
   },
   signInButton: {
-    backgroundColor: '#6C63FF',
+    backgroundColor: '#22C55E',
     borderRadius: 28,
     padding: 18,
     flexDirection: 'row',
@@ -563,6 +563,6 @@ const styles = StyleSheet.create({
   footerLink: {
     fontSize: 15,
     fontWeight: '600' as const,
-    color: '#6C63FF',
+    color: '#22C55E',
   },
 });

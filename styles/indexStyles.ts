@@ -1763,7 +1763,7 @@ export const indexStyles = StyleSheet.create({
   },
   pendingHeroImageWrap: {
     width: '100%',
-    aspectRatio: 3 / 4,
+    aspectRatio: 4 / 5,
     borderRadius: 14,
     overflow: 'hidden',
     marginBottom: 12,
