@@ -30,6 +30,7 @@ type ScanQuotaResponse = {
   limit: number;
   remaining: number;
   resetInSec: number;
+  unlimited?: boolean;
 };
 
 export default function CameraScanScreen() {
@@ -45,6 +46,7 @@ export default function CameraScanScreen() {
   const [showHelper, setShowHelper] = useState(false);
   const [remainingScans, setRemainingScans] = useState(SCAN_LIMIT);
   const [timeUntilResetMs, setTimeUntilResetMs] = useState(0);
+  const [dailyScanUnlimited, setDailyScanUnlimited] = useState(false);
 
   const logo = useMemo(() => require('@/assets/images/icon.png'), []);
   const shutterScale = useRef(new Animated.Value(1)).current;
@@ -55,10 +57,16 @@ export default function CameraScanScreen() {
       const quota = await callAIProxy<ScanQuotaResponse>('meal-analysis-quota', {
         userId: authState.userId || undefined,
       });
+      const unlimited = quota.unlimited === true;
+      setDailyScanUnlimited(unlimited);
       setRemainingScans(Math.max(0, quota.remaining));
-      setTimeUntilResetMs(Math.max(0, quota.resetInSec * 1000));
+      setTimeUntilResetMs(unlimited ? 0 : Math.max(0, quota.resetInSec * 1000));
     } catch (error) {
-      console.error('Failed to fetch scan quota:', error);
+      // Fail open for quota UI so temporary network issues don't block scanning.
+      setDailyScanUnlimited(true);
+      setRemainingScans(SCAN_LIMIT);
+      setTimeUntilResetMs(0);
+      console.warn('Failed to fetch scan quota:', error);
     }
   }, [authState.userId]);
 
@@ -114,7 +122,7 @@ export default function CameraScanScreen() {
     return () => clearInterval(interval);
   }, [refreshScanQuota]);
 
-  const hasReachedLimit = remainingScans === 0;
+  const hasReachedLimit = !dailyScanUnlimited && remainingScans === 0;
 
   const formatDuration = (ms: number) => {
     const totalSeconds = Math.ceil(Math.max(0, ms) / 1000);
@@ -122,21 +130,6 @@ export default function CameraScanScreen() {
     const minutes = Math.floor((totalSeconds % 3600) / 60);
     const seconds = totalSeconds % 60;
     return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-  };
-
-  const consumeScanQuota = async (): Promise<boolean> => {
-    try {
-      const quota = await callAIProxy<ScanQuotaResponse>('meal-analysis-quota', {
-        userId: authState.userId || undefined,
-        consume: true,
-      });
-      setRemainingScans(Math.max(0, quota.remaining));
-      setTimeUntilResetMs(Math.max(0, quota.resetInSec * 1000));
-      return quota.allowed;
-    } catch (error) {
-      console.error('Failed to consume scan quota:', error);
-      return false;
-    }
   };
 
   const ensureCameraPermission = async () => {
@@ -190,12 +183,6 @@ export default function CameraScanScreen() {
         return;
       }
 
-      const allowed = await consumeScanQuota();
-      if (!allowed) {
-        Alert.alert('Batas scan tercapai', `Maksimal ${SCAN_LIMIT} scan per 24 jam. Coba lagi dalam ${formatDuration(timeUntilResetMs)}.`);
-        return;
-      }
-
       addPendingEntry(photo.uri, photo.base64);
       router.back();
     } catch (error) {
@@ -222,12 +209,6 @@ export default function CameraScanScreen() {
       if (!result.canceled && result.assets[0]) {
         const asset = result.assets[0];
         if (asset.uri && asset.base64) {
-          const allowed = await consumeScanQuota();
-          if (!allowed) {
-            Alert.alert('Batas scan tercapai', `Maksimal ${SCAN_LIMIT} scan per 24 jam. Coba lagi dalam ${formatDuration(timeUntilResetMs)}.`);
-            return;
-          }
-
           addPendingEntry(asset.uri, asset.base64);
           router.back();
         }
@@ -332,10 +313,14 @@ export default function CameraScanScreen() {
               )}
               <View style={styles.scanLimitPill}>
                 <Text style={styles.scanLimitText}>
-                  {`Scan tersisa: ${remainingScans}/${SCAN_LIMIT}`}
+                  {dailyScanUnlimited
+                    ? 'Scan harian: tanpa batas'
+                    : `Scan tersisa: ${Math.min(remainingScans, SCAN_LIMIT)}/${SCAN_LIMIT}`}
                 </Text>
                 <Text style={styles.scanLimitSubtext}>
-                  {`Reset dalam ${formatDuration(timeUntilResetMs)}`}
+                  {dailyScanUnlimited
+                    ? 'Akun ini dikecualikan dari batas 3/24 jam'
+                    : `Reset dalam ${formatDuration(timeUntilResetMs)}`}
                 </Text>
               </View>
               <View style={styles.focusFrame}>

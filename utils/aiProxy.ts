@@ -1,5 +1,9 @@
 function getApiBaseUrl(): string {
-  return process.env.EXPO_PUBLIC_API_BASE_URL || process.env.EXPO_PUBLIC_RORK_API_BASE_URL || "http://localhost:3000";
+  return (
+    process.env.EXPO_PUBLIC_API_BASE_URL ||
+    process.env.EXPO_PUBLIC_RORK_API_BASE_URL ||
+    "https://dietku.onrender.com"
+  );
 }
 
 export class AIProxyError extends Error {
@@ -14,13 +18,21 @@ export class AIProxyError extends Error {
 }
 
 export async function callAIProxy<T>(path: string, payload: Record<string, unknown>): Promise<T> {
-  const response = await fetch(`${getApiBaseUrl()}/api/ai/${path}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
+  const baseUrl = getApiBaseUrl();
+  const targetUrl = `${baseUrl}/api/ai/${path}`;
+  let response: Response;
+  try {
+    response = await fetch(targetUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`Network request failed to ${targetUrl}. ${detail}`);
+  }
 
   if (!response.ok) {
     let errorData: unknown = null;

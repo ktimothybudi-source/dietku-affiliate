@@ -827,7 +827,7 @@ export default function HomeScreen() {
       setAnalysis(result);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
-      console.error('Photo analysis error:', error);
+      console.warn('Photo analysis error:', error);
       Alert.alert('Analysis failed', 'Could not analyze the photo. Please try again.');
     } finally {
       setAnalyzing(false);

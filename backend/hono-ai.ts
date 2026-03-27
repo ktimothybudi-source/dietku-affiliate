@@ -37,12 +37,32 @@ function getOpenAIKey(): string {
   return key;
 }
 
+function openAIConfigured(): boolean {
+  return Boolean(process.env.OPENAI_API_KEY?.trim());
+}
+
 function getRequesterId(c: any, userId?: string): string {
   const ip =
     c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ||
     c.req.header("cf-connecting-ip") ||
     "unknown-ip";
   return userId || `ip:${ip}`;
+}
+
+/** Comma/space/semicolon-separated Supabase auth user UUIDs that skip the daily meal-scan cap. */
+function parseMealScanUnlimitedUserIds(): Set<string> {
+  const raw = process.env.MEAL_SCAN_UNLIMITED_USER_IDS ?? "";
+  return new Set(
+    raw
+      .split(/[\s,;]+/)
+      .map((s) => s.trim().toLowerCase())
+      .filter((s) => s.length > 0)
+  );
+}
+
+function isMealScanDailyUnlimitedUser(userId: string | undefined): boolean {
+  if (!userId?.trim()) return false;
+  return parseMealScanUnlimitedUserIds().has(userId.trim().toLowerCase());
 }
 
 async function callOpenAI(payload: unknown) {
@@ -65,22 +85,49 @@ async function callOpenAI(payload: unknown) {
 
 app.post("/meal-analysis", async (c) => {
   try {
-    const input = mealAnalysisInputSchema.parse(await c.req.json());
-    const requestId = getRequesterId(c, input.userId);
-    const daily = checkRateLimit({
-      key: `meal-day:${requestId}`,
-      maxRequests: 3,
-      windowMs: 24 * 60 * 60 * 1000,
-    });
-    if (!daily.allowed) {
-      c.header("Retry-After", `${daily.retryAfterSec}`);
+    if (!openAIConfigured()) {
       return c.json(
         {
-          error: "Daily scan limit reached",
-          quota: { limit: 3, remaining: 0, resetInSec: daily.resetInSec },
+          error: "Server misconfiguration: OPENAI_API_KEY is not set on the host (e.g. Render environment variables).",
+          code: "OPENAI_NOT_CONFIGURED",
         },
-        429
+        503
       );
+    }
+
+    const input = mealAnalysisInputSchema.parse(await c.req.json());
+    const requestId = getRequesterId(c, input.userId);
+    const dailyUnlimited = isMealScanDailyUnlimitedUser(input.userId);
+
+    let daily: ReturnType<typeof checkRateLimit>;
+    if (dailyUnlimited) {
+      daily = {
+        allowed: true,
+        remaining: 999_999,
+        retryAfterSec: 0,
+        resetInSec: 0,
+      };
+    } else {
+      daily = checkRateLimit({
+        key: `meal-day:${requestId}`,
+        maxRequests: 3,
+        windowMs: 24 * 60 * 60 * 1000,
+      });
+      if (!daily.allowed) {
+        c.header("Retry-After", `${daily.retryAfterSec}`);
+        return c.json(
+          {
+            error: "Daily scan limit reached",
+            quota: {
+              unlimited: false,
+              limit: 3,
+              remaining: 0,
+              resetInSec: daily.resetInSec,
+            },
+          },
+          429
+        );
+      }
     }
 
     const hourly = checkRateLimit({
@@ -150,13 +197,16 @@ app.post("/meal-analysis", async (c) => {
     return c.json({
       ...openAIData,
       quota: {
+        unlimited: dailyUnlimited,
         limit: 3,
         remaining: daily.remaining,
         resetInSec: daily.resetInSec,
       },
     });
   } catch (error) {
-    return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 500);
+    const message = error instanceof Error ? error.message : "Unknown error";
+    console.error("[meal-analysis]", message);
+    return c.json({ error: message, code: "MEAL_ANALYSIS_FAILED" }, 500);
   }
 });
 
@@ -164,6 +214,17 @@ app.post("/meal-analysis-quota", async (c) => {
   try {
     const input = mealQuotaInputSchema.parse(await c.req.json());
     const requestId = getRequesterId(c, input.userId);
+
+    if (isMealScanDailyUnlimitedUser(input.userId)) {
+      return c.json({
+        allowed: true,
+        unlimited: true,
+        limit: 3,
+        remaining: 999_999,
+        resetInSec: 0,
+      });
+    }
+
     const options = {
       key: `meal-day:${requestId}`,
       maxRequests: 3,
@@ -172,6 +233,7 @@ app.post("/meal-analysis-quota", async (c) => {
     const result = input.consume ? checkRateLimit(options) : peekRateLimit(options);
     return c.json({
       allowed: result.allowed,
+      unlimited: false,
       limit: 3,
       remaining: result.remaining,
       resetInSec: result.resetInSec,

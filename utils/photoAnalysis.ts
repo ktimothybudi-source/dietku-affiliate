@@ -1,6 +1,51 @@
 import { z } from 'zod';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { MealAnalysis } from '@/types/nutrition';
-import { callAIProxy } from '@/utils/aiProxy';
+import { AIProxyError, callAIProxy } from '@/utils/aiProxy';
+
+/** Keep under backend `MAX_IMAGE_BASE64_LENGTH` (~2M) plus JSON wrapper headroom. */
+const MAX_BASE64_CHARS = 1_850_000;
+
+function stripDataUrlPrefix(b64: string): string {
+  return b64.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '');
+}
+
+async function ensureMealImageUnderLimit(rawBase64: string): Promise<string> {
+  let sanitized = stripDataUrlPrefix(rawBase64);
+  if (sanitized.length <= MAX_BASE64_CHARS) {
+    return sanitized;
+  }
+
+  let width = 1280;
+  let quality = 0.72;
+  let dataUri = `data:image/jpeg;base64,${sanitized}`;
+
+  for (let attempt = 0; attempt < 5 && sanitized.length > MAX_BASE64_CHARS; attempt += 1) {
+    try {
+      const result = await ImageManipulator.manipulateAsync(
+        dataUri,
+        [{ resize: { width } }],
+        { compress: quality, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+      );
+      if (!result.base64) {
+        throw new Error('Could not compress meal image');
+      }
+      sanitized = result.base64;
+      dataUri = `data:image/jpeg;base64,${sanitized}`;
+    } catch (compressionError) {
+      console.warn('Meal image compression failed:', compressionError);
+      break;
+    }
+    width = Math.round(width * 0.75);
+    quality = Math.max(0.45, quality - 0.08);
+  }
+
+  if (sanitized.length > MAX_BASE64_CHARS) {
+    throw new Error('Gambar terlalu besar. Coba ambil foto dengan pencahayaan cukup dan jarak sedikit lebih jauh.');
+  }
+
+  return sanitized;
+}
 
 const foodItemSchema = z.object({
   name: z.string().describe('Name of the food item'),
@@ -32,7 +77,16 @@ const mealAnalysisSchema = z.object({
 });
 
 export async function analyzeMealPhoto(base64Image: string): Promise<MealAnalysis> {
-  const json = await callAIProxy<any>('meal-analysis', { base64Image });
+  const base64ForApi = await ensureMealImageUnderLimit(base64Image);
+  let json: any;
+  try {
+    json = await callAIProxy<any>('meal-analysis', { base64Image: base64ForApi });
+  } catch (err) {
+    if (err instanceof AIProxyError && err.data && typeof err.data === 'object' && err.data !== null && 'error' in err.data) {
+      throw new Error(String((err.data as { error: unknown }).error));
+    }
+    throw err;
+  }
   const content: string | undefined = json?.choices?.[0]?.message?.content;
   if (!content) {
     throw new Error('OpenAI returned empty response');

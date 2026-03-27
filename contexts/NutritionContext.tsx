@@ -1490,7 +1490,7 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       })
       .catch((error) => {
-        console.error('Photo analysis error:', error);
+        console.warn('Photo analysis error:', error);
         setPendingEntries(prev =>
           prev.map(entry =>
             entry.id === newPending.id
@@ -1556,7 +1556,7 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       })
       .catch((error) => {
-        console.error('Photo analysis error:', error);
+        console.warn('Photo analysis error:', error);
         setPendingEntries(prev =>
           prev.map(entry =>
             entry.id === pendingId

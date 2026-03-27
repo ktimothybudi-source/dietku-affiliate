@@ -12,6 +12,7 @@
     "release:checks": "bun run typecheck && bun run lint",
     "release:backend:verify": "node scripts/verify-backend-release.mjs",
     "build:android:preview": "bunx eas-cli build --platform android --profile preview",
+    "build:android:apk": "bunx eas-cli build --platform android --profile preview",
     "build:android:prod": "bunx eas-cli build --platform android --profile production",
     "submit:android:prod": "bunx eas-cli submit --platform android --profile production"
   },

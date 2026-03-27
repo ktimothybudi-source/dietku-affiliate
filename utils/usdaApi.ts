@@ -1,6 +1,9 @@
 const USDA_API_KEY = process.env.EXPO_PUBLIC_USDA_API_KEY;
 const USDA_BASE_URL = 'https://api.nal.usda.gov/fdc/v1';
-const AI_PROXY_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || process.env.EXPO_PUBLIC_RORK_API_BASE_URL || 'http://localhost:3000';
+const AI_PROXY_BASE_URL =
+  process.env.EXPO_PUBLIC_API_BASE_URL ||
+  process.env.EXPO_PUBLIC_RORK_API_BASE_URL ||
+  'https://dietku.onrender.com';
 
 export interface USDAFoodItem {
   fdcId: number;
