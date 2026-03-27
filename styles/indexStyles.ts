@@ -357,6 +357,37 @@ export const indexStyles = StyleSheet.create({
     alignItems: 'center' as const,
     gap: 6,
   },
+  premiumMaskOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 16,
+    overflow: 'hidden' as const,
+    zIndex: 30,
+  },
+  premiumMaskSection: {
+    position: 'relative' as const,
+    borderRadius: 16,
+    overflow: 'hidden' as const,
+  },
+  premiumMaskDim: {
+    flex: 1,
+    backgroundColor: 'rgba(20,20,20,0.42)',
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+  },
+  premiumMaskBadge: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 6,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+  },
+  premiumMaskText: {
+    fontSize: 12,
+    fontWeight: '700' as const,
+    color: '#FFFFFF',
+  },
   waterBtnExpanded: {
     width: 30,
     height: 30,
@@ -1663,6 +1694,7 @@ export const indexStyles = StyleSheet.create({
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     maxHeight: '90%',
+    position: 'relative',
   },
   pendingModalHeader: {
     flexDirection: 'row',
@@ -1686,7 +1718,12 @@ export const indexStyles = StyleSheet.create({
     marginTop: 2,
   },
   pendingModalBody: {
-    padding: 20,
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+  },
+  pendingModalBodyContent: {
+    paddingBottom: 120,
   },
   pendingModalImage: {
     width: '100%',
@@ -1894,9 +1931,13 @@ export const indexStyles = StyleSheet.create({
     fontSize: 11,
   },
   pendingModalFooter: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
     paddingHorizontal: 20,
     paddingTop: 12,
-    backgroundColor: 'transparent',
+    borderTopWidth: 1,
   },
   pendingItemsTitle: {
     fontSize: 16,
@@ -2026,7 +2067,7 @@ export const indexStyles = StyleSheet.create({
     backgroundColor: '#22C55E',
     paddingVertical: 14,
     borderRadius: 16,
-    marginTop: 16,
+    marginTop: 4,
   },
   confirmEditedText: {
     fontSize: 16,

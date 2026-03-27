@@ -19,6 +19,8 @@ This runbook is the execution version of the Play Store launch plan.
    - `EXPO_PUBLIC_SUPABASE_URL`
    - `EXPO_PUBLIC_SUPABASE_ANON_KEY`
    - `EXPO_PUBLIC_API_BASE_URL`
+   - `EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY` (Android public SDK key)
+   - `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY` (for App Store release track readiness)
 2. Confirm client code does not expose OpenAI secret:
    - only backend reads `OPENAI_API_KEY`
    - no `EXPO_PUBLIC_OPENAI_API_KEY`
@@ -55,6 +57,18 @@ This runbook is the execution version of the Play Store launch plan.
    - Content rating
    - Ads declaration (if applicable)
 3. Confirm support email/contact details match in-app legal pages.
+
+## 5.1) Subscription setup (RevenueCat + Play Billing)
+
+1. In Play Console create subscriptions:
+   - Monthly: `IDR 129.000`
+   - Yearly: `IDR 399.000`
+2. In RevenueCat:
+   - Add Play Store app and connect service account.
+   - Create entitlement: `premium`.
+   - Map monthly/yearly products to `premium`.
+   - Ensure products are attached to the default offering.
+3. Test purchase + restore on internal testing track before production rollout.
 
 ## 6) Build and submit with EAS
 

@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import * as FileSystem from 'expo-file-system/legacy';
+import { optimizeImageForUpload } from '@/utils/imageOptimization';
 
 const STORAGE_BUCKET = 'meal-photos';
 const SIGNED_URL_EXPIRY_SECONDS = 60 * 60 * 24 * 30; // 30 days
@@ -25,7 +26,14 @@ export async function uploadImageToSupabase(
   userId: string
 ): Promise<string> {
   try {
-    const response = await fetch(localUri);
+    let optimizedUri = localUri;
+    try {
+      optimizedUri = await optimizeImageForUpload(localUri);
+    } catch (optimizationError) {
+      console.warn('Image optimization before upload failed, using original URI:', optimizationError);
+    }
+
+    const response = await fetch(optimizedUri);
     const blob = await response.blob();
     const contentType = blob.type || 'image/jpeg';
     const extension = inferExtensionFromMime(contentType) || 'jpg';

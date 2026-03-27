@@ -21,6 +21,8 @@ import { useNutrition } from '@/contexts/NutritionContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ANIMATION_DURATION } from '@/constants/animations';
 import { callAIProxy } from '@/utils/aiProxy';
+import { useSubscription } from '@/contexts/SubscriptionContext';
+import { optimizeImageForScan } from '@/utils/imageOptimization';
 
 type FlashMode = 'off' | 'auto' | 'on';
 const SCAN_LIMIT = 3;
@@ -36,6 +38,7 @@ type ScanQuotaResponse = {
 export default function CameraScanScreen() {
   const insets = useSafeAreaInsets();
   const { addPendingEntry, authState } = useNutrition();
+  const { isPremium, openPaywall } = useSubscription();
 
   const cameraRef = useRef<CameraView>(null);
 
@@ -122,7 +125,7 @@ export default function CameraScanScreen() {
     return () => clearInterval(interval);
   }, [refreshScanQuota]);
 
-  const hasReachedLimit = !dailyScanUnlimited && remainingScans === 0;
+  const hasReachedLimit = !isPremium && !dailyScanUnlimited && remainingScans === 0;
 
   const formatDuration = (ms: number) => {
     const totalSeconds = Math.ceil(Math.max(0, ms) / 1000);
@@ -148,7 +151,14 @@ export default function CameraScanScreen() {
 
   const handleTakePhoto = async () => {
     if (hasReachedLimit) {
-      Alert.alert('Batas scan tercapai', `Maksimal ${SCAN_LIMIT} scan per 24 jam. Coba lagi dalam ${formatDuration(timeUntilResetMs)}.`);
+      Alert.alert(
+        'Batas scan tercapai',
+        `Maksimal ${SCAN_LIMIT} scan per 24 jam. Coba lagi dalam ${formatDuration(timeUntilResetMs)}.`,
+        [
+          { text: 'Nanti' },
+          { text: 'Upgrade Premium', onPress: () => openPaywall('Premium dapat scan makanan tanpa batas') },
+        ]
+      );
       return;
     }
 
@@ -183,7 +193,13 @@ export default function CameraScanScreen() {
         return;
       }
 
-      addPendingEntry(photo.uri, photo.base64);
+      try {
+        const optimized = await optimizeImageForScan(photo.uri);
+        addPendingEntry(optimized.uri, optimized.base64);
+      } catch (optimizationError) {
+        console.warn('Scan optimization failed, using original capture:', optimizationError);
+        addPendingEntry(photo.uri, photo.base64);
+      }
       router.back();
     } catch (error) {
       console.error(error);
@@ -192,7 +208,14 @@ export default function CameraScanScreen() {
 
   const handleGalleryPick = async () => {
     if (hasReachedLimit) {
-      Alert.alert('Batas scan tercapai', `Maksimal ${SCAN_LIMIT} scan per 24 jam. Coba lagi dalam ${formatDuration(timeUntilResetMs)}.`);
+      Alert.alert(
+        'Batas scan tercapai',
+        `Maksimal ${SCAN_LIMIT} scan per 24 jam. Coba lagi dalam ${formatDuration(timeUntilResetMs)}.`,
+        [
+          { text: 'Nanti' },
+          { text: 'Upgrade Premium', onPress: () => openPaywall('Premium dapat scan makanan tanpa batas') },
+        ]
+      );
       return;
     }
 
@@ -209,7 +232,13 @@ export default function CameraScanScreen() {
       if (!result.canceled && result.assets[0]) {
         const asset = result.assets[0];
         if (asset.uri && asset.base64) {
-          addPendingEntry(asset.uri, asset.base64);
+          try {
+            const optimized = await optimizeImageForScan(asset.uri);
+            addPendingEntry(optimized.uri, optimized.base64);
+          } catch (optimizationError) {
+            console.warn('Gallery optimization failed, using original image:', optimizationError);
+            addPendingEntry(asset.uri, asset.base64);
+          }
           router.back();
         }
       }
@@ -313,12 +342,12 @@ export default function CameraScanScreen() {
               )}
               <View style={styles.scanLimitPill}>
                 <Text style={styles.scanLimitText}>
-                  {dailyScanUnlimited
+                  {isPremium || dailyScanUnlimited
                     ? 'Scan harian: tanpa batas'
                     : `Scan tersisa: ${Math.min(remainingScans, SCAN_LIMIT)}/${SCAN_LIMIT}`}
                 </Text>
                 <Text style={styles.scanLimitSubtext}>
-                  {dailyScanUnlimited
+                  {isPremium || dailyScanUnlimited
                     ? 'Akun ini dikecualikan dari batas 3/24 jam'
                     : `Reset dalam ${formatDuration(timeUntilResetMs)}`}
                 </Text>

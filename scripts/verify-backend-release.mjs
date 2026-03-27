@@ -1,3 +1,5 @@
+import crypto from "node:crypto";
+
 const baseUrl =
   process.env.EXPO_PUBLIC_API_BASE_URL ||
   process.env.EXPO_PUBLIC_RORK_API_BASE_URL ||
@@ -24,7 +26,7 @@ async function post(path, body) {
 }
 
 async function main() {
-  const fakeUser = `release-check-${Date.now()}`;
+  const fakeUser = crypto.randomUUID();
 
   const quota = await post("meal-analysis-quota", { userId: fakeUser });
   console.log("quota check:", quota.status, quota.json);

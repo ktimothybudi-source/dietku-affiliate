@@ -5,6 +5,7 @@ import {
   Text,
   ScrollView,
   TouchableOpacity,
+  Pressable,
   TextInput,
   Modal,
   KeyboardAvoidingView,
@@ -20,9 +21,11 @@ const SCREEN_WIDTH = Dimensions.get('window').width;
 const CAROUSEL_CARD_WIDTH = SCREEN_WIDTH - 28;
 const CAROUSEL_GAP = 12;
 import { Stack, router } from 'expo-router';
-import { Flame, X, Check, Camera, ImageIcon, ChevronLeft, ChevronRight, RefreshCw, Trash2, Plus, Bookmark, Clock, Star, Share2, Edit3, PlusCircle, Search as SearchIcon, Droplets, Minus, Footprints, Dumbbell, ChevronRight as ChevronRightIcon, Utensils, Target, TrendingDown, TrendingUp, Zap, MessageSquare, Send } from 'lucide-react-native';
+import { Flame, X, Check, Camera, ImageIcon, ChevronLeft, ChevronRight, RefreshCw, Trash2, Plus, Bookmark, Clock, Star, Share2, Edit3, PlusCircle, Search as SearchIcon, Droplets, Minus, Footprints, Dumbbell, ChevronRight as ChevronRightIcon, Utensils, Target, TrendingDown, TrendingUp, Zap, MessageSquare, Send, Lock } from 'lucide-react-native';
 import { useNutrition, useTodayProgress, PendingFoodEntry } from '@/contexts/NutritionContext';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useSubscription } from '@/contexts/SubscriptionContext';
+import { BlurView } from 'expo-blur';
 import { FoodEntry, MealAnalysis } from '@/types/nutrition';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
@@ -48,7 +51,8 @@ import { estimateExerciseFromText } from '@/utils/exerciseAi';
 export default function HomeScreen() {
   const { profile, dailyTargets, todayEntries, todayTotals, addFoodEntry, deleteFoodEntry, isLoading, streakData, selectedDate, setSelectedDate, pendingEntries, confirmPendingEntry, removePendingEntry, retryPendingEntry, favorites, recentMeals, addToFavorites, removeFromFavorites, isFavorite, logFromFavorite, logFromRecent, removeFromRecent, shouldSuggestFavorite, addWaterCup, removeWaterCup, getTodayWaterCups } = useNutrition();
   const { todaySteps, stepsCaloriesBurned, exerciseCaloriesBurned, totalCaloriesBurned, todayExercises, addExercise } = useExercise();
-  const { theme } = useTheme();
+  const { theme, themeMode } = useTheme();
+  const { isPremium, openPaywall } = useSubscription();
   const progress = useTodayProgress();
   const [modalVisible, setModalVisible] = useState(false);
   const [foodName, setFoodName] = useState('');
@@ -118,6 +122,7 @@ export default function HomeScreen() {
   const [quickExerciseModalVisible, setQuickExerciseModalVisible] = useState(false);
   
   const pendingModalScrollRef = useRef<ScrollView>(null);
+  const lastAutoScrolledPendingIdRef = useRef<string | null>(null);
   
   
   const caloriesAnimValue = useRef(new Animated.Value(0)).current;
@@ -241,6 +246,21 @@ export default function HomeScreen() {
       useNativeDriver: false,
     }).start();
   }, [progress?.caloriesRemaining, remainingAnimValue]);
+
+  useEffect(() => {
+    if (!selectedPending || selectedPending.status !== 'done') {
+      return;
+    }
+
+    if (lastAutoScrolledPendingIdRef.current === selectedPending.id) {
+      return;
+    }
+
+    lastAutoScrolledPendingIdRef.current = selectedPending.id;
+    requestAnimationFrame(() => {
+      pendingModalScrollRef.current?.scrollTo({ y: 0, animated: false });
+    });
+  }, [selectedPending]);
 
   useEffect(() => {
     const donePending = pendingEntries.find(p => p.status === 'done' && !shownPendingIds.has(p.id));
@@ -411,6 +431,18 @@ export default function HomeScreen() {
   const waterTarget = useMemo(
     () => calculateWaterTargetCups(profile?.weight ?? 70),
     [profile?.weight]
+  );
+  const premiumPreview = useMemo(
+    () => ({
+      protein: 72,
+      carbs: 180,
+      fat: 55,
+      sugar: 18,
+      fiber: 14,
+      sodium: 1100,
+      water: 5,
+    }),
+    []
   );
 
   React.useEffect(() => {
@@ -896,11 +928,6 @@ export default function HomeScreen() {
         <View style={[styles.header, { backgroundColor: theme.background, paddingTop: insets.top + 16 }]}>
           <View style={styles.headerTop}>
             <View style={styles.appNameContainer}>
-              <Image 
-                source={require('@/assets/images/icon.png')} 
-                style={styles.appLogo}
-                resizeMode="contain"
-              />
               <View>
                 <Text style={[styles.appName, { color: theme.text }]}>DietKu</Text>
               </View>
@@ -964,6 +991,12 @@ export default function HomeScreen() {
                 const carbsPct = carbsTarget > 0 ? Math.round((todayTotals.carbs / carbsTarget) * 100) : 0;
                 const fatTarget = dailyTargets.fatMax || 70;
                 const fatPct = fatTarget > 0 ? Math.round((todayTotals.fat / fatTarget) * 100) : 0;
+                const proteinDisplay = todayTotals.protein;
+                const carbsDisplay = todayTotals.carbs;
+                const fatDisplay = todayTotals.fat;
+                const proteinPctDisplay = proteinPct;
+                const carbsPctDisplay = carbsPct;
+                const fatPctDisplay = fatPct;
                 const caloriesRemainingDisplay = progress
                   ? Math.round(Math.abs(progress.caloriesRemaining))
                   : 0;
@@ -1020,10 +1053,11 @@ export default function HomeScreen() {
                       </View>
                     </View>
                     </View>
-                    <View style={styles.macroCardsRow}>
-                      <View style={[styles.macroSeparateCard, styles.separatedCard, { backgroundColor: theme.card }]}>
+                    <View style={styles.premiumMaskSection}>
+                      <View style={styles.macroCardsRow}>
+                        <View style={[styles.macroSeparateCard, styles.separatedCard, { backgroundColor: theme.card }]}>
                         <ProgressRing
-                          progress={Math.min(proteinPct, 100)}
+                          progress={Math.min(proteinPctDisplay, 100)}
                           size={44}
                           strokeWidth={5}
                           color="#FF8A80"
@@ -1032,19 +1066,19 @@ export default function HomeScreen() {
                           <Text style={styles.macroCardEmoji}>🍗</Text>
                         </ProgressRing>
                         <View style={styles.macroCardValues}>
-                          <Text style={[styles.macroCardCurrent, { color: theme.text }]}>{todayTotals.protein}</Text>
+                          <Text style={[styles.macroCardCurrent, { color: theme.text }]}>{proteinDisplay}</Text>
                           <Text style={[styles.macroCardTarget, { color: theme.textTertiary }]}>/ {dailyTargets.protein}g</Text>
                         </View>
                         <View style={styles.macroCardFooter}>
                           <Text style={[styles.macroCardName, { color: theme.textSecondary }]}>Protein</Text>
                           <View style={[styles.macroCardPctBadge, { backgroundColor: 'rgba(255,138,128,0.15)' }]}>
-                            <Text style={[styles.macroCardPctText, { color: '#FF8A80' }]}>{proteinPct}%</Text>
+                            <Text style={[styles.macroCardPctText, { color: '#FF8A80' }]}>{proteinPctDisplay}%</Text>
                           </View>
                         </View>
-                      </View>
-                      <View style={[styles.macroSeparateCard, styles.separatedCard, { backgroundColor: theme.card }]}>
+                        </View>
+                        <View style={[styles.macroSeparateCard, styles.separatedCard, { backgroundColor: theme.card }]}>
                         <ProgressRing
-                          progress={Math.min(carbsPct, 100)}
+                          progress={Math.min(carbsPctDisplay, 100)}
                           size={44}
                           strokeWidth={5}
                           color="#FFD54F"
@@ -1053,19 +1087,19 @@ export default function HomeScreen() {
                           <Text style={styles.macroCardEmoji}>🌾</Text>
                         </ProgressRing>
                         <View style={styles.macroCardValues}>
-                          <Text style={[styles.macroCardCurrent, { color: theme.text }]}>{todayTotals.carbs}</Text>
+                          <Text style={[styles.macroCardCurrent, { color: theme.text }]}>{carbsDisplay}</Text>
                           <Text style={[styles.macroCardTarget, { color: theme.textTertiary }]}>/ {carbsTarget}g</Text>
                         </View>
                         <View style={styles.macroCardFooter}>
                           <Text style={[styles.macroCardName, { color: theme.textSecondary }]}>Karbo</Text>
                           <View style={[styles.macroCardPctBadge, { backgroundColor: 'rgba(255,213,79,0.15)' }]}>
-                            <Text style={[styles.macroCardPctText, { color: '#F0C040' }]}>{carbsPct}%</Text>
+                            <Text style={[styles.macroCardPctText, { color: '#F0C040' }]}>{carbsPctDisplay}%</Text>
                           </View>
                         </View>
-                      </View>
-                      <View style={[styles.macroSeparateCard, styles.separatedCard, { backgroundColor: theme.card }]}>
+                        </View>
+                        <View style={[styles.macroSeparateCard, styles.separatedCard, { backgroundColor: theme.card }]}>
                         <ProgressRing
-                          progress={Math.min(fatPct, 100)}
+                          progress={Math.min(fatPctDisplay, 100)}
                           size={44}
                           strokeWidth={5}
                           color="#80DEEA"
@@ -1074,22 +1108,47 @@ export default function HomeScreen() {
                           <Text style={styles.macroCardEmoji}>🥑</Text>
                         </ProgressRing>
                         <View style={styles.macroCardValues}>
-                          <Text style={[styles.macroCardCurrent, { color: theme.text }]}>{todayTotals.fat}</Text>
+                          <Text style={[styles.macroCardCurrent, { color: theme.text }]}>{fatDisplay}</Text>
                           <Text style={[styles.macroCardTarget, { color: theme.textTertiary }]}>/ {fatTarget}g</Text>
                         </View>
                         <View style={styles.macroCardFooter}>
                           <Text style={[styles.macroCardName, { color: theme.textSecondary }]}>Lemak</Text>
                           <View style={[styles.macroCardPctBadge, { backgroundColor: 'rgba(128,222,234,0.15)' }]}>
-                            <Text style={[styles.macroCardPctText, { color: '#80DEEA' }]}>{fatPct}%</Text>
+                            <Text style={[styles.macroCardPctText, { color: '#80DEEA' }]}>{fatPctDisplay}%</Text>
                           </View>
                         </View>
+                        </View>
                       </View>
+                      {!isPremium && (
+                        <Pressable
+                          style={styles.premiumMaskOverlay}
+                          onPress={() => openPaywall('Buka fitur makro dengan Premium')}
+                        >
+                          <BlurView intensity={8} tint={themeMode === 'light' ? 'light' : 'dark'} style={{ flex: 1 }}>
+                            <View
+                              style={[
+                                styles.premiumMaskDim,
+                                {
+                                  backgroundColor:
+                                    themeMode === 'light' ? 'rgba(120, 120, 120, 0.18)' : 'rgba(20,20,20,0.42)',
+                                },
+                              ]}
+                            >
+                              <View style={styles.premiumMaskBadge}>
+                                <Lock size={14} color="#FFFFFF" />
+                                <Text style={styles.premiumMaskText}>Upgrade untuk lacak Protein, Karbo, Lemak</Text>
+                              </View>
+                            </View>
+                          </BlurView>
+                        </Pressable>
+                      )}
                     </View>
                   </View>
                 );
               })()}
 
               <View style={[styles.carouselPageContainer, carouselPageHeight > 0 && { height: carouselPageHeight }]}>
+                <View style={styles.premiumMaskSection}>
                 {(() => {
                   const currentSugar = todayMicros.sugar;
                   const currentFiber = todayMicros.fiber;
@@ -1165,7 +1224,32 @@ export default function HomeScreen() {
                     </View>
                   );
                 })()}
-                <View style={[styles.separatedCard, styles.waterCardExpanded, { backgroundColor: theme.card, flex: 1 }]}>
+                {!isPremium && (
+                  <Pressable
+                    style={styles.premiumMaskOverlay}
+                    onPress={() => openPaywall('Buka fitur mikro dengan Premium')}
+                  >
+                    <BlurView intensity={8} tint={themeMode === 'light' ? 'light' : 'dark'} style={{ flex: 1 }}>
+                      <View
+                        style={[
+                          styles.premiumMaskDim,
+                          {
+                            backgroundColor:
+                              themeMode === 'light' ? 'rgba(120, 120, 120, 0.18)' : 'rgba(20,20,20,0.42)',
+                          },
+                        ]}
+                      >
+                        <View style={styles.premiumMaskBadge}>
+                          <Lock size={14} color="#FFFFFF" />
+                        <Text style={styles.premiumMaskText}>Upgrade untuk lacak Gula, Serat, Sodium</Text>
+                        </View>
+                      </View>
+                    </BlurView>
+                  </Pressable>
+                )}
+                </View>
+                <View style={[styles.premiumMaskSection, { flex: 1 }]}>
+                <View style={[styles.separatedCard, styles.waterCardExpanded, { backgroundColor: theme.card, flex: 1, minHeight: 0 }]}>
                   {(() => {
                     const currentWater = getTodayWaterCups();
                     const waterPct = Math.round((currentWater / waterTarget) * 100);
@@ -1218,6 +1302,30 @@ export default function HomeScreen() {
                       </View>
                     );
                   })()}
+                </View>
+                {!isPremium && (
+                  <Pressable
+                    style={styles.premiumMaskOverlay}
+                    onPress={() => openPaywall('Buka fitur air dengan Premium')}
+                  >
+                    <BlurView intensity={8} tint={themeMode === 'light' ? 'light' : 'dark'} style={{ flex: 1 }}>
+                      <View
+                        style={[
+                          styles.premiumMaskDim,
+                          {
+                            backgroundColor:
+                              themeMode === 'light' ? 'rgba(120, 120, 120, 0.18)' : 'rgba(20,20,20,0.42)',
+                          },
+                        ]}
+                      >
+                        <View style={styles.premiumMaskBadge}>
+                          <Lock size={14} color="#FFFFFF" />
+                          <Text style={styles.premiumMaskText}>Upgrade untuk lacak Air harian</Text>
+                        </View>
+                      </View>
+                    </BlurView>
+                  </Pressable>
+                )}
                 </View>
               </View>
 
@@ -1909,12 +2017,11 @@ export default function HomeScreen() {
               <ScrollView 
                 ref={pendingModalScrollRef}
                 style={styles.pendingModalBody} 
+                contentContainerStyle={styles.pendingModalBodyContent}
                 showsVerticalScrollIndicator={false}
-                onContentSizeChange={() => {
-                  if (selectedPending?.status === 'done') {
-                    pendingModalScrollRef.current?.scrollTo({ y: 0, animated: true });
-                  }
-                }}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+                nestedScrollEnabled={Platform.OS === 'android'}
               >
                 {selectedPending?.photoUri && selectedPending?.status !== 'done' ? (
                   <Image source={{ uri: selectedPending.photoUri }} style={styles.pendingModalImage} />
@@ -2283,7 +2390,16 @@ export default function HomeScreen() {
                 )}
               </ScrollView>
 
-              <View style={[styles.pendingModalFooter, { paddingBottom: insets.bottom + 8 }]}>
+              <View
+                style={[
+                  styles.pendingModalFooter,
+                  {
+                    paddingBottom: insets.bottom + 8,
+                    backgroundColor: theme.card,
+                    borderTopColor: theme.border,
+                  },
+                ]}
+              >
                 <TouchableOpacity
                   style={styles.confirmEditedButton}
                   onPress={handleConfirmEdited}

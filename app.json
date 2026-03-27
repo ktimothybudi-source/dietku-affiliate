@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "DietKu Clone",
+    "name": "DietKu",
     "slug": "dietku-clone-jlejfwy",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -17,6 +17,7 @@
       "supportsTablet": false,
       "bundleIdentifier": "app.rork.dietku-clone-jlejfwy",
       "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
         "NSPhotoLibraryUsageDescription": "Allow $(PRODUCT_NAME) to access your photos",
         "NSPhotoLibraryAddUsageDescription": "Allow $(PRODUCT_NAME) to save story images to your photo library",
         "NSCameraUsageDescription": "Allow $(PRODUCT_NAME) to access your camera",

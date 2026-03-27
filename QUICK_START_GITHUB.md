@@ -81,7 +81,7 @@ When you run `git push`, you'll be prompted for credentials:
 **Use Personal Access Token (Recommended):**
 1. Go to: https://github.com/settings/tokens
 2. Click "Generate new token" → "Generate new token (classic)"
-3. Name: `rork-dietku-clone`
+3. Name: `dietku`
 4. Select scope: `repo` (full control)
 5. Click "Generate token"
 6. **Copy the token immediately** (you won't see it again)

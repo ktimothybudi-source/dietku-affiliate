@@ -10,6 +10,8 @@ import { CommunityProvider } from "@/contexts/CommunityContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { NotificationProvider } from "@/contexts/NotificationContext";
+import { SubscriptionProvider } from "@/contexts/SubscriptionContext";
+import PremiumPaywallModal from "@/components/PremiumPaywallModal";
 import { trpc, trpcClient } from "@/lib/trpc";
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
@@ -47,13 +49,16 @@ export default function RootLayout() {
           <ThemeProvider>
             <NotificationProvider>
               <NutritionProvider>
-                <ExerciseProvider>
-                  <CommunityProvider>
-                    <GestureHandlerRootView>
-                      <RootLayoutNav />
-                    </GestureHandlerRootView>
-                  </CommunityProvider>
-                </ExerciseProvider>
+                <SubscriptionProvider>
+                  <ExerciseProvider>
+                    <CommunityProvider>
+                      <GestureHandlerRootView>
+                        <RootLayoutNav />
+                        <PremiumPaywallModal />
+                      </GestureHandlerRootView>
+                    </CommunityProvider>
+                  </ExerciseProvider>
+                </SubscriptionProvider>
               </NutritionProvider>
             </NotificationProvider>
           </ThemeProvider>

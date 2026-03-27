@@ -1,5 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
+import { optimizeImageForLocalStorage } from '@/utils/imageOptimization';
 
 const getBaseDirectory = (): string => {
   if (Platform.OS === 'web') return 'file:///';
@@ -21,12 +22,18 @@ async function ensureDirectoryExists() {
 export async function saveImagePermanently(tempUri: string): Promise<string> {
   try {
     await ensureDirectoryExists();
+    let sourceUri = tempUri;
+    try {
+      sourceUri = await optimizeImageForLocalStorage(tempUri);
+    } catch (optimizationError) {
+      console.warn('Local image optimization failed, using original file:', optimizationError);
+    }
     
     const filename = `meal_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
     const permanentUri = IMAGES_DIR + filename;
     
     await FileSystem.copyAsync({
-      from: tempUri,
+      from: sourceUri,
       to: permanentUri,
     });
     

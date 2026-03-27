@@ -30,6 +30,13 @@ const mealQuotaInputSchema = z.object({
   consume: z.boolean().optional(),
 });
 
+const subscriptionSyncInputSchema = z.object({
+  userId: z.string().uuid(),
+  isPremium: z.boolean(),
+  source: z.string().max(50).optional(),
+  accessToken: z.string().min(20),
+});
+
 const app = new Hono();
 
 function getOpenAIKey(): string {
@@ -256,6 +263,41 @@ app.post("/meal-analysis-quota", async (c) => {
       remaining: result.remaining,
       resetInSec: result.resetInSec,
     });
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 500);
+  }
+});
+
+app.post("/subscription-sync", async (c) => {
+  try {
+    const input = subscriptionSyncInputSchema.parse(await c.req.json());
+    const { data: userData, error: userError } = await supabase.auth.getUser(input.accessToken);
+    if (userError || !userData.user) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    if (userData.user.id !== input.userId) {
+      return c.json({ error: "Forbidden" }, 403);
+    }
+
+    const note = input.isPremium
+      ? `premium:${input.source ?? "unknown"}`
+      : "premium_disabled";
+
+    const { error } = await supabase.from("ai_scan_quota_bypass").upsert(
+      {
+        user_id: input.userId,
+        is_active: input.isPremium,
+        note,
+      },
+      { onConflict: "user_id" }
+    );
+
+    if (error) {
+      throw new Error(`Failed to sync subscription: ${error.message}`);
+    }
+
+    return c.json({ ok: true, unlimited: input.isPremium });
   } catch (error) {
     return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 500);
   }

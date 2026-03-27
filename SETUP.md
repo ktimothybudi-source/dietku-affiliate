@@ -20,7 +20,7 @@ This document outlines all the steps needed to set up the backend infrastructure
 2. Sign up or log in
 3. Click "New Project"
 4. Fill in:
-   - Project name: `rork-dietku-clone` (or your preferred name)
+   - Project name: `dietku` (or your preferred name)
    - Database password: (save this securely)
    - Region: Choose closest to your users
 5. Wait for project to be created (takes ~2 minutes)
