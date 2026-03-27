@@ -1,18 +1,19 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { checkRateLimit, peekRateLimit } from "./lib/rate-limit";
+import { checkRateLimit } from "./lib/rate-limit";
+import { supabase } from "./lib/supabase";
 
 const OPENAI_BASE_URL = "https://api.openai.com/v1/chat/completions";
 const MAX_IMAGE_BASE64_LENGTH = 2_000_000; // ~2MB payload ceiling
 
 const mealAnalysisInputSchema = z.object({
   base64Image: z.string().min(1),
-  userId: z.string().optional(),
+  userId: z.string().uuid().optional(),
 });
 
 const exerciseEstimateInputSchema = z.object({
   description: z.string().min(1).max(500),
-  userId: z.string().optional(),
+  userId: z.string().uuid().optional(),
 });
 
 const translateInputSchema = z.object({
@@ -25,7 +26,7 @@ const rankInputSchema = z.object({
 });
 
 const mealQuotaInputSchema = z.object({
-  userId: z.string().optional(),
+  userId: z.string().uuid().optional(),
   consume: z.boolean().optional(),
 });
 
@@ -49,20 +50,68 @@ function getRequesterId(c: any, userId?: string): string {
   return userId || `ip:${ip}`;
 }
 
-/** Comma/space/semicolon-separated Supabase auth user UUIDs that skip the daily meal-scan cap. */
-function parseMealScanUnlimitedUserIds(): Set<string> {
-  const raw = process.env.MEAL_SCAN_UNLIMITED_USER_IDS ?? "";
-  return new Set(
-    raw
-      .split(/[\s,;]+/)
-      .map((s) => s.trim().toLowerCase())
-      .filter((s) => s.length > 0)
-  );
+const DAILY_SCAN_LIMIT = 3;
+const DAILY_SCAN_WINDOW = "24 hours";
+
+type QuotaResult = {
+  allowed: boolean;
+  remaining: number;
+  resetInSec: number;
+  unlimited: boolean;
+};
+
+async function isMealScanDailyUnlimitedUser(userId: string | undefined): Promise<boolean> {
+  if (!userId?.trim()) return false;
+
+  const { data, error } = await supabase.rpc("is_ai_scan_quota_bypass", {
+    p_user_id: userId,
+  });
+
+  if (error) {
+    throw new Error(`Failed to check scan bypass: ${error.message}`);
+  }
+
+  return Boolean(data);
 }
 
-function isMealScanDailyUnlimitedUser(userId: string | undefined): boolean {
-  if (!userId?.trim()) return false;
-  return parseMealScanUnlimitedUserIds().has(userId.trim().toLowerCase());
+async function getDailyScanQuota(
+  requestId: string,
+  userId: string | undefined,
+  consume: boolean
+): Promise<QuotaResult> {
+  const unlimited = await isMealScanDailyUnlimitedUser(userId);
+  if (unlimited) {
+    return {
+      allowed: true,
+      remaining: 999_999,
+      resetInSec: 0,
+      unlimited: true,
+    };
+  }
+
+  const rpcName = consume ? "consume_ai_scan_quota" : "peek_ai_scan_quota";
+  const { data, error } = await supabase.rpc(rpcName, {
+    p_requester_id: requestId,
+    p_user_id: userId ?? null,
+    p_limit: DAILY_SCAN_LIMIT,
+    p_window: DAILY_SCAN_WINDOW,
+  });
+
+  if (error) {
+    throw new Error(`Failed to read scan quota: ${error.message}`);
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) {
+    throw new Error("Failed to read scan quota: empty response");
+  }
+
+  return {
+    allowed: Boolean(row.allowed),
+    remaining: Number(row.remaining ?? 0),
+    resetInSec: Number(row.reset_in_sec ?? 0),
+    unlimited: false,
+  };
 }
 
 async function callOpenAI(payload: unknown) {
@@ -97,37 +146,22 @@ app.post("/meal-analysis", async (c) => {
 
     const input = mealAnalysisInputSchema.parse(await c.req.json());
     const requestId = getRequesterId(c, input.userId);
-    const dailyUnlimited = isMealScanDailyUnlimitedUser(input.userId);
+    const daily = await getDailyScanQuota(requestId, input.userId, true);
 
-    let daily: ReturnType<typeof checkRateLimit>;
-    if (dailyUnlimited) {
-      daily = {
-        allowed: true,
-        remaining: 999_999,
-        retryAfterSec: 0,
-        resetInSec: 0,
-      };
-    } else {
-      daily = checkRateLimit({
-        key: `meal-day:${requestId}`,
-        maxRequests: 3,
-        windowMs: 24 * 60 * 60 * 1000,
-      });
-      if (!daily.allowed) {
-        c.header("Retry-After", `${daily.retryAfterSec}`);
-        return c.json(
-          {
-            error: "Daily scan limit reached",
-            quota: {
-              unlimited: false,
-              limit: 3,
-              remaining: 0,
-              resetInSec: daily.resetInSec,
-            },
+    if (!daily.allowed) {
+      c.header("Retry-After", `${Math.max(1, daily.resetInSec)}`);
+      return c.json(
+        {
+          error: "Daily scan limit reached",
+          quota: {
+            unlimited: false,
+            limit: DAILY_SCAN_LIMIT,
+            remaining: 0,
+            resetInSec: daily.resetInSec,
           },
-          429
-        );
-      }
+        },
+        429
+      );
     }
 
     const hourly = checkRateLimit({
@@ -197,8 +231,8 @@ app.post("/meal-analysis", async (c) => {
     return c.json({
       ...openAIData,
       quota: {
-        unlimited: dailyUnlimited,
-        limit: 3,
+        unlimited: daily.unlimited,
+        limit: DAILY_SCAN_LIMIT,
         remaining: daily.remaining,
         resetInSec: daily.resetInSec,
       },
@@ -214,27 +248,11 @@ app.post("/meal-analysis-quota", async (c) => {
   try {
     const input = mealQuotaInputSchema.parse(await c.req.json());
     const requestId = getRequesterId(c, input.userId);
-
-    if (isMealScanDailyUnlimitedUser(input.userId)) {
-      return c.json({
-        allowed: true,
-        unlimited: true,
-        limit: 3,
-        remaining: 999_999,
-        resetInSec: 0,
-      });
-    }
-
-    const options = {
-      key: `meal-day:${requestId}`,
-      maxRequests: 3,
-      windowMs: 24 * 60 * 60 * 1000,
-    };
-    const result = input.consume ? checkRateLimit(options) : peekRateLimit(options);
+    const result = await getDailyScanQuota(requestId, input.userId, Boolean(input.consume));
     return c.json({
       allowed: result.allowed,
-      unlimited: false,
-      limit: 3,
+      unlimited: result.unlimited,
+      limit: DAILY_SCAN_LIMIT,
       remaining: result.remaining,
       resetInSec: result.resetInSec,
     });
