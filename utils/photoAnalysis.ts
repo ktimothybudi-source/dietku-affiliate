@@ -76,11 +76,23 @@ const mealAnalysisSchema = z.object({
   tips: z.array(z.string()).optional().describe('Tips to improve accuracy in future photos'),
 });
 
-export async function analyzeMealPhoto(base64Image: string): Promise<MealAnalysis> {
+export type AnalyzeMealPhotoOptions = {
+  /** Supabase user id — required for correct daily scan quota + premium bypass on the server. */
+  userId?: string | null;
+};
+
+export async function analyzeMealPhoto(
+  base64Image: string,
+  options?: AnalyzeMealPhotoOptions
+): Promise<MealAnalysis> {
   const base64ForApi = await ensureMealImageUnderLimit(base64Image);
+  const payload: Record<string, unknown> = { base64Image: base64ForApi };
+  if (options?.userId) {
+    payload.userId = options.userId;
+  }
   let json: any;
   try {
-    json = await callAIProxy<any>('meal-analysis', { base64Image: base64ForApi });
+    json = await callAIProxy<any>('meal-analysis', payload);
   } catch (err) {
     if (err instanceof AIProxyError && err.data && typeof err.data === 'object' && err.data !== null && 'error' in err.data) {
       throw new Error(String((err.data as { error: unknown }).error));
@@ -96,6 +108,21 @@ export async function analyzeMealPhoto(base64Image: string): Promise<MealAnalysi
     .replace(/```json/g, '')
     .replace(/```/g, '')
     .trim();
-  const parsed = JSON.parse(cleaned);
-  return mealAnalysisSchema.parse(parsed);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch {
+    throw new Error('Gagal membaca hasil analisis. Coba foto lagi dengan pencahayaan lebih terang.');
+  }
+  try {
+    return mealAnalysisSchema.parse(parsed);
+  } catch (zErr) {
+    if (zErr instanceof z.ZodError) {
+      const first = zErr.issues[0];
+      throw new Error(
+        first ? `Format analisis tidak valid: ${first.path.join('.') || 'data'}` : 'Format analisis tidak valid'
+      );
+    }
+    throw zErr;
+  }
 }

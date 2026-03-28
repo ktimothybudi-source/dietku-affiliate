@@ -11,7 +11,7 @@ import {
   View,
 } from 'react-native';
 import { router } from 'expo-router';
-import { ArrowLeft, ArrowRight, Mail } from 'lucide-react-native';
+import { ArrowLeft, ArrowRight, Eye, EyeOff, Mail } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { Svg, Path } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -32,6 +32,7 @@ export default function SignInScreen() {
   const insets = useSafeAreaInsets();
   const [email, setEmail] = useState<string>('');
   const [password, setPassword] = useState<string>('');
+  const [passwordVisible, setPasswordVisible] = useState<boolean>(false);
   const [isSigningIn, setIsSigningIn] = useState<boolean>(false);
   const [isGoogleSigningIn, setIsGoogleSigningIn] = useState<boolean>(false);
   const [isResending, setIsResending] = useState<boolean>(false);
@@ -308,18 +309,37 @@ export default function SignInScreen() {
 
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>{t.signIn.password}</Text>
-              <TextInput
-                style={styles.input}
-                value={password}
-                onChangeText={setPassword}
-                placeholder="••••••••"
-                placeholderTextColor="#999999"
-                secureTextEntry
-                autoCapitalize="none"
-                autoCorrect={false}
-                editable={!isSigningIn}
-                testID="sign-in-password-input"
-              />
+              <View style={styles.passwordField}>
+                <TextInput
+                  style={styles.passwordInput}
+                  value={password}
+                  onChangeText={setPassword}
+                  placeholder="••••••••"
+                  placeholderTextColor="#999999"
+                  secureTextEntry={!passwordVisible}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  editable={!isSigningIn}
+                  testID="sign-in-password-input"
+                />
+                <TouchableOpacity
+                  style={styles.passwordToggle}
+                  onPress={() => setPasswordVisible((v) => !v)}
+                  disabled={isSigningIn}
+                  activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    passwordVisible ? t.signIn.hidePassword : t.signIn.showPassword
+                  }
+                  testID="sign-in-password-visibility-toggle"
+                >
+                  {passwordVisible ? (
+                    <EyeOff size={22} color="#666666" />
+                  ) : (
+                    <Eye size={22} color="#666666" />
+                  )}
+                </TouchableOpacity>
+              </View>
             </View>
 
             <TouchableOpacity
@@ -481,6 +501,26 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     fontSize: 16,
     color: '#1A1A2E',
+  },
+  passwordField: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#EEEDF2',
+    borderRadius: 24,
+    paddingRight: 8,
+  },
+  passwordInput: {
+    flex: 1,
+    paddingLeft: 20,
+    paddingVertical: 16,
+    paddingRight: 8,
+    fontSize: 16,
+    color: '#1A1A2E',
+  },
+  passwordToggle: {
+    padding: 10,
   },
   signInButton: {
     backgroundColor: '#22C55E',

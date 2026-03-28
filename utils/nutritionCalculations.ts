@@ -118,6 +118,34 @@ export function calculateSodiumTargetMg(): number {
   return 2300;
 }
 
+/** Sum midpoint of min/max micro ranges per item (e.g. AI meal items). Scale for servings. */
+export function sumMidpointMicrosFromItems(
+  items: Array<{
+    sugarMin?: number;
+    sugarMax?: number;
+    fiberMin?: number;
+    fiberMax?: number;
+    sodiumMin?: number;
+    sodiumMax?: number;
+  }>,
+  scale: number = 1
+): { sugar: number; fiber: number; sodium: number } {
+  const raw = items.reduce(
+    (acc, item) => ({
+      sugar: acc.sugar + ((item.sugarMin ?? 0) + (item.sugarMax ?? 0)) / 2,
+      fiber: acc.fiber + ((item.fiberMin ?? 0) + (item.fiberMax ?? 0)) / 2,
+      sodium: acc.sodium + ((item.sodiumMin ?? 0) + (item.sodiumMax ?? 0)) / 2,
+    }),
+    { sugar: 0, fiber: 0, sodium: 0 }
+  );
+  const s = Math.max(0, scale);
+  return {
+    sugar: Math.round(raw.sugar * s * 10) / 10,
+    fiber: Math.round(raw.fiber * s * 10) / 10,
+    sodium: Math.round(raw.sodium * s),
+  };
+}
+
 export function calculateWaterTargetCups(weightKg: number): number {
   // Approximation: 35ml per kg bodyweight; 1 cup ~250ml.
   const mlNeeded = Math.max(0, weightKg) * 35;

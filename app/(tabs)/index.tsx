@@ -36,6 +36,7 @@ import {
   calculateFiberTargetFromCalories,
   calculateSodiumTargetMg,
   calculateWaterTargetCups,
+  sumMidpointMicrosFromItems,
 } from '@/utils/nutritionCalculations';
 import { searchUSDAFoods, USDAFoodItem } from '@/utils/usdaApi';
 import { searchFoods } from '@/lib/foodsApi';
@@ -49,10 +50,11 @@ import { getTimeBasedMessage, getProgressMessage, getCalorieFeedback, Motivation
 import { estimateExerciseFromText } from '@/utils/exerciseAi';
 
 export default function HomeScreen() {
-  const { profile, dailyTargets, todayEntries, todayTotals, addFoodEntry, deleteFoodEntry, isLoading, streakData, selectedDate, setSelectedDate, pendingEntries, confirmPendingEntry, removePendingEntry, retryPendingEntry, favorites, recentMeals, addToFavorites, removeFromFavorites, isFavorite, logFromFavorite, logFromRecent, removeFromRecent, shouldSuggestFavorite, addWaterCup, removeWaterCup, getTodayWaterCups } = useNutrition();
+  const { profile, dailyTargets, todayEntries, todayTotals, addFoodEntry, deleteFoodEntry, isLoading, streakData, selectedDate, setSelectedDate, pendingEntries, confirmPendingEntry, removePendingEntry, retryPendingEntry, favorites, recentMeals, addToFavorites, removeFromFavorites, isFavorite, logFromFavorite, logFromRecent, removeFromRecent, shouldSuggestFavorite, addWaterCup, removeWaterCup, getTodayWaterCups, authState } = useNutrition();
   const { todaySteps, stepsCaloriesBurned, exerciseCaloriesBurned, totalCaloriesBurned, todayExercises, addExercise } = useExercise();
   const { theme, themeMode } = useTheme();
   const { isPremium, openPaywall } = useSubscription();
+  const insets = useSafeAreaInsets();
   const progress = useTodayProgress();
   const [modalVisible, setModalVisible] = useState(false);
   const [foodName, setFoodName] = useState('');
@@ -78,7 +80,6 @@ export default function HomeScreen() {
   const [showSuggestFavorite, setShowSuggestFavorite] = useState(false);
   const [suggestedMealName, setSuggestedMealName] = useState('');
   const [shownPendingIds, setShownPendingIds] = useState<Set<string>>(new Set());
-  const insets = useSafeAreaInsets();
   const [motivationalMessage, setMotivationalMessage] = useState<MotivationalMessage & { isWarning?: boolean; isCelebration?: boolean } | null>(null);
   const [showMotivationalToast, setShowMotivationalToast] = useState(false);
   const motivationalToastAnim = useRef(new Animated.Value(-100)).current;
@@ -855,7 +856,7 @@ export default function HomeScreen() {
   const analyzePhoto = async (base64: string) => {
     setAnalyzing(true);
     try {
-      const result = await analyzeMealPhoto(base64);
+      const result = await analyzeMealPhoto(base64, { userId: authState.userId });
       setAnalysis(result);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
@@ -875,6 +876,7 @@ export default function HomeScreen() {
 
     const estimatedCarbs = Math.round((avgCalories - (avgProtein * 4)) / 4 * 0.6);
     const estimatedFat = Math.round((avgCalories - (avgProtein * 4)) / 9 * 0.4);
+    const micros = sumMidpointMicrosFromItems(analysis.items);
 
     addFoodEntry({
       name: foodNames,
@@ -882,6 +884,9 @@ export default function HomeScreen() {
       protein: avgProtein,
       carbs: estimatedCarbs,
       fat: estimatedFat,
+      sugar: micros.sugar,
+      fiber: micros.fiber,
+      sodium: micros.sodium,
     });
 
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -908,6 +913,9 @@ export default function HomeScreen() {
       protein: food.protein,
       carbs: food.carbs,
       fat: food.fat,
+      sugar: Math.round(food.sugar * 10) / 10,
+      fiber: Math.round(food.fiber * 10) / 10,
+      sodium: Math.round(food.sodium),
     });
     
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -1898,19 +1906,19 @@ export default function HomeScreen() {
         {/* Pending Entry Detail Modal */}
         <Modal
           visible={!!selectedPending}
-          transparent
+          transparent={false}
           animationType="slide"
           onRequestClose={handleClosePendingModal}
+          {...(Platform.OS === 'ios' ? { presentationStyle: 'fullScreen' as const } : {})}
         >
-          <View style={styles.pendingModalContainer}>
-            <TouchableOpacity
-              style={styles.pendingModalOverlay}
-              activeOpacity={1}
-              onPress={handleClosePendingModal}
-            />
-            
+          <View style={[styles.pendingModalScreen, { backgroundColor: theme.card }]}>
             <View style={[styles.pendingModalContent, { backgroundColor: theme.card }]}>
-              <View style={[styles.pendingModalHeader, { borderBottomColor: theme.border }]}>
+              <View
+                style={[
+                  styles.pendingModalHeader,
+                  { borderBottomColor: theme.border, paddingTop: insets.top + 16 },
+                ]}
+              >
                 {selectedPending?.status === 'done' && selectedPending.analysis ? (
                   <View style={styles.pendingModalTitleContainer}>
                     <Text style={[styles.pendingModalTitle, { color: theme.text }]} numberOfLines={1}>
@@ -2016,7 +2024,7 @@ export default function HomeScreen() {
 
               <ScrollView 
                 ref={pendingModalScrollRef}
-                style={styles.pendingModalBody} 
+                style={[styles.pendingModalBody, { flex: 1 }]} 
                 contentContainerStyle={styles.pendingModalBodyContent}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
@@ -2104,50 +2112,85 @@ export default function HomeScreen() {
                             </View>
                           </View>
                           <View style={[styles.pendingTotalCard, { backgroundColor: theme.background, borderColor: theme.border }]}>
-                          <View style={styles.pendingStatsSection}>
-                            <View style={styles.pendingMacros}>
-                              <View style={styles.pendingMacro}>
-                                <Text style={styles.pendingMacroEmoji}>🥩</Text>
-                                <Text style={[styles.pendingMacroValue, { color: theme.text }]}>
-                                  {totals.protein}g
-                                </Text>
-                                <Text style={[styles.pendingMacroLabel, { color: theme.textSecondary }]}>Protein</Text>
+                          <View style={[styles.premiumMaskSection, { borderRadius: 12 }]}>
+                            <View style={styles.pendingStatsSection}>
+                              <View style={styles.pendingMacros}>
+                                <View style={styles.pendingMacro}>
+                                  <Text style={styles.pendingMacroEmoji}>🥩</Text>
+                                  <Text style={[styles.pendingMacroValue, { color: theme.text }]}>
+                                    {totals.protein}g
+                                  </Text>
+                                  <Text style={[styles.pendingMacroLabel, { color: theme.textSecondary }]}>Protein</Text>
+                                </View>
+                                <View style={styles.pendingMacro}>
+                                  <Text style={styles.pendingMacroEmoji}>🌾</Text>
+                                  <Text style={[styles.pendingMacroValue, { color: theme.text }]}>
+                                    {totals.carbs}g
+                                  </Text>
+                                  <Text style={[styles.pendingMacroLabel, { color: theme.textSecondary }]}>Karbo</Text>
+                                </View>
+                                <View style={styles.pendingMacro}>
+                                  <Text style={styles.pendingMacroEmoji}>🥑</Text>
+                                  <Text style={[styles.pendingMacroValue, { color: theme.text }]}>
+                                    {totals.fat}g
+                                  </Text>
+                                  <Text style={[styles.pendingMacroLabel, { color: theme.textSecondary }]}>Lemak</Text>
+                                </View>
                               </View>
-                              <View style={styles.pendingMacro}>
-                                <Text style={styles.pendingMacroEmoji}>🌾</Text>
-                                <Text style={[styles.pendingMacroValue, { color: theme.text }]}>
-                                  {totals.carbs}g
-                                </Text>
-                                <Text style={[styles.pendingMacroLabel, { color: theme.textSecondary }]}>Karbo</Text>
-                              </View>
-                              <View style={styles.pendingMacro}>
-                                <Text style={styles.pendingMacroEmoji}>🥑</Text>
-                                <Text style={[styles.pendingMacroValue, { color: theme.text }]}>
-                                  {totals.fat}g
-                                </Text>
-                                <Text style={[styles.pendingMacroLabel, { color: theme.textSecondary }]}>Lemak</Text>
+                              <View style={styles.pendingMicrosRow}>
+                                <View style={styles.pendingMicro}>
+                                  <Text style={[styles.pendingMicroValue, { color: theme.text }]}>
+                                    {avgSugar}g
+                                  </Text>
+                                  <Text style={[styles.pendingMicroLabel, { color: theme.textSecondary }]}>Gula</Text>
+                                </View>
+                                <View style={styles.pendingMicro}>
+                                  <Text style={[styles.pendingMicroValue, { color: theme.text }]}>
+                                    {avgFiber}g
+                                  </Text>
+                                  <Text style={[styles.pendingMicroLabel, { color: theme.textSecondary }]}>Serat</Text>
+                                </View>
+                                <View style={styles.pendingMicro}>
+                                  <Text style={[styles.pendingMicroValue, { color: theme.text }]}>
+                                    {avgSodium}mg
+                                  </Text>
+                                  <Text style={[styles.pendingMicroLabel, { color: theme.textSecondary }]}>Natrium</Text>
+                                </View>
                               </View>
                             </View>
-                            <View style={styles.pendingMicrosRow}>
-                              <View style={styles.pendingMicro}>
-                                <Text style={[styles.pendingMicroValue, { color: theme.text }]}>
-                                  {avgSugar}g
-                                </Text>
-                                <Text style={[styles.pendingMicroLabel, { color: theme.textSecondary }]}>Gula</Text>
-                              </View>
-                              <View style={styles.pendingMicro}>
-                                <Text style={[styles.pendingMicroValue, { color: theme.text }]}>
-                                  {avgFiber}g
-                                </Text>
-                                <Text style={[styles.pendingMicroLabel, { color: theme.textSecondary }]}>Serat</Text>
-                              </View>
-                              <View style={styles.pendingMicro}>
-                                <Text style={[styles.pendingMicroValue, { color: theme.text }]}>
-                                  {avgSodium}mg
-                                </Text>
-                                <Text style={[styles.pendingMicroLabel, { color: theme.textSecondary }]}>Natrium</Text>
-                              </View>
-                            </View>
+                            {!isPremium && (
+                              <Pressable
+                                style={[styles.premiumMaskOverlay, { borderRadius: 12 }]}
+                                onPress={() =>
+                                  openPaywall(
+                                    totals.calories >= 350 && totals.protein < dailyTargets.protein * 0.18
+                                      ? 'Premium: protein & nutrisi lengkap'
+                                      : 'Buka fitur makro dan mikro dengan Premium',
+                                  )
+                                }
+                              >
+                                <BlurView intensity={8} tint={themeMode === 'light' ? 'light' : 'dark'} style={{ flex: 1 }}>
+                                  <View
+                                    style={[
+                                      styles.premiumMaskDim,
+                                      {
+                                        backgroundColor:
+                                          themeMode === 'light' ? 'rgba(120, 120, 120, 0.18)' : 'rgba(20,20,20,0.42)',
+                                      },
+                                    ]}
+                                  >
+                                    <View style={[styles.premiumMaskBadge, { maxWidth: '94%', flexDirection: 'column', gap: 6, paddingVertical: 10 }]}>
+                                      <Lock size={14} color="#FFFFFF" />
+                                      <Text style={[styles.premiumMaskText, { textAlign: 'center' }]} numberOfLines={3}>
+                                        {totals.calories >= 350 && totals.protein < dailyTargets.protein * 0.18
+                                          ? 'Kurang protein? Upgrade untuk lacak Protein, Karbo, Lemak, Gula, Serat & Natrium'
+                                          : 'Upgrade untuk lacak Protein, Karbo, Lemak, Gula, Serat & Natrium'}
+                                      </Text>
+                                    </View>
+                                  </View>
+                                </BlurView>
+                              </Pressable>
+                            )}
                           </View>
                           </View>
                         </>

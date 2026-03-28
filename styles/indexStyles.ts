@@ -1678,22 +1678,13 @@ export const indexStyles = StyleSheet.create({
     fontWeight: '600' as const,
     color: '#FFFFFF',
   },
-  pendingModalContainer: {
+  pendingModalScreen: {
     flex: 1,
-    justifyContent: 'flex-end',
-  },
-  pendingModalOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    width: '100%',
   },
   pendingModalContent: {
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    maxHeight: '90%',
+    flex: 1,
+    width: '100%',
     position: 'relative',
   },
   pendingModalHeader: {
@@ -1718,7 +1709,6 @@ export const indexStyles = StyleSheet.create({
     marginTop: 2,
   },
   pendingModalBody: {
-    flex: 1,
     paddingHorizontal: 20,
     paddingTop: 20,
   },

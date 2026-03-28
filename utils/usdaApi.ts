@@ -16,6 +16,11 @@ export interface USDAFoodItem {
   protein: number;
   carbs: number;
   fat: number;
+  /** g per 100g (FDC nutrient numbers 269 / 291|1079) */
+  sugar: number;
+  fiber: number;
+  /** mg per 100g (FDC 307) */
+  sodium: number;
 }
 
 interface USDANutrient {
@@ -47,6 +52,13 @@ interface USDASearchResponse {
 function extractNutrientValue(nutrients: USDANutrient[], nutrientNumber: string): number {
   const nutrient = nutrients.find(n => n.nutrientNumber === nutrientNumber);
   return nutrient ? Math.round(nutrient.value) : 0;
+}
+
+/** Fiber may appear as 291 (legacy) or 1079 (total dietary) depending on data type. */
+function extractFiberPer100g(nutrients: USDANutrient[]): number {
+  const a = extractNutrientValue(nutrients, '291');
+  const b = extractNutrientValue(nutrients, '1079');
+  return Math.max(a, b);
 }
 
 async function translateToEnglish(indonesianQuery: string): Promise<string> {
@@ -180,6 +192,9 @@ export async function searchUSDAFoods(query: string, pageSize: number = 25): Pro
       protein: extractNutrientValue(food.foodNutrients, '203'),
       carbs: extractNutrientValue(food.foodNutrients, '205'),
       fat: extractNutrientValue(food.foodNutrients, '204'),
+      sugar: extractNutrientValue(food.foodNutrients, '269'),
+      fiber: extractFiberPer100g(food.foodNutrients),
+      sodium: extractNutrientValue(food.foodNutrients, '307'),
     }));
 
     if (language === 'id' && foods.length > 0) {
@@ -233,6 +248,9 @@ export async function getUSDAFoodDetails(fdcId: number): Promise<USDAFoodItem | 
       protein: extractNutrientValue(nutrients, '203'),
       carbs: extractNutrientValue(nutrients, '205'),
       fat: extractNutrientValue(nutrients, '204'),
+      sugar: extractNutrientValue(nutrients, '269'),
+      fiber: extractFiberPer100g(nutrients),
+      sodium: extractNutrientValue(nutrients, '307'),
     };
   } catch (error) {
     console.error('Error getting USDA food details:', error);

@@ -17,7 +17,7 @@ import { useNutrition } from '@/contexts/NutritionContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useNotifications } from '@/contexts/NotificationContext';
 import { Goal, ActivityLevel, Sex } from '@/types/nutrition';
-import { ArrowRight, ArrowLeft, Sparkles, Globe } from 'lucide-react-native';
+import { ArrowRight, ArrowLeft, Eye, EyeOff, Sparkles, Globe } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { Svg, Path, Circle, G } from 'react-native-svg';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -84,6 +84,8 @@ export default function OnboardingScreen() {
   const [signInEmail, setSignInEmail] = useState('');
   const [signInPassword, setSignInPassword] = useState('');
   const [signInPasswordConfirm, setSignInPasswordConfirm] = useState('');
+  const [showSignInPassword, setShowSignInPassword] = useState(false);
+  const [showSignInPasswordConfirm, setShowSignInPasswordConfirm] = useState(false);
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [userName, setUserName] = useState('');
@@ -1735,34 +1737,72 @@ export default function OnboardingScreen() {
           style={styles.inputGroup}
         >
           <Text style={styles.inputLabel}>Password</Text>
-          <TextInput
-            style={styles.signInInput}
-            value={signInPassword}
-            onFocus={() => scrollToY(signInPasswordY.current)}
-            onChangeText={setSignInPassword}
-            placeholder="••••••••"
-            placeholderTextColor="#999999"
-            secureTextEntry
-            autoCapitalize="none"
-            autoCorrect={false}
-            returnKeyType="next"
-          />
+          <View style={styles.signInPasswordRow}>
+            <TextInput
+              style={styles.signInPasswordInput}
+              value={signInPassword}
+              onFocus={() => scrollToY(signInPasswordY.current)}
+              onChangeText={setSignInPassword}
+              placeholder="••••••••"
+              placeholderTextColor="#999999"
+              secureTextEntry={!showSignInPassword}
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="next"
+              editable={!isCreatingAccount}
+            />
+            <TouchableOpacity
+              style={styles.signInPasswordToggle}
+              onPress={() => setShowSignInPassword((v) => !v)}
+              disabled={isCreatingAccount}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel={
+                showSignInPassword ? t.signIn.hidePassword : t.signIn.showPassword
+              }
+            >
+              {showSignInPassword ? (
+                <EyeOff size={22} color="#666666" />
+              ) : (
+                <Eye size={22} color="#666666" />
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
 
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>Ketik Ulang Password</Text>
-          <TextInput
-            style={styles.signInInput}
-            value={signInPasswordConfirm}
-            onChangeText={setSignInPasswordConfirm}
-            placeholder="••••••••"
-            placeholderTextColor="#999999"
-            secureTextEntry
-            autoCapitalize="none"
-            autoCorrect={false}
-            returnKeyType="done"
-            onSubmitEditing={() => Keyboard.dismiss()}
-          />
+          <View style={styles.signInPasswordRow}>
+            <TextInput
+              style={styles.signInPasswordInput}
+              value={signInPasswordConfirm}
+              onChangeText={setSignInPasswordConfirm}
+              placeholder="••••••••"
+              placeholderTextColor="#999999"
+              secureTextEntry={!showSignInPasswordConfirm}
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="done"
+              onSubmitEditing={() => Keyboard.dismiss()}
+              editable={!isCreatingAccount}
+            />
+            <TouchableOpacity
+              style={styles.signInPasswordToggle}
+              onPress={() => setShowSignInPasswordConfirm((v) => !v)}
+              disabled={isCreatingAccount}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel={
+                showSignInPasswordConfirm ? t.signIn.hidePassword : t.signIn.showPassword
+              }
+            >
+              {showSignInPasswordConfirm ? (
+                <EyeOff size={22} color="#666666" />
+              ) : (
+                <Eye size={22} color="#666666" />
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
 
         <TouchableOpacity 

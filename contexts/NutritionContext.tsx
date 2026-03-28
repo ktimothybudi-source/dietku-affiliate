@@ -1,8 +1,9 @@
 import createContextHook from '@nkzw/create-context-hook';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { AppState, type AppStateStatus } from 'react-native';
 import { UserProfile, FoodEntry, DailyTargets, MealAnalysis, FavoriteMeal, RecentMeal } from '@/types/nutrition';
-import { calculateDailyTargets, getTodayKey } from '@/utils/nutritionCalculations';
+import { calculateDailyTargets, getTodayKey, sumMidpointMicrosFromItems } from '@/utils/nutritionCalculations';
 import { analyzeMealPhoto } from '@/utils/photoAnalysis';
 import { saveImagePermanently } from '@/utils/imageStorage';
 import { supabase, SupabaseProfile, SupabaseFoodEntry, SupabaseWeightHistory, SupabaseStreak } from '@/lib/supabase';
@@ -83,6 +84,17 @@ const mapSupabaseFoodEntryToFoodEntry = (sfe: SupabaseFoodEntry): FoodEntry => (
   photoUri: sfe.photo_uri || undefined,
 });
 
+const mapFavoriteRow = (f: Record<string, unknown>): FavoriteMeal => ({
+  id: String(f.id),
+  name: String(f.name ?? ''),
+  calories: Number(f.calories ?? 0),
+  protein: Number(f.protein ?? 0),
+  carbs: Number(f.carbs ?? 0),
+  fat: Number(f.fat ?? 0),
+  createdAt: new Date(String(f.created_at)).getTime(),
+  logCount: Number(f.log_count ?? 0),
+});
+
 export const [NutritionProvider, useNutrition] = createContextHook(() => {
   const queryClient = useQueryClient();
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -105,6 +117,20 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
   const [fiberUnits, setFiberUnits] = useState<{ [date: string]: number }>({});
   const [sodiumUnits, setSodiumUnits] = useState<{ [date: string]: number }>({});
 
+  // React Native: refresh tokens while foregrounded; pausing in background avoids stuck timers and missed refresh.
+  useEffect(() => {
+    const onAppState = (state: AppStateStatus) => {
+      if (state === 'active') {
+        supabase.auth.startAutoRefresh();
+      } else {
+        supabase.auth.stopAutoRefresh();
+      }
+    };
+    const sub = AppState.addEventListener('change', onAppState);
+    onAppState(AppState.currentState);
+    return () => sub.remove();
+  }, []);
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       console.log('Initial session:', session?.user?.email);
@@ -118,18 +144,40 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
       }
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      console.log('Auth state changed:', _event, session?.user?.email);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log('Auth state changed:', event, session?.user?.email);
       setSession(session);
+
       if (session?.user) {
         setAuthState({
           isSignedIn: true,
           email: session.user.email || null,
           userId: session.user.id,
         });
-      } else {
-        setAuthState({ isSignedIn: false, email: null, userId: null });
+        return;
       }
+
+      // Only treat explicit sign-out / cold start as logged out. Other events can briefly
+      // report null; clearing here caused random logouts after backgrounding or refresh.
+      if (event === 'SIGNED_OUT') {
+        setAuthState({ isSignedIn: false, email: null, userId: null });
+        return;
+      }
+      if (event === 'INITIAL_SESSION') {
+        setAuthState({ isSignedIn: false, email: null, userId: null });
+        return;
+      }
+
+      void supabase.auth.getSession().then(({ data: { session: recovered } }) => {
+        if (recovered?.user) {
+          setSession(recovered);
+          setAuthState({
+            isSignedIn: true,
+            email: recovered.user.email || null,
+            userId: recovered.user.id,
+          });
+        }
+      });
     });
 
     return () => subscription.unsubscribe();
@@ -256,16 +304,7 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
         console.error('Error fetching favorites:', error);
         return [];
       }
-      return (data || []).map((f: any) => ({
-        id: f.id,
-        name: f.name,
-        calories: Number(f.calories || 0),
-        protein: Number(f.protein || 0),
-        carbs: Number(f.carbs || 0),
-        fat: Number(f.fat || 0),
-        createdAt: new Date(f.created_at).getTime(),
-        logCount: Number(f.log_count || 0),
-      })) as FavoriteMeal[];
+      return (data || []).map((f: any) => mapFavoriteRow(f)) as FavoriteMeal[];
     },
     enabled: authState.isSignedIn && !!authState.userId,
   });
@@ -406,7 +445,7 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
   }, [streakQuery.data]);
 
   useEffect(() => {
-    if (favoritesQuery.data) {
+    if (favoritesQuery.data !== undefined) {
       setFavorites(favoritesQuery.data);
     }
   }, [favoritesQuery.data]);
@@ -778,7 +817,87 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
     },
   });
 
-  const saveFavoritesMutation = useMutation({
+  const insertFavoriteMutation = useMutation({
+    mutationFn: async (meal: Omit<FavoriteMeal, 'id' | 'createdAt' | 'logCount'>) => {
+      if (!authState.userId) throw new Error('Not authenticated');
+      const { data, error } = await supabase
+        .from('favorites')
+        .insert({
+          user_id: authState.userId,
+          name: meal.name,
+          calories: meal.calories,
+          protein: meal.protein,
+          carbs: meal.carbs,
+          fat: meal.fat,
+          log_count: 0,
+        })
+        .select('*')
+        .single();
+      if (error) throw error;
+      return mapFavoriteRow(data as Record<string, unknown>);
+    },
+    onSuccess: (row) => {
+      queryClient.setQueryData(
+        ['nutrition_favorites', authState.userId],
+        (old: FavoriteMeal[] | undefined) => [row, ...(old ?? []).filter((f) => f.id !== row.id)],
+      );
+    },
+    onError: (e) => console.error('Insert favorite failed:', e),
+  });
+
+  const deleteFavoriteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      if (!authState.userId) throw new Error('Not authenticated');
+      const { error } = await supabase
+        .from('favorites')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', authState.userId);
+      if (error) throw error;
+      return id;
+    },
+    onSuccess: (removedId) => {
+      queryClient.setQueryData(
+        ['nutrition_favorites', authState.userId],
+        (old: FavoriteMeal[] | undefined) => (old ?? []).filter((f) => f.id !== removedId),
+      );
+    },
+    onError: (e) => console.error('Delete favorite failed:', e),
+  });
+
+  type FavoriteDbPatch = {
+    name?: string;
+    calories?: number;
+    protein?: number;
+    carbs?: number;
+    fat?: number;
+    log_count?: number;
+  };
+
+  const patchFavoriteMutation = useMutation({
+    mutationFn: async ({ id, patch }: { id: string; patch: FavoriteDbPatch }) => {
+      if (!authState.userId) throw new Error('Not authenticated');
+      const { data, error } = await supabase
+        .from('favorites')
+        .update(patch)
+        .eq('id', id)
+        .eq('user_id', authState.userId)
+        .select('*')
+        .single();
+      if (error) throw error;
+      return mapFavoriteRow(data as Record<string, unknown>);
+    },
+    onSuccess: (row) => {
+      queryClient.setQueryData(
+        ['nutrition_favorites', authState.userId],
+        (old: FavoriteMeal[] | undefined) => (old ?? []).map((f) => (f.id === row.id ? row : f)),
+      );
+    },
+    onError: (e) => console.error('Update favorite failed:', e),
+  });
+
+  /** Full replace — only for reordering; avoids delete-all races on add/remove. */
+  const replaceFavoritesMutation = useMutation({
     mutationFn: async (newFavorites: FavoriteMeal[]) => {
       if (!authState.userId) throw new Error('Not authenticated');
       const { error: deleteError } = await supabase
@@ -805,21 +924,13 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
         .eq('user_id', authState.userId)
         .order('created_at', { ascending: false });
       if (error) throw error;
-      return (data || []).map((f: any) => ({
-        id: f.id,
-        name: f.name,
-        calories: Number(f.calories || 0),
-        protein: Number(f.protein || 0),
-        carbs: Number(f.carbs || 0),
-        fat: Number(f.fat || 0),
-        createdAt: new Date(f.created_at).getTime(),
-        logCount: Number(f.log_count || 0),
-      })) as FavoriteMeal[];
+      return (data || []).map((f: any) => mapFavoriteRow(f)) as FavoriteMeal[];
     },
     onSuccess: (data) => {
       setFavorites(data);
       queryClient.setQueryData(['nutrition_favorites', authState.userId], data);
     },
+    onError: (e) => console.error('Replace favorites failed:', e),
   });
 
   const saveWaterMutation = useMutation({
@@ -1089,63 +1200,68 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
     );
   }, [saveFoodEntryMutation, authState, selectedDate, updateRecentMeals]);
 
-  const { mutate: mutateFavorites } = saveFavoritesMutation;
-
   const addToFavorites = useCallback((meal: Omit<FavoriteMeal, 'id' | 'createdAt' | 'logCount'>) => {
     const normalizedName = meal.name.toLowerCase().trim();
     const exists = favorites.some(f => f.name.toLowerCase().trim() === normalizedName);
     if (exists) return false;
 
-    const newFavorite: FavoriteMeal = {
-      ...meal,
-      id: Date.now().toString(),
-      createdAt: Date.now(),
-      logCount: 0,
-    };
-    mutateFavorites([newFavorite, ...favorites]);
+    insertFavoriteMutation.mutate(meal);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     return true;
-  }, [favorites, mutateFavorites]);
+  }, [favorites, insertFavoriteMutation]);
 
   const removeFromFavorites = useCallback((favoriteId: string) => {
-    const updatedFavorites = favorites.filter(f => f.id !== favoriteId);
-    mutateFavorites(updatedFavorites);
+    deleteFavoriteMutation.mutate(favoriteId);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-  }, [favorites, mutateFavorites]);
+  }, [deleteFavoriteMutation]);
 
-  const updateFavorite = useCallback((favoriteId: string, updates: Partial<Omit<FavoriteMeal, 'id' | 'createdAt'>>) => {
-    const updatedFavorites = favorites.map(f =>
-      f.id === favoriteId ? { ...f, ...updates } : f
-    );
-    mutateFavorites(updatedFavorites);
-  }, [favorites, mutateFavorites]);
+  const updateFavorite = useCallback(
+    (favoriteId: string, updates: Partial<Omit<FavoriteMeal, 'id' | 'createdAt'>>) => {
+      const patch: FavoriteDbPatch = {};
+      if (updates.name !== undefined) patch.name = updates.name;
+      if (updates.calories !== undefined) patch.calories = updates.calories;
+      if (updates.protein !== undefined) patch.protein = updates.protein;
+      if (updates.carbs !== undefined) patch.carbs = updates.carbs;
+      if (updates.fat !== undefined) patch.fat = updates.fat;
+      if (updates.logCount !== undefined) patch.log_count = updates.logCount;
+      if (Object.keys(patch).length === 0) return;
+      patchFavoriteMutation.mutate({ id: favoriteId, patch });
+    },
+    [patchFavoriteMutation],
+  );
 
-  const reorderFavorites = useCallback((newOrder: FavoriteMeal[]) => {
-    mutateFavorites(newOrder);
-  }, [mutateFavorites]);
+  const reorderFavorites = useCallback(
+    (newOrder: FavoriteMeal[]) => {
+      replaceFavoritesMutation.mutate(newOrder);
+    },
+    [replaceFavoritesMutation],
+  );
 
   const isFavorite = useCallback((mealName: string) => {
     const normalizedName = mealName.toLowerCase().trim();
     return favorites.some(f => f.name.toLowerCase().trim() === normalizedName);
   }, [favorites]);
 
-  const logFromFavorite = useCallback((favoriteId: string) => {
-    const favorite = favorites.find(f => f.id === favoriteId);
-    if (!favorite) return;
+  const logFromFavorite = useCallback(
+    (favoriteId: string) => {
+      const favorite = favorites.find(f => f.id === favoriteId);
+      if (!favorite) return;
 
-    addFoodEntry({
-      name: favorite.name,
-      calories: favorite.calories,
-      protein: favorite.protein,
-      carbs: favorite.carbs,
-      fat: favorite.fat,
-    });
+      addFoodEntry({
+        name: favorite.name,
+        calories: favorite.calories,
+        protein: favorite.protein,
+        carbs: favorite.carbs,
+        fat: favorite.fat,
+      });
 
-    const updatedFavorites = favorites.map(f =>
-      f.id === favoriteId ? { ...f, logCount: f.logCount + 1 } : f
-    );
-    mutateFavorites(updatedFavorites);
-  }, [favorites, addFoodEntry, mutateFavorites]);
+      patchFavoriteMutation.mutate({
+        id: favoriteId,
+        patch: { log_count: Math.max(0, favorite.logCount + 1) },
+      });
+    },
+    [favorites, addFoodEntry, patchFavoriteMutation],
+  );
 
   const logFromRecent = useCallback((recentId: string) => {
     const recent = recentMeals.find(r => r.id === recentId);
@@ -1478,7 +1594,7 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
         console.error('Error saving image:', error);
       });
 
-    analyzeMealPhoto(base64)
+    analyzeMealPhoto(base64, { userId: authState.userId })
       .then((analysis) => {
         setPendingEntries(prev =>
           prev.map(entry =>
@@ -1491,10 +1607,12 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
       })
       .catch((error) => {
         console.warn('Photo analysis error:', error);
+        const message =
+          error instanceof Error && error.message ? error.message : 'Gagal menganalisis foto';
         setPendingEntries(prev =>
           prev.map(entry =>
             entry.id === newPending.id
-              ? { ...entry, status: 'error' as const, error: 'Gagal menganalisis foto' }
+              ? { ...entry, status: 'error' as const, error: message }
               : entry
           )
         );
@@ -1502,7 +1620,7 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
       });
 
     return newPending.id;
-  }, []);
+  }, [authState.userId]);
 
   const confirmPendingEntry = useCallback((pendingId: string, servings: number = 1) => {
     const pending = pendingEntries.find(p => p.id === pendingId);
@@ -1514,6 +1632,7 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
     const avgCarbs = analysis.items.reduce((sum, item) => sum + (item.carbsMin + item.carbsMax) / 2, 0) * servings;
     const avgFat = analysis.items.reduce((sum, item) => sum + (item.fatMin + item.fatMax) / 2, 0) * servings;
     const foodNames = analysis.items.map(item => item.name).join(', ');
+    const micros = sumMidpointMicrosFromItems(analysis.items, servings);
 
     addFoodEntry({
       name: foodNames,
@@ -1521,6 +1640,9 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
       protein: Math.round(avgProtein),
       carbs: Math.round(avgCarbs),
       fat: Math.round(avgFat),
+      sugar: micros.sugar,
+      fiber: micros.fiber,
+      sodium: micros.sodium,
       photoUri: pending.permanentPhotoUri || pending.photoUri,
     });
 
@@ -1544,7 +1666,7 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
       )
     );
 
-    analyzeMealPhoto(pending.base64)
+    analyzeMealPhoto(pending.base64, { userId: authState.userId })
       .then((analysis) => {
         setPendingEntries(prev =>
           prev.map(entry =>
@@ -1557,15 +1679,17 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
       })
       .catch((error) => {
         console.warn('Photo analysis error:', error);
+        const message =
+          error instanceof Error && error.message ? error.message : 'Gagal menganalisis foto';
         setPendingEntries(prev =>
           prev.map(entry =>
             entry.id === pendingId
-              ? { ...entry, status: 'error' as const, error: 'Gagal menganalisis foto' }
+              ? { ...entry, status: 'error' as const, error: message }
               : entry
           )
         );
       });
-  }, [pendingEntries]);
+  }, [pendingEntries, authState.userId]);
 
   const deleteFoodEntry = useCallback((entryId: string) => {
     deleteFoodEntryMutation.mutate(entryId);
@@ -1677,7 +1801,15 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
     deleteWeightEntry,
     clearAllData,
     isLoading: profileQuery.isLoading || foodEntriesQuery.isLoading || weightHistoryQuery.isLoading || streakQuery.isLoading || favoritesQuery.isLoading || recentMealsQuery.isLoading || waterQuery.isLoading || sugarQuery.isLoading || fiberQuery.isLoading || sodiumQuery.isLoading,
-    isSaving: saveProfileMutation.isPending || saveFoodEntryMutation.isPending || saveWeightHistoryMutation.isPending || saveFavoritesMutation.isPending || saveRecentMealsMutation.isPending,
+    isSaving:
+      saveProfileMutation.isPending ||
+      saveFoodEntryMutation.isPending ||
+      saveWeightHistoryMutation.isPending ||
+      insertFavoriteMutation.isPending ||
+      deleteFavoriteMutation.isPending ||
+      patchFavoriteMutation.isPending ||
+      replaceFavoritesMutation.isPending ||
+      saveRecentMealsMutation.isPending,
   };
 });
 
