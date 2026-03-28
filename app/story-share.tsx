@@ -36,7 +36,7 @@ import {
 import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
 import * as MediaLibrary from 'expo-media-library';
-import ShareLib from 'react-native-share';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { captureRef } from 'react-native-view-shot';
 import { useTheme } from '@/contexts/ThemeContext';
 import {
@@ -50,7 +50,7 @@ import { ANIMATION_DURATION, SPRING_CONFIG } from '@/constants/animations';
 import { storyShareStyles as styles } from '@/styles/storyShareStyles';
 
 export default function StoryShareScreen() {
-  useTheme();
+  const { theme, themeMode } = useTheme();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{
     mealName?: string;
@@ -228,6 +228,13 @@ export default function StoryShareScreen() {
   };
 
   const openInstagramStoryComposer = async (imageUri: string) => {
+    // react-native-share needs native RNShare — not in Expo Go; use EAS/dev build for IG Stories.
+    if (Constants.executionEnvironment === ExecutionEnvironment.StoreClient) {
+      throw new Error('EXPO_GO_NO_NATIVE_SHARE');
+    }
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require('react-native-share') as { default?: typeof import('react-native-share').default };
+    const ShareLib = mod.default ?? mod;
     await ShareLib.shareSingle({
       social: ShareLib.Social.INSTAGRAM_STORIES as any,
       backgroundImage: imageUri,
@@ -317,17 +324,20 @@ export default function StoryShareScreen() {
           style={[
             styles.shareSheet,
             {
-              transform: [{
-                translateY: shareSheetAnim.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [400, 0],
-                }),
-              }],
+              backgroundColor: theme.card,
+              transform: [
+                {
+                  translateY: shareSheetAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [400, 0],
+                  }),
+                },
+              ],
             },
           ]}
         >
-          <View style={styles.sheetHandle} />
-          <Text style={styles.sheetTitle}>Share to</Text>
+          <View style={[styles.sheetHandle, { backgroundColor: theme.border }]} />
+          <Text style={[styles.sheetTitle, { color: theme.text }]}>Share to</Text>
 
           <View style={styles.shareGrid}>
             <TouchableOpacity style={styles.shareAppItem} onPress={() => { closeShareSheet(); void handleShareInstagram(); }}>
@@ -337,7 +347,7 @@ export default function StoryShareScreen() {
               >
                 <Text style={styles.shareAppEmoji}>📸</Text>
               </LinearGradient>
-              <Text style={styles.shareAppLabel}>Instagram{"\n"}Story</Text>
+              <Text style={[styles.shareAppLabel, { color: theme.textSecondary }]}>Instagram{"\n"}Story</Text>
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.shareAppItem} onPress={() => { closeShareSheet(); void handleShareInstagram(); }}>
@@ -347,42 +357,60 @@ export default function StoryShareScreen() {
               >
                 <MessageCircle size={24} color="#FFFFFF" />
               </LinearGradient>
-              <Text style={styles.shareAppLabel}>Instagram{"\n"}Messages</Text>
+              <Text style={[styles.shareAppLabel, { color: theme.textSecondary }]}>Instagram{"\n"}Messages</Text>
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.shareAppItem} onPress={() => { closeShareSheet(); handleMoreOptions(); }}>
               <View style={[styles.shareAppIcon, { backgroundColor: '#25D366' }]}>
                 <Text style={styles.shareAppEmoji}>💬</Text>
               </View>
-              <Text style={styles.shareAppLabel}>WhatsApp</Text>
+              <Text style={[styles.shareAppLabel, { color: theme.textSecondary }]}>WhatsApp</Text>
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.shareAppItem} onPress={() => { closeShareSheet(); handleMoreOptions(); }}>
               <View style={[styles.shareAppIcon, { backgroundColor: '#34C759' }]}>
                 <MessageCircle size={24} color="#FFFFFF" />
               </View>
-              <Text style={styles.shareAppLabel}>Message</Text>
+              <Text style={[styles.shareAppLabel, { color: theme.textSecondary }]}>Message</Text>
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.shareAppItem} onPress={() => { closeShareSheet(); void handleSaveImage(); }}>
-              <View style={[styles.shareAppIcon, styles.shareAppIconOutline]}>
-                <ImageIcon size={24} color="#FFFFFF" />
+              <View
+                style={[
+                  styles.shareAppIcon,
+                  styles.shareAppIconOutline,
+                  { backgroundColor: themeMode === 'light' ? theme.surfaceElevated : 'rgba(255,255,255,0.1)' },
+                ]}
+              >
+                <ImageIcon size={24} color={theme.text} />
               </View>
-              <Text style={styles.shareAppLabel}>Save{"\n"}Image</Text>
+              <Text style={[styles.shareAppLabel, { color: theme.textSecondary }]}>Save{"\n"}Image</Text>
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.shareAppItem} onPress={() => { closeShareSheet(); handleMoreOptions(); }}>
-              <View style={[styles.shareAppIcon, styles.shareAppIconOutline]}>
-                <Link size={24} color="#FFFFFF" />
+              <View
+                style={[
+                  styles.shareAppIcon,
+                  styles.shareAppIconOutline,
+                  { backgroundColor: themeMode === 'light' ? theme.surfaceElevated : 'rgba(255,255,255,0.1)' },
+                ]}
+              >
+                <Link size={24} color={theme.text} />
               </View>
-              <Text style={styles.shareAppLabel}>Copy{"\n"}Link</Text>
+              <Text style={[styles.shareAppLabel, { color: theme.textSecondary }]}>Copy{"\n"}Link</Text>
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.shareAppItem} onPress={() => { closeShareSheet(); handleMoreOptions(); }}>
-              <View style={[styles.shareAppIcon, styles.shareAppIconOutline]}>
-                <Share2 size={24} color="#FFFFFF" />
+              <View
+                style={[
+                  styles.shareAppIcon,
+                  styles.shareAppIconOutline,
+                  { backgroundColor: themeMode === 'light' ? theme.surfaceElevated : 'rgba(255,255,255,0.1)' },
+                ]}
+              >
+                <Share2 size={24} color={theme.text} />
               </View>
-              <Text style={styles.shareAppLabel}>More</Text>
+              <Text style={[styles.shareAppLabel, { color: theme.textSecondary }]}>More</Text>
             </TouchableOpacity>
           </View>
         </Animated.View>
@@ -393,7 +421,14 @@ export default function StoryShareScreen() {
   const hasAnyPills = includeOptions.healthRating && currentHealthRating;
 
   const renderPreview = () => (
-    <View ref={previewRef} collapsable={false} style={styles.previewContainer}>
+    <View
+      ref={previewRef}
+      collapsable={false}
+      style={[
+        styles.previewContainer,
+        { backgroundColor: themeMode === 'light' ? theme.border : '#1a1a2e' },
+      ]}
+    >
       {storyData.photoUri ? (
         <Image
           source={{ uri: storyData.photoUri }}
@@ -402,7 +437,11 @@ export default function StoryShareScreen() {
         />
       ) : (
         <LinearGradient
-          colors={['#1a1a2e', '#16213e', '#0f0f23']}
+          colors={
+            themeMode === 'light'
+              ? [theme.surfaceElevated, theme.border, theme.card]
+              : ['#1a1a2e', '#16213e', '#0f0f23']
+          }
           style={styles.previewImage}
         />
       )}
@@ -453,7 +492,7 @@ export default function StoryShareScreen() {
           {showWatermark && (
             <View style={styles.trackedByContainer}>
               <Text style={styles.trackedByText}>
-                Tracked with <Text style={styles.trackedByBrand}>DietKu</Text>
+                Tracked with <Text style={[styles.trackedByBrand, { color: theme.primary }]}>DietKu</Text>
               </Text>
             </View>
           )}
@@ -502,20 +541,35 @@ export default function StoryShareScreen() {
     const isActive = includeOptions[key];
     return (
       <TouchableOpacity
-        style={styles.toggleRow}
+        style={[styles.toggleRow, { borderBottomColor: theme.border }]}
         onPress={onTap || (() => toggleOption(key))}
         activeOpacity={0.7}
       >
         <View style={styles.toggleLeft}>
-          <View style={[styles.toggleIcon, showHighlight && isActive && styles.toggleIconActive]}>
+          <View
+            style={[
+              styles.toggleIcon,
+              { backgroundColor: themeMode === 'light' ? theme.surfaceElevated : 'rgba(255,255,255,0.1)' },
+              showHighlight && isActive && {
+                backgroundColor:
+                  themeMode === 'light' ? `${theme.primary}28` : 'rgba(108, 99, 255, 0.3)',
+              },
+            ]}
+          >
             {icon}
           </View>
           <View>
-            <Text style={styles.toggleLabel}>{label}</Text>
-            {subtitle && <Text style={styles.toggleSubtitle}>{subtitle}</Text>}
+            <Text style={[styles.toggleLabel, { color: theme.text }]}>{label}</Text>
+            {subtitle && <Text style={[styles.toggleSubtitle, { color: theme.textSecondary }]}>{subtitle}</Text>}
           </View>
         </View>
-        <View style={[styles.toggleCheck, isActive && styles.toggleCheckActive]}>
+        <View
+          style={[
+            styles.toggleCheck,
+            { borderColor: theme.border },
+            isActive && styles.toggleCheckActive,
+          ]}
+        >
           {isActive && <Check size={14} color="#FFFFFF" strokeWidth={3} />}
         </View>
       </TouchableOpacity>
@@ -523,71 +577,98 @@ export default function StoryShareScreen() {
   };
 
   const renderIncludePanel = () => (
-    <View style={styles.includePanel}>
-      <Text style={styles.includePanelTitle}>Include On Story</Text>
-      
+    <View
+      style={[
+        styles.includePanel,
+        {
+          backgroundColor: themeMode === 'light' ? theme.surfaceElevated : 'rgba(255,255,255,0.05)',
+          borderWidth: themeMode === 'light' ? 1 : 0,
+          borderColor: theme.border,
+        },
+      ]}
+    >
+      <Text style={[styles.includePanelTitle, { color: theme.text }]}>Include On Story</Text>
+
       <TouchableOpacity
-        style={styles.toggleRow}
+        style={[styles.toggleRow, { borderBottomColor: theme.border }]}
         onPress={() => toggleOption('name')}
         activeOpacity={0.7}
       >
         <View style={styles.toggleLeft}>
-          <View style={[styles.toggleIcon, includeOptions.name && styles.toggleIconActive]}>
-            <User size={18} color={includeOptions.name ? '#FFFFFF' : '#666'} />
+          <View
+            style={[
+              styles.toggleIcon,
+              { backgroundColor: themeMode === 'light' ? theme.surfaceElevated : 'rgba(255,255,255,0.1)' },
+              includeOptions.name && {
+                backgroundColor:
+                  themeMode === 'light' ? `${theme.primary}28` : 'rgba(108, 99, 255, 0.3)',
+              },
+            ]}
+          >
+            <User
+              size={18}
+              color={includeOptions.name ? '#FFFFFF' : theme.textSecondary}
+            />
           </View>
           <View style={styles.toggleTextContainer}>
-            <Text style={styles.toggleLabel}>Meal Name</Text>
+            <Text style={[styles.toggleLabel, { color: theme.text }]}>Meal Name</Text>
             {isEditingName ? (
               <TextInput
-                style={styles.nameEditInput}
+                style={[styles.nameEditInput, { color: theme.primary, borderBottomColor: theme.primary }]}
                 value={customMealName}
                 onChangeText={setCustomMealName}
                 onBlur={() => setIsEditingName(false)}
                 onSubmitEditing={() => setIsEditingName(false)}
                 autoFocus
                 placeholder="Enter meal name"
-                placeholderTextColor="#666"
+                placeholderTextColor={theme.textTertiary}
               />
             ) : (
-              <TouchableOpacity 
+              <TouchableOpacity
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   setIsEditingName(true);
                 }}
                 style={styles.nameEditTouchable}
               >
-                <Text style={styles.toggleSubtitle}>{customMealName}</Text>
-                <Edit3 size={12} color="#22C55E" style={styles.editIcon} />
+                <Text style={[styles.toggleSubtitle, { color: theme.textSecondary }]}>{customMealName}</Text>
+                <Edit3 size={12} color={theme.primary} style={styles.editIcon} />
               </TouchableOpacity>
             )}
           </View>
         </View>
-        <View style={[styles.toggleCheck, includeOptions.name && styles.toggleCheckActive]}>
+        <View
+          style={[
+            styles.toggleCheck,
+            { borderColor: theme.border },
+            includeOptions.name && styles.toggleCheckActive,
+          ]}
+        >
           {includeOptions.name && <Check size={14} color="#FFFFFF" strokeWidth={3} />}
         </View>
       </TouchableOpacity>
-      
+
       {renderToggleRow(
         'macros',
-        <Utensils size={18} color={includeOptions.macros ? '#FFFFFF' : '#666'} />,
+        <Utensils size={18} color={includeOptions.macros ? '#FFFFFF' : theme.textSecondary} />,
         'Macros',
         `${storyData.protein}g P • ${storyData.carbs}g C • ${storyData.fat}g F`,
         undefined,
         true
       )}
-      
+
       {renderToggleRow(
         'healthRating',
-        <Heart size={18} color={includeOptions.healthRating ? '#FFFFFF' : '#666'} />,
+        <Heart size={18} color={includeOptions.healthRating ? '#FFFFFF' : theme.textSecondary} />,
         'Health Rating',
         currentHealthRating?.label,
         undefined,
         true
       )}
-      
+
       {renderToggleRow(
         'location',
-        <MapPin size={18} color={includeOptions.location ? '#FFFFFF' : '#666'} />,
+        <MapPin size={18} color={includeOptions.location ? '#FFFFFF' : theme.textSecondary} />,
         'Location',
         locationName || 'Tap to add',
         () => {
@@ -599,10 +680,10 @@ export default function StoryShareScreen() {
         },
         true
       )}
-      
+
       {renderToggleRow(
         'time',
-        <Clock size={18} color={includeOptions.time ? '#FFFFFF' : '#666'} />,
+        <Clock size={18} color={includeOptions.time ? '#FFFFFF' : theme.textSecondary} />,
         'Time',
         formatTime(storyData.timestamp),
         undefined,
@@ -617,8 +698,14 @@ export default function StoryShareScreen() {
         }}
         activeOpacity={0.7}
       >
-        <Text style={styles.watermarkLabel}>Show Tracked with DietKu</Text>
-        <View style={[styles.toggleCheck, showWatermark && styles.toggleCheckActive]}>
+        <Text style={[styles.watermarkLabel, { color: theme.textTertiary }]}>Show Tracked with DietKu</Text>
+        <View
+          style={[
+            styles.toggleCheck,
+            { borderColor: theme.border },
+            showWatermark && styles.toggleCheckActive,
+          ]}
+        >
           {showWatermark && <Check size={14} color="#FFFFFF" strokeWidth={3} />}
         </View>
       </TouchableOpacity>
@@ -639,20 +726,23 @@ export default function StoryShareScreen() {
           style={[
             styles.locationSheet,
             {
-              transform: [{
-                translateY: locationSheetAnim.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [400, 0],
-                }),
-              }],
+              backgroundColor: theme.card,
+              transform: [
+                {
+                  translateY: locationSheetAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [400, 0],
+                  }),
+                },
+              ],
             },
           ]}
         >
-          <View style={styles.sheetHandle} />
-          <Text style={styles.sheetTitle}>Add Location</Text>
+          <View style={[styles.sheetHandle, { backgroundColor: theme.border }]} />
+          <Text style={[styles.sheetTitle, { color: theme.text }]}>Add Location</Text>
 
           <TouchableOpacity
-            style={styles.locationOption}
+            style={[styles.locationOption, { borderBottomColor: theme.border }]}
             onPress={async () => {
               try {
                 setIsLoadingLocation(true);
@@ -733,20 +823,20 @@ export default function StoryShareScreen() {
             <View style={styles.locationOptionIcon}>
               <Navigation size={20} color="#22C55E" />
             </View>
-            <Text style={styles.locationOptionText}>
+            <Text style={[styles.locationOptionText, { color: theme.text }]}>
               {isLoadingLocation ? 'Getting location...' : 'Use current location'}
             </Text>
-            <ChevronRight size={20} color="#666" />
+            <ChevronRight size={20} color={theme.textTertiary} />
           </TouchableOpacity>
 
-          <View style={styles.customLocationRow}>
+          <View style={[styles.customLocationRow, { borderBottomColor: theme.border }]}>
             <View style={styles.customLocationIcon}>
               <Edit3 size={18} color="#EC4899" />
             </View>
             <TextInput
-              style={styles.customLocationInput}
+              style={[styles.customLocationInput, { color: theme.text }]}
               placeholder="Enter custom location..."
-              placeholderTextColor="#666"
+              placeholderTextColor={theme.textTertiary}
               value={customLocationInput}
               onChangeText={setCustomLocationInput}
               onSubmitEditing={handleCustomLocation}
@@ -759,17 +849,20 @@ export default function StoryShareScreen() {
             )}
           </View>
 
-          <Text style={styles.presetsTitle}>Quick Select</Text>
+          <Text style={[styles.presetsTitle, { color: theme.textSecondary }]}>Quick Select</Text>
           <View style={styles.presetsGrid}>
             {LOCATION_PRESETS.map((preset) => (
               <TouchableOpacity
                 key={preset.id}
-                style={styles.presetChip}
+                style={[
+                  styles.presetChip,
+                  { backgroundColor: themeMode === 'light' ? theme.surfaceElevated : 'rgba(255,255,255,0.08)' },
+                ]}
                 onPress={() => selectLocation(preset.name)}
                 activeOpacity={0.7}
               >
                 <Text style={styles.presetIcon}>{preset.icon}</Text>
-                <Text style={styles.presetText}>{preset.name}</Text>
+                <Text style={[styles.presetText, { color: theme.text }]}>{preset.name}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -795,28 +888,45 @@ export default function StoryShareScreen() {
     <>
       <Stack.Screen options={{ headerShown: false }} />
       
-      <View style={styles.container}>
+      <View style={[styles.container, { backgroundColor: theme.background }]}>
         <LinearGradient
-          colors={['#0a0a0f', '#12121a', '#0a0a0f']}
+          colors={
+            themeMode === 'light'
+              ? [theme.background, theme.surfaceElevated, theme.background]
+              : ['#0a0a0f', '#12121a', '#0a0a0f']
+          }
           style={StyleSheet.absoluteFill}
         />
 
         <Animated.View style={[styles.header, { paddingTop: insets.top + 8, opacity: fadeAnim, transform: [{ scale: scaleAnim }] }]}>
           <TouchableOpacity
-            style={styles.closeButton}
+            style={[
+              styles.closeButton,
+              {
+                backgroundColor:
+                  themeMode === 'light' ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.1)',
+              },
+            ]}
             onPress={handleClose}
             activeOpacity={0.7}
           >
-            <X size={24} color="#FFFFFF" />
+            <X size={24} color={theme.text} />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Share Story</Text>
+          <Text style={[styles.headerTitle, { color: theme.text }]}>Share Story</Text>
           <TouchableOpacity
-            style={styles.headerShareButton}
+            style={[
+              styles.headerShareButton,
+              { backgroundColor: themeMode === 'light' ? `${theme.primary}30` : 'rgba(108, 99, 255, 0.3)' },
+            ]}
             onPress={openShareSheet}
             activeOpacity={0.7}
             disabled={isPreparingStory}
           >
-            {isPreparingStory ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Share2 size={20} color="#FFFFFF" />}
+            {isPreparingStory ? (
+              <ActivityIndicator size="small" color={theme.primary} />
+            ) : (
+              <Share2 size={20} color={theme.primary} />
+            )}
           </TouchableOpacity>
         </Animated.View>
 

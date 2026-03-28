@@ -42,6 +42,7 @@ import { searchUSDAFoods, USDAFoodItem } from '@/utils/usdaApi';
 import { searchFoods } from '@/lib/foodsApi';
 import { FoodSearchResult } from '@/types/food';
 import ProgressRing from '@/components/ProgressRing';
+import { DietKuWordmark } from '@/components/DietKuWordmark';
 import { useExercise } from '@/contexts/ExerciseContext';
 import { QUICK_EXERCISES, QuickExercise, ExerciseType } from '@/types/exercise';
 import { ANIMATION_DURATION } from '@/constants/animations';
@@ -937,7 +938,7 @@ export default function HomeScreen() {
           <View style={styles.headerTop}>
             <View style={styles.appNameContainer}>
               <View>
-                <Text style={[styles.appName, { color: theme.text }]}>DietKu</Text>
+                <DietKuWordmark premium={isPremium} color={theme.text} fontSize={26} letterSpacing={-0.5} fontWeight="800" />
               </View>
             </View>
             {streakData.currentStreak > 0 && (
@@ -1131,9 +1132,17 @@ export default function HomeScreen() {
                         <Pressable
                           style={styles.premiumMaskOverlay}
                           onPress={() => openPaywall('Buka fitur makro dengan Premium')}
+                          accessibilityRole="button"
+                          accessibilityLabel="Upgrade untuk lacak Protein, Karbo, Lemak"
                         >
-                          <BlurView intensity={8} tint={themeMode === 'light' ? 'light' : 'dark'} style={{ flex: 1 }}>
+                          <BlurView
+                            pointerEvents="none"
+                            intensity={8}
+                            tint={themeMode === 'light' ? 'light' : 'dark'}
+                            style={{ flex: 1 }}
+                          >
                             <View
+                              pointerEvents="none"
                               style={[
                                 styles.premiumMaskDim,
                                 {
@@ -1142,7 +1151,7 @@ export default function HomeScreen() {
                                 },
                               ]}
                             >
-                              <View style={styles.premiumMaskBadge}>
+                              <View pointerEvents="none" style={styles.premiumMaskBadge}>
                                 <Lock size={14} color="#FFFFFF" />
                                 <Text style={styles.premiumMaskText}>Upgrade untuk lacak Protein, Karbo, Lemak</Text>
                               </View>
@@ -1236,9 +1245,17 @@ export default function HomeScreen() {
                   <Pressable
                     style={styles.premiumMaskOverlay}
                     onPress={() => openPaywall('Buka fitur mikro dengan Premium')}
+                    accessibilityRole="button"
+                    accessibilityLabel="Upgrade untuk lacak Gula, Serat, Sodium"
                   >
-                    <BlurView intensity={8} tint={themeMode === 'light' ? 'light' : 'dark'} style={{ flex: 1 }}>
+                    <BlurView
+                      pointerEvents="none"
+                      intensity={8}
+                      tint={themeMode === 'light' ? 'light' : 'dark'}
+                      style={{ flex: 1 }}
+                    >
                       <View
+                        pointerEvents="none"
                         style={[
                           styles.premiumMaskDim,
                           {
@@ -1247,9 +1264,9 @@ export default function HomeScreen() {
                           },
                         ]}
                       >
-                        <View style={styles.premiumMaskBadge}>
+                        <View pointerEvents="none" style={styles.premiumMaskBadge}>
                           <Lock size={14} color="#FFFFFF" />
-                        <Text style={styles.premiumMaskText}>Upgrade untuk lacak Gula, Serat, Sodium</Text>
+                          <Text style={styles.premiumMaskText}>Upgrade untuk lacak Gula, Serat, Sodium</Text>
                         </View>
                       </View>
                     </BlurView>
@@ -1315,9 +1332,17 @@ export default function HomeScreen() {
                   <Pressable
                     style={styles.premiumMaskOverlay}
                     onPress={() => openPaywall('Buka fitur air dengan Premium')}
+                    accessibilityRole="button"
+                    accessibilityLabel="Upgrade untuk lacak Air harian"
                   >
-                    <BlurView intensity={8} tint={themeMode === 'light' ? 'light' : 'dark'} style={{ flex: 1 }}>
+                    <BlurView
+                      pointerEvents="none"
+                      intensity={8}
+                      tint={themeMode === 'light' ? 'light' : 'dark'}
+                      style={{ flex: 1 }}
+                    >
                       <View
+                        pointerEvents="none"
                         style={[
                           styles.premiumMaskDim,
                           {
@@ -1326,7 +1351,7 @@ export default function HomeScreen() {
                           },
                         ]}
                       >
-                        <View style={styles.premiumMaskBadge}>
+                        <View pointerEvents="none" style={styles.premiumMaskBadge}>
                           <Lock size={14} color="#FFFFFF" />
                           <Text style={styles.premiumMaskText}>Upgrade untuk lacak Air harian</Text>
                         </View>
@@ -2168,9 +2193,17 @@ export default function HomeScreen() {
                                       : 'Buka fitur makro dan mikro dengan Premium',
                                   )
                                 }
+                                accessibilityRole="button"
+                                accessibilityLabel="Upgrade untuk lacak Protein, Karbo, Lemak, Gula, Serat dan Natrium"
                               >
-                                <BlurView intensity={8} tint={themeMode === 'light' ? 'light' : 'dark'} style={{ flex: 1 }}>
+                                <BlurView
+                                  pointerEvents="none"
+                                  intensity={8}
+                                  tint={themeMode === 'light' ? 'light' : 'dark'}
+                                  style={{ flex: 1 }}
+                                >
                                   <View
+                                    pointerEvents="none"
                                     style={[
                                       styles.premiumMaskDim,
                                       {
@@ -2179,7 +2212,13 @@ export default function HomeScreen() {
                                       },
                                     ]}
                                   >
-                                    <View style={[styles.premiumMaskBadge, { maxWidth: '94%', flexDirection: 'column', gap: 6, paddingVertical: 10 }]}>
+                                    <View
+                                      pointerEvents="none"
+                                      style={[
+                                        styles.premiumMaskBadge,
+                                        { maxWidth: '94%', flexDirection: 'column', gap: 6, paddingVertical: 10 },
+                                      ]}
+                                    >
                                       <Lock size={14} color="#FFFFFF" />
                                       <Text style={[styles.premiumMaskText, { textAlign: 'center' }]} numberOfLines={3}>
                                         {totals.calories >= 350 && totals.protein < dailyTargets.protein * 0.18

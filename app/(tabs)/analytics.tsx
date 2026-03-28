@@ -1741,9 +1741,17 @@ export default function AnalyticsScreen() {
           zIndex: 20,
         }}
         onPress={() => openPaywall('Buka semua fitur Kemajuan dengan Premium')}
+        accessibilityRole="button"
+        accessibilityLabel={message}
       >
-        <BlurView intensity={8} tint={themeMode === 'light' ? 'light' : 'dark'} style={{ flex: 1 }}>
+        <BlurView
+          pointerEvents="none"
+          intensity={8}
+          tint={themeMode === 'light' ? 'light' : 'dark'}
+          style={{ flex: 1 }}
+        >
           <View
+            pointerEvents="none"
             style={{
               flex: 1,
               backgroundColor: themeMode === 'light' ? 'rgba(120, 120, 120, 0.18)' : 'rgba(24,24,24,0.5)',
@@ -1751,20 +1759,21 @@ export default function AnalyticsScreen() {
               justifyContent: 'center',
             }}
           >
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 8,
-              paddingHorizontal: 12,
-              paddingVertical: 8,
-              borderRadius: 999,
-              backgroundColor: 'rgba(0,0,0,0.55)',
-            }}
-          >
-            <Lock size={14} color="#FFFFFF" />
-            <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '700' }}>{message}</Text>
-          </View>
+            <View
+              pointerEvents="none"
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 8,
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+                borderRadius: 999,
+                backgroundColor: 'rgba(0,0,0,0.55)',
+              }}
+            >
+              <Lock size={14} color="#FFFFFF" />
+              <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '700' }}>{message}</Text>
+            </View>
           </View>
         </BlurView>
       </Pressable>

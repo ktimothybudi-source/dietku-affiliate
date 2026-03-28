@@ -33,6 +33,14 @@ function RootLayoutNav() {
       <Stack.Screen name="create-group" options={{ presentation: 'card' }} />
       <Stack.Screen name="browse-groups" options={{ presentation: 'card' }} />
       <Stack.Screen name="group-settings" options={{ presentation: 'card' }} />
+      <Stack.Screen name="story-share" options={{ headerShown: false, presentation: 'card' }} />
+      <Stack.Screen name="camera-scan" options={{ headerShown: false, presentation: 'card' }} />
+      <Stack.Screen name="language-picker" options={{ presentation: 'card' }} />
+      <Stack.Screen name="edit-profile" options={{ presentation: 'card' }} />
+      <Stack.Screen name="legal-terms" options={{ presentation: 'card' }} />
+      <Stack.Screen name="legal-privacy" options={{ presentation: 'card' }} />
+      <Stack.Screen name="legal-restore-purchase" options={{ presentation: 'card' }} />
+      <Stack.Screen name="playstore-checklist" options={{ presentation: 'card' }} />
     </Stack>
   );
 }

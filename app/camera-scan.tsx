@@ -13,7 +13,7 @@ import {
   Alert,
 } from 'react-native';
 import { Stack, router } from 'expo-router';
-import { X, HelpCircle, Zap, ZapOff, ImageIcon } from 'lucide-react-native';
+import { X, HelpCircle, Zap, ZapOff, ImageIcon, Crown } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -23,6 +23,7 @@ import { ANIMATION_DURATION } from '@/constants/animations';
 import { callAIProxy } from '@/utils/aiProxy';
 import { useSubscription } from '@/contexts/SubscriptionContext';
 import { optimizeImageForScan } from '@/utils/imageOptimization';
+import { DietKuWordmark } from '@/components/DietKuWordmark';
 
 type FlashMode = 'off' | 'auto' | 'on';
 const SCAN_LIMIT = 3;
@@ -320,7 +321,13 @@ export default function CameraScanScreen() {
 
               <View style={styles.brandPill}>
                 <Image source={logo} style={styles.brandLogo} />
-                <Text style={styles.brandTitle}>DietKu</Text>
+                <DietKuWordmark
+                  premium={isPremium}
+                  color="#FFFFFF"
+                  fontSize={22}
+                  letterSpacing={0.2}
+                  fontWeight="900"
+                />
               </View>
 
               <TouchableOpacity
@@ -340,17 +347,38 @@ export default function CameraScanScreen() {
               {showHelper && (
                 <Text style={styles.helperText}>Posisikan makanan di dalam area</Text>
               )}
-              <View style={styles.scanLimitPill}>
-                <Text style={styles.scanLimitText}>
-                  {isPremium || dailyScanUnlimited
-                    ? 'Scan harian: tanpa batas'
-                    : `Scan tersisa: ${Math.min(remainingScans, SCAN_LIMIT)}/${SCAN_LIMIT}`}
-                </Text>
-                <Text style={styles.scanLimitSubtext}>
-                  {isPremium || dailyScanUnlimited
-                    ? 'Akun ini dikecualikan dari batas 3/24 jam'
-                    : `Reset dalam ${formatDuration(timeUntilResetMs)}`}
-                </Text>
+              <View style={styles.scanQuotaStack}>
+                <View style={styles.scanLimitPill}>
+                  <Text style={styles.scanLimitText}>
+                    {isPremium || dailyScanUnlimited
+                      ? 'Scan harian: tanpa batas'
+                      : `Scan tersisa: ${Math.min(remainingScans, SCAN_LIMIT)}/${SCAN_LIMIT}`}
+                  </Text>
+                  <Text style={styles.scanLimitSubtext}>
+                    {isPremium || dailyScanUnlimited
+                      ? 'Akun ini dikecualikan dari batas 3/24 jam'
+                      : `Reset dalam ${formatDuration(timeUntilResetMs)}`}
+                  </Text>
+                </View>
+                {!isPremium && !dailyScanUnlimited && (
+                  <TouchableOpacity
+                    style={[styles.upgradeUnlimitedButton, hasReachedLimit && styles.upgradeUnlimitedButtonEmphasis]}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      openPaywall(
+                        hasReachedLimit
+                          ? 'Batas 3 scan/24 jam — Premium untuk scan tanpa batas'
+                          : 'Premium: scan makanan tanpa batas',
+                      );
+                    }}
+                    activeOpacity={0.88}
+                  >
+                    <Crown size={15} color="#FFFFFF" />
+                    <Text style={styles.upgradeUnlimitedText}>
+                      {hasReachedLimit ? 'Upgrade — scan tanpa batas' : 'Upgrade untuk scan tanpa batas'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
               </View>
               <View style={styles.focusFrame}>
                 <Animated.View 
@@ -514,12 +542,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginRight: 10,
   },
-  brandTitle: {
-    color: '#FFFFFF',
-    fontSize: 22,
-    fontWeight: '900' as const,
-    letterSpacing: 0.2,
-  },
   focusFrameWrap: {
     flex: 1,
     alignItems: 'center',
@@ -534,9 +556,16 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 16,
   },
-  scanLimitPill: {
+  scanQuotaStack: {
     position: 'absolute',
     top: '17%',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    zIndex: 2,
+  },
+  scanLimitPill: {
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 12,
@@ -544,6 +573,35 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.20)',
     alignItems: 'center',
+  },
+  upgradeUnlimitedButton: {
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+    borderRadius: 999,
+    backgroundColor: '#22C55E',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
+    maxWidth: '100%',
+  },
+  upgradeUnlimitedButtonEmphasis: {
+    backgroundColor: '#16A34A',
+    shadowColor: '#22C55E',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.55,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  upgradeUnlimitedText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800' as const,
+    letterSpacing: 0.2,
+    flexShrink: 1,
   },
   scanLimitText: {
     color: '#FFFFFF',

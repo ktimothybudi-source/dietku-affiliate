@@ -1,5 +1,16 @@
 import createContextHook from '@nkzw/create-context-hook';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+
+/** Comma-separated emails treated as Premium (UI + scan bypass sync). Remove when using real subscriptions only. */
+function parsePremiumEmailAllowlist(): Set<string> {
+  const raw = process.env.EXPO_PUBLIC_PREMIUM_EMAIL_ALLOWLIST ?? '';
+  return new Set(
+    raw
+      .split(',')
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean)
+  );
+}
 import { Alert, Platform } from 'react-native';
 import Purchases from 'react-native-purchases';
 import { callAIProxy } from '@/utils/aiProxy';
@@ -22,16 +33,52 @@ function hasPremiumEntitlement(customerInfo: CustomerInfoResult): boolean {
   return Boolean(active?.[PREMIUM_ENTITLEMENT_ID]);
 }
 
+function getOfferingPackages(offerings: OfferingsResult): any[] {
+  const current = offerings?.current;
+  if (current?.availablePackages?.length) return current.availablePackages;
+  const all = offerings?.all as Record<string, { availablePackages?: any[] }> | undefined;
+  const fromDefault = all?.default?.availablePackages;
+  if (fromDefault?.length) return fromDefault;
+  const first = all ? Object.values(all).find((o) => o?.availablePackages?.length) : null;
+  return first?.availablePackages ?? [];
+}
+
 function pickMonthlyAndAnnualPackages(offerings: OfferingsResult) {
-  const available = offerings?.current?.availablePackages ?? [];
-  const monthly =
-    available.find((pkg: any) => String(pkg?.packageType).toUpperCase() === 'MONTHLY') || null;
-  const annual =
-    available.find((pkg: any) => String(pkg?.packageType).toUpperCase() === 'ANNUAL') || null;
+  const available = getOfferingPackages(offerings);
+  const type = (pkg: any) => String(pkg?.packageType ?? '').toUpperCase();
+  const ident = (pkg: any) => String(pkg?.identifier ?? '').toLowerCase();
+
+  let monthly =
+    available.find((pkg: any) => type(pkg) === 'MONTHLY') ||
+    available.find((pkg: any) => ident(pkg) === '$rc_monthly') ||
+    null;
+  let annual =
+    available.find((pkg: any) => type(pkg) === 'ANNUAL') ||
+    available.find((pkg: any) => ident(pkg) === '$rc_annual') ||
+    null;
+
+  // Custom package types in RevenueCat (wrong slot) but standard store products still work
+  if (!monthly) {
+    monthly =
+      available.find(
+        (pkg: any) =>
+          ident(pkg).includes('monthly') || ident(pkg).includes('month') || ident(pkg).includes('bulan')
+      ) || null;
+  }
+  if (!annual) {
+    annual =
+      available.find(
+        (pkg: any) =>
+          ident(pkg).includes('annual') ||
+          ident(pkg).includes('year') ||
+          ident(pkg).includes('tahun')
+      ) || null;
+  }
+
   return { monthly, annual };
 }
 
-async function syncPremiumToBackend(userId: string, isPremium: boolean) {
+async function syncPremiumToBackend(userId: string, premium: boolean, source = 'revenuecat') {
   const {
     data: { session },
   } = await supabase.auth.getSession();
@@ -40,8 +87,8 @@ async function syncPremiumToBackend(userId: string, isPremium: boolean) {
 
   await callAIProxy('subscription-sync', {
     userId,
-    isPremium,
-    source: 'revenuecat',
+    isPremium: premium,
+    source,
     accessToken,
   });
 }
@@ -50,12 +97,42 @@ export const [SubscriptionProvider, useSubscription] = createContextHook(() => {
   const { authState } = useNutrition();
   const [isConfigured, setIsConfigured] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [isPremium, setIsPremium] = useState(false);
+  /** RevenueCat entitlement only */
+  const [rcPremium, setRcPremium] = useState(false);
   const [showPaywall, setShowPaywall] = useState(false);
   const [paywallReason, setPaywallReason] = useState<string | null>(null);
   const [offerings, setOfferings] = useState<OfferingsResult | null>(null);
   const [purchaseBusy, setPurchaseBusy] = useState(false);
   const [syncBusy, setSyncBusy] = useState(false);
+
+  const allowlistPremium = useMemo(() => {
+    const emails = parsePremiumEmailAllowlist();
+    const email = (authState.email ?? '').toLowerCase();
+    return email.length > 0 && emails.has(email);
+  }, [authState.email]);
+
+  const isPremium = rcPremium || allowlistPremium;
+
+  useEffect(() => {
+    if (!authState.userId) return;
+    const unlocked = rcPremium || allowlistPremium;
+    const source =
+      !unlocked ? 'revenuecat' : allowlistPremium && !rcPremium ? 'email_allowlist' : 'revenuecat';
+    let cancelled = false;
+    (async () => {
+      try {
+        setSyncBusy(true);
+        await syncPremiumToBackend(authState.userId!, unlocked, source);
+      } catch {
+        // non-fatal
+      } finally {
+        if (!cancelled) setSyncBusy(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [authState.userId, rcPremium, allowlistPremium]);
 
   const refreshSubscription = useCallback(async () => {
     if (!isConfigured) return;
@@ -66,20 +143,13 @@ export const [SubscriptionProvider, useSubscription] = createContextHook(() => {
         Purchases.getCustomerInfo(),
       ]);
       setOfferings(nextOfferings);
-      const premium = hasPremiumEntitlement(customerInfo);
-      setIsPremium(premium);
-
-      if (authState.userId) {
-        setSyncBusy(true);
-        await syncPremiumToBackend(authState.userId, premium);
-      }
+      setRcPremium(hasPremiumEntitlement(customerInfo));
     } catch (error) {
       console.warn('Failed to refresh subscription:', error);
     } finally {
-      setSyncBusy(false);
       setIsLoading(false);
     }
-  }, [authState.userId, isConfigured]);
+  }, [isConfigured]);
 
   useEffect(() => {
     let mounted = true;
@@ -170,17 +240,17 @@ export const [SubscriptionProvider, useSubscription] = createContextHook(() => {
   const purchasePackage = useCallback(
     async (pkg: RevenuePackage | null) => {
       if (!pkg) {
-        Alert.alert('Paket belum tersedia', 'Paket langganan belum tersedia di Play Console.');
+        Alert.alert(
+          'Paket belum tersedia',
+          'RevenueCat tidak menemukan paket bulanan/tahunan. Periksa Offering (current/default) dan paket Monthly/Annual di dashboard, pastikan AAB dari Play internal testing, dan EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY ada di EAS production.'
+        );
         return false;
       }
       try {
         setPurchaseBusy(true);
         const result = await Purchases.purchasePackage(pkg);
         const premium = hasPremiumEntitlement(result?.customerInfo);
-        setIsPremium(premium);
-        if (authState.userId) {
-          await syncPremiumToBackend(authState.userId, premium);
-        }
+        setRcPremium(premium);
         if (premium) {
           setShowPaywall(false);
           Alert.alert('Berhasil', 'Langganan Premium aktif.');
@@ -211,10 +281,7 @@ export const [SubscriptionProvider, useSubscription] = createContextHook(() => {
       setPurchaseBusy(true);
       const customerInfo = await Purchases.restorePurchases();
       const premium = hasPremiumEntitlement(customerInfo);
-      setIsPremium(premium);
-      if (authState.userId) {
-        await syncPremiumToBackend(authState.userId, premium);
-      }
+      setRcPremium(premium);
       Alert.alert(
         premium ? 'Berhasil' : 'Tidak ada pembelian',
         premium ? 'Premium berhasil dipulihkan.' : 'Tidak ada langganan aktif untuk dipulihkan.'
