@@ -16,16 +16,16 @@ import {
   Animated,
   Dimensions,
 } from 'react-native';
+
 import { indexStyles as styles } from '@/styles/indexStyles';
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const CAROUSEL_CARD_WIDTH = SCREEN_WIDTH - 28;
 const CAROUSEL_GAP = 12;
+
 import { Stack, router } from 'expo-router';
-import { Flame, X, Check, Camera, ImageIcon, ChevronLeft, ChevronRight, RefreshCw, Trash2, Plus, Bookmark, Clock, Star, Share2, Edit3, PlusCircle, Search as SearchIcon, Droplets, Minus, Footprints, Dumbbell, ChevronRight as ChevronRightIcon, Utensils, Target, TrendingDown, TrendingUp, Zap, MessageSquare, Send, Lock } from 'lucide-react-native';
+import { Flame, X, Check, Camera, ImageIcon, ChevronLeft, ChevronRight, Trash2, Plus, Bookmark, Clock, Star, Edit3, Search as SearchIcon, Droplets, Minus, Footprints, Dumbbell, ChevronRight as ChevronRightIcon, Utensils, Target, TrendingDown, TrendingUp, Zap, MessageSquare, Send } from 'lucide-react-native';
 import { useNutrition, useTodayProgress, PendingFoodEntry } from '@/contexts/NutritionContext';
 import { useTheme } from '@/contexts/ThemeContext';
-import { useSubscription } from '@/contexts/SubscriptionContext';
-import { BlurView } from 'expo-blur';
 import { FoodEntry, MealAnalysis } from '@/types/nutrition';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
@@ -46,16 +46,17 @@ import { DietKuWordmark } from '@/components/DietKuWordmark';
 import { useExercise } from '@/contexts/ExerciseContext';
 import { QUICK_EXERCISES, QuickExercise, ExerciseType } from '@/types/exercise';
 import { ANIMATION_DURATION } from '@/constants/animations';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getTimeBasedMessage, getProgressMessage, getCalorieFeedback, MotivationalMessage } from '@/constants/motivationalMessages';
 import { estimateExerciseFromText } from '@/utils/exerciseAi';
 
 export default function HomeScreen() {
-  const { profile, dailyTargets, todayEntries, todayTotals, addFoodEntry, deleteFoodEntry, isLoading, streakData, selectedDate, setSelectedDate, pendingEntries, confirmPendingEntry, removePendingEntry, retryPendingEntry, favorites, recentMeals, addToFavorites, removeFromFavorites, isFavorite, logFromFavorite, logFromRecent, removeFromRecent, shouldSuggestFavorite, addWaterCup, removeWaterCup, getTodayWaterCups, authState } = useNutrition();
+  const { profile, dailyTargets, todayEntries, todayTotals, addFoodEntry, deleteFoodEntry, isLoading, streakData, selectedDate, setSelectedDate, pendingEntries, favorites, recentMeals, addToFavorites, removeFromFavorites, isFavorite, logFromFavorite, logFromRecent, removeFromRecent, shouldSuggestFavorite, addWaterCup, removeWaterCup, getTodayWaterCups, authState } = useNutrition();
   const { todaySteps, stepsCaloriesBurned, exerciseCaloriesBurned, totalCaloriesBurned, todayExercises, addExercise } = useExercise();
-  const { theme, themeMode } = useTheme();
-  const { isPremium, openPaywall } = useSubscription();
+  const { theme } = useTheme();
   const insets = useSafeAreaInsets();
+  const bottomTabBarHeight = useBottomTabBarHeight();
   const progress = useTodayProgress();
   const [modalVisible, setModalVisible] = useState(false);
   const [foodName, setFoodName] = useState('');
@@ -66,8 +67,6 @@ export default function HomeScreen() {
   const [analysis, setAnalysis] = useState<MealAnalysis | null>(null);
   
   const [showManualEntry, setShowManualEntry] = useState(false);
-  const [selectedPending, setSelectedPending] = useState<PendingFoodEntry | null>(null);
-  const [lastPendingCount, setLastPendingCount] = useState(0);
   const [addFoodModalVisible, setAddFoodModalVisible] = useState(false);
   const [activeTab, setActiveTab] = useState<'recent' | 'favorit' | 'scan' | 'search'>('recent');
   const [usdaSearchQuery, setUsdaSearchQuery] = useState('');
@@ -88,29 +87,6 @@ export default function HomeScreen() {
   const [notificationQueue, setNotificationQueue] = useState<(MotivationalMessage & { isWarning?: boolean; isCelebration?: boolean })[]>([]);
   const [targetReachedToday, setTargetReachedToday] = useState(false);
   const isShowingToast = useRef(false);
-  const [editedItems, setEditedItems] = useState<{
-    name: string;
-    portion: string;
-    calories: number;
-    protein: number;
-    carbs: number;
-    fat: number;
-    sugar?: number;
-    fiber?: number;
-    sodium?: number;
-  }[]>([]);
-  
-  const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null);
-  const [editItemName, setEditItemName] = useState('');
-  const [editItemPortion, setEditItemPortion] = useState('');
-  const [editItemCalories, setEditItemCalories] = useState('');
-  const [editItemProtein, setEditItemProtein] = useState('');
-  const [editItemCarbs, setEditItemCarbs] = useState('');
-  const [editItemFat, setEditItemFat] = useState('');
-  const [showAddItem, setShowAddItem] = useState(false);
-  const [hasEdited, setHasEdited] = useState(false);
-
-  const [viewingLoggedEntryId, setViewingLoggedEntryId] = useState<string | null>(null);
   const [carouselPage, setCarouselPage] = useState(0);
   const [carouselPageHeight, setCarouselPageHeight] = useState<number>(0);
   const [exerciseMode, setExerciseMode] = useState<'quick' | 'describe' | 'manual'>('quick');
@@ -122,11 +98,7 @@ export default function HomeScreen() {
   const [manualExCalories, setManualExCalories] = useState('');
   const [manualExDuration, setManualExDuration] = useState('');
   const [quickExerciseModalVisible, setQuickExerciseModalVisible] = useState(false);
-  
-  const pendingModalScrollRef = useRef<ScrollView>(null);
-  const lastAutoScrolledPendingIdRef = useRef<string | null>(null);
-  
-  
+
   const caloriesAnimValue = useRef(new Animated.Value(0)).current;
   const proteinAnimValue = useRef(new Animated.Value(0)).current;
   const remainingAnimValue = useRef(new Animated.Value(0)).current;
@@ -250,45 +222,16 @@ export default function HomeScreen() {
   }, [progress?.caloriesRemaining, remainingAnimValue]);
 
   useEffect(() => {
-    if (!selectedPending || selectedPending.status !== 'done') {
-      return;
-    }
-
-    if (lastAutoScrolledPendingIdRef.current === selectedPending.id) {
-      return;
-    }
-
-    lastAutoScrolledPendingIdRef.current = selectedPending.id;
-    requestAnimationFrame(() => {
-      pendingModalScrollRef.current?.scrollTo({ y: 0, animated: false });
-    });
-  }, [selectedPending]);
-
-  useEffect(() => {
     const donePending = pendingEntries.find(p => p.status === 'done' && !shownPendingIds.has(p.id));
-    if (donePending && donePending.analysis && !selectedPending) {
+    if (donePending && donePending.analysis) {
       setShownPendingIds(prev => new Set(prev).add(donePending.id));
-      
-      const analysis = donePending.analysis;
-      const items = analysis.items.map(item => ({
-        name: item.name,
-        portion: item.portion,
-        calories: Math.round((item.caloriesMin + item.caloriesMax) / 2),
-        protein: Math.round((item.proteinMin + item.proteinMax) / 2),
-        carbs: Math.round((item.carbsMin + item.carbsMax) / 2),
-        fat: Math.round((item.fatMin + item.fatMax) / 2),
-        sugar: Math.round((((item.sugarMin ?? 0) + (item.sugarMax ?? 0)) / 2) * 10) / 10,
-        fiber: Math.round((((item.fiberMin ?? 0) + (item.fiberMax ?? 0)) / 2) * 10) / 10,
-        sodium: Math.round(((item.sodiumMin ?? 0) + (item.sodiumMax ?? 0)) / 2),
-      }));
-      setEditedItems(items);
-      setHasEdited(false);
-      setSelectedPending(donePending);
-      
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      router.push({
+        pathname: '/pending-food-detail',
+        params: { pendingId: donePending.id, autoShown: '1' },
+      });
     }
-    setLastPendingCount(pendingEntries.length);
-  }, [pendingEntries, selectedPending, shownPendingIds]);
+  }, [pendingEntries, shownPendingIds]);
 
   const getFormattedDate = (dateKey: string) => {
     const days = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
@@ -305,6 +248,20 @@ export default function HomeScreen() {
     d.setDate(d.getDate() - 6);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   }, []);
+
+  const homeScrollBottomPadding = useMemo(() => {
+    const tabH =
+      bottomTabBarHeight > 0
+        ? bottomTabBarHeight
+        : Platform.select({
+            ios: 49 + insets.bottom,
+            android: 56 + Math.max(insets.bottom, 8),
+            default: 56,
+          }) ?? 56;
+    const fabReserve = 56 + 24 + 20;
+    return tabH + fabReserve;
+  }, [bottomTabBarHeight, insets.bottom]);
+
   const isAtMinDate = selectedDate <= minDateKey;
   
   const goToPreviousDay = () => {
@@ -506,68 +463,15 @@ export default function HomeScreen() {
 
   const handleViewEntry = (entry: FoodEntry) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    
-    const items = entry.name.split(',').map((name, index) => {
-      const itemCount = entry.name.split(',').length;
-      return {
-        name: name.trim(),
-        portion: '1 porsi',
-        calories: Math.round(entry.calories / itemCount),
-        protein: Math.round(entry.protein / itemCount),
-        carbs: Math.round(entry.carbs / itemCount),
-        fat: Math.round(entry.fat / itemCount),
-        sugar: 0,
-        fiber: 0,
-        sodium: 0,
-      };
+    router.push({
+      pathname: '/pending-food-detail',
+      params: { entryId: entry.id },
     });
-    
-    const fakePending: PendingFoodEntry = {
-      id: `view-${entry.id}`,
-      photoUri: entry.photoUri || '',
-      base64: '',
-      timestamp: entry.timestamp,
-      status: 'done',
-      analysis: {
-        items: items.map(item => ({
-          name: item.name,
-          portion: item.portion,
-          caloriesMin: item.calories,
-          caloriesMax: item.calories,
-          proteinMin: item.protein,
-          proteinMax: item.protein,
-          carbsMin: item.carbs,
-          carbsMax: item.carbs,
-          fatMin: item.fat,
-          fatMax: item.fat,
-          sugarMin: item.sugar ?? 0,
-          sugarMax: item.sugar ?? 0,
-          fiberMin: item.fiber ?? 0,
-          fiberMax: item.fiber ?? 0,
-          sodiumMin: item.sodium ?? 0,
-          sodiumMax: item.sodium ?? 0,
-        })),
-        totalCaloriesMin: entry.calories,
-        totalCaloriesMax: entry.calories,
-        totalProteinMin: entry.protein,
-        totalProteinMax: entry.protein,
-        confidence: 'high',
-      },
-    };
-    
-    setViewingLoggedEntryId(entry.id);
-    setEditedItems(items);
-    setHasEdited(false);
-    setEditingItemIndex(null);
-    setShowAddItem(false);
-    setSelectedPending(fakePending);
   };
 
   const handleShareEntry = (entry: FoodEntry) => {
     const mealName = entry.name.split(',')[0].replace(/\s*\/\s*/g, ' ').replace(/\s+or\s+/gi, ' ').replace(/about\s+/gi, '').trim();
     const mealSubtitle = entry.name.split(',').map(n => n.trim().split(' ')[0]).join(' • ');
-    setSelectedPending(null);
-    setViewingLoggedEntryId(null);
     router.push({
       pathname: '/story-share',
       params: {
@@ -588,212 +492,10 @@ export default function HomeScreen() {
 
   const handlePendingPress = (pending: PendingFoodEntry) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setSelectedPending(pending);
-    if (pending.status === 'done' && pending.analysis) {
-      const items = pending.analysis.items.map(item => ({
-        name: item.name,
-        portion: item.portion,
-        calories: Math.round((item.caloriesMin + item.caloriesMax) / 2),
-        protein: Math.round((item.proteinMin + item.proteinMax) / 2),
-        carbs: Math.round((item.carbsMin + item.carbsMax) / 2),
-        fat: Math.round((item.fatMin + item.fatMax) / 2),
-        sugar: Math.round((((item.sugarMin ?? 0) + (item.sugarMax ?? 0)) / 2) * 10) / 10,
-        fiber: Math.round((((item.fiberMin ?? 0) + (item.fiberMax ?? 0)) / 2) * 10) / 10,
-        sodium: Math.round(((item.sodiumMin ?? 0) + (item.sodiumMax ?? 0)) / 2),
-      }));
-      setEditedItems(items);
-      setHasEdited(false);
-    }
-  };
-
-  const handleClosePendingModal = () => {
-    if (hasEdited) {
-      Alert.alert(
-        'Perubahan Belum Disimpan',
-        'Anda memiliki perubahan yang belum disimpan. Yakin ingin keluar?',
-        [
-          { text: 'Batal', style: 'cancel' },
-          { 
-            text: 'Keluar', 
-            style: 'destructive',
-            onPress: () => {
-              if (selectedPending && shownPendingIds.has(selectedPending.id) && !viewingLoggedEntryId) {
-                removePendingEntry(selectedPending.id);
-              }
-              setSelectedPending(null);
-              setEditedItems([]);
-              setHasEdited(false);
-              setEditingItemIndex(null);
-              setShowAddItem(false);
-              setViewingLoggedEntryId(null);
-            }
-          },
-        ]
-      );
-    } else {
-      if (selectedPending && shownPendingIds.has(selectedPending.id) && !viewingLoggedEntryId) {
-        removePendingEntry(selectedPending.id);
-      }
-      setSelectedPending(null);
-      setEditedItems([]);
-      setHasEdited(false);
-      setEditingItemIndex(null);
-      setShowAddItem(false);
-      setViewingLoggedEntryId(null);
-    }
-  };
-
-  const handleStartEditItem = (index: number) => {
-    const item = editedItems[index];
-    setEditingItemIndex(index);
-    setEditItemName(item.name);
-    setEditItemPortion(item.portion);
-    setEditItemCalories(item.calories.toString());
-    setEditItemProtein(item.protein.toString());
-    setEditItemCarbs(item.carbs.toString());
-    setEditItemFat(item.fat.toString());
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  };
-
-  const handleSaveEditItem = () => {
-    if (editingItemIndex === null) return;
-    const updated = [...editedItems];
-    updated[editingItemIndex] = {
-      name: editItemName || 'Makanan',
-      portion: editItemPortion || '1 porsi',
-      calories: parseInt(editItemCalories) || 0,
-      protein: parseInt(editItemProtein) || 0,
-      carbs: parseInt(editItemCarbs) || 0,
-      fat: parseInt(editItemFat) || 0,
-    };
-    setEditedItems(updated);
-    setEditingItemIndex(null);
-    setHasEdited(true);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-  };
-
-  const handleDeleteItem = (index: number) => {
-    const updated = editedItems.filter((_, i) => i !== index);
-    setEditedItems(updated);
-    setEditingItemIndex(null);
-    setHasEdited(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-  };
-
-  const handleAddNewItem = () => {
-    setShowAddItem(true);
-    setEditItemName('');
-    setEditItemPortion('');
-    setEditItemCalories('');
-    setEditItemProtein('');
-    setEditItemCarbs('');
-    setEditItemFat('');
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  };
-
-  const handleSaveNewItem = () => {
-    const newItem = {
-      name: editItemName || 'Makanan Baru',
-      portion: editItemPortion || '1 porsi',
-      calories: parseInt(editItemCalories) || 0,
-      protein: parseInt(editItemProtein) || 0,
-      carbs: parseInt(editItemCarbs) || 0,
-      fat: parseInt(editItemFat) || 0,
-    };
-    setEditedItems([...editedItems, newItem]);
-    setShowAddItem(false);
-    setHasEdited(true);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-  };
-
-  const getEditedTotals = () => {
-    return editedItems.reduce((acc, item) => ({
-      calories: acc.calories + item.calories,
-      protein: acc.protein + item.protein,
-      carbs: acc.carbs + item.carbs,
-      fat: acc.fat + item.fat,
-      sugar: acc.sugar + (item.sugar ?? 0),
-      fiber: acc.fiber + (item.fiber ?? 0),
-      sodium: acc.sodium + (item.sodium ?? 0),
-    }), { calories: 0, protein: 0, carbs: 0, fat: 0, sugar: 0, fiber: 0, sodium: 0 });
-  };
-
-  const handleConfirmEdited = () => {
-    if (!selectedPending || editedItems.length === 0) return;
-    const totals = getEditedTotals();
-    const foodNames = editedItems.map(item => item.name).join(', ');
-    
-    if (viewingLoggedEntryId) {
-      deleteFoodEntry(viewingLoggedEntryId);
-      addFoodEntry({
-        name: foodNames,
-        calories: totals.calories,
-        protein: totals.protein,
-        carbs: totals.carbs,
-        fat: totals.fat,
-        sugar: Math.round(totals.sugar * 10) / 10,
-        fiber: Math.round(totals.fiber * 10) / 10,
-        sodium: Math.round(totals.sodium),
-        photoUri: selectedPending.photoUri || undefined,
-      });
-    } else {
-      addFoodEntry({
-        name: foodNames,
-        calories: totals.calories,
-        protein: totals.protein,
-        carbs: totals.carbs,
-        fat: totals.fat,
-        sugar: Math.round(totals.sugar * 10) / 10,
-        fiber: Math.round(totals.fiber * 10) / 10,
-        sodium: Math.round(totals.sodium),
-        photoUri: selectedPending.photoUri || selectedPending.permanentPhotoUri,
-      });
-      
-      removePendingEntry(selectedPending.id);
-    }
-    
-    setSelectedPending(null);
-    setEditedItems([]);
-    setHasEdited(false);
-    setViewingLoggedEntryId(null);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-  };
-
-
-
-  const handleSaveToFavorite = () => {
-    if (!selectedPending || !selectedPending.analysis) return;
-    const analysis = selectedPending.analysis;
-    const mealName = analysis.items.map(i => i.name).join(', ');
-    
-    if (isFavorite(mealName)) {
-      const favorite = favorites.find(f => f.name.toLowerCase().trim() === mealName.toLowerCase().trim());
-      if (favorite) {
-        removeFromFavorites(favorite.id);
-        setFavoriteToastMessage('Dihapus dari Favorit');
-        setShowFavoriteToast(true);
-        setTimeout(() => setShowFavoriteToast(false), 2000);
-      }
-    } else {
-      const avgCalories = Math.round((analysis.totalCaloriesMin + analysis.totalCaloriesMax) / 2);
-      const avgProtein = Math.round((analysis.totalProteinMin + analysis.totalProteinMax) / 2);
-      const avgCarbs = Math.round(analysis.items.reduce((sum, item) => sum + (item.carbsMin + item.carbsMax) / 2, 0));
-      const avgFat = Math.round(analysis.items.reduce((sum, item) => sum + (item.fatMin + item.fatMax) / 2, 0));
-      
-      const added = addToFavorites({
-        name: mealName,
-        calories: avgCalories,
-        protein: avgProtein,
-        carbs: avgCarbs,
-        fat: avgFat,
-      });
-      
-      if (added) {
-        setFavoriteToastMessage('Disimpan ke Favorit ⭐');
-        setShowFavoriteToast(true);
-        setTimeout(() => setShowFavoriteToast(false), 2000);
-      }
-    }
+    router.push({
+      pathname: '/pending-food-detail',
+      params: { pendingId: pending.id },
+    });
   };
 
   const handleQuickLogFavorite = (favoriteId: string) => {
@@ -821,20 +523,6 @@ export default function HomeScreen() {
     }
     setShowSuggestFavorite(false);
   };
-
-  const handleRemovePending = () => {
-    if (!selectedPending) return;
-    removePendingEntry(selectedPending.id);
-    setSelectedPending(null);
-  };
-
-  const handleRetryPending = () => {
-    if (!selectedPending) return;
-    retryPendingEntry(selectedPending.id);
-    setSelectedPending(null);
-  };
-
-
 
   const handlePickImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -938,7 +626,7 @@ export default function HomeScreen() {
           <View style={styles.headerTop}>
             <View style={styles.appNameContainer}>
               <View>
-                <DietKuWordmark premium={isPremium} color={theme.text} fontSize={26} letterSpacing={-0.5} fontWeight="800" />
+                <DietKuWordmark premium={false} color={theme.text} fontSize={26} letterSpacing={-0.5} fontWeight="800" />
               </View>
             </View>
             {streakData.currentStreak > 0 && (
@@ -978,8 +666,13 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={{ paddingBottom: homeScrollBottomPadding }}
+          showsVerticalScrollIndicator={false}
+        >
           <View style={styles.carouselContainer}>
+            <View style={styles.carouselHorizontalScrollWrap}>
             <ScrollView
               horizontal
               pagingEnabled={false}
@@ -989,16 +682,25 @@ export default function HomeScreen() {
                 setCarouselPage(page);
               }}
               scrollEventThrottle={16}
-              contentContainerStyle={{ paddingHorizontal: 14, gap: CAROUSEL_GAP, alignItems: 'stretch' }}
+              contentContainerStyle={{
+                paddingHorizontal: 14,
+                paddingBottom: 14,
+                gap: CAROUSEL_GAP,
+                alignItems: 'stretch',
+              }}
               decelerationRate="fast"
               snapToInterval={CAROUSEL_CARD_WIDTH + CAROUSEL_GAP}
               snapToAlignment="start"
+              style={{ backgroundColor: theme.background }}
+              {...(Platform.OS === 'android'
+                ? { overScrollMode: 'never' as const, nestedScrollEnabled: true }
+                : {})}
             >
               {(() => {
-                const proteinPct = dailyTargets.protein > 0 ? Math.round((todayTotals.protein / dailyTargets.protein) * 100) : 0;
                 const carbsTarget = dailyTargets.carbsMax || 250;
-                const carbsPct = carbsTarget > 0 ? Math.round((todayTotals.carbs / carbsTarget) * 100) : 0;
                 const fatTarget = dailyTargets.fatMax || 70;
+                const proteinPct = dailyTargets.protein > 0 ? Math.round((todayTotals.protein / dailyTargets.protein) * 100) : 0;
+                const carbsPct = carbsTarget > 0 ? Math.round((todayTotals.carbs / carbsTarget) * 100) : 0;
                 const fatPct = fatTarget > 0 ? Math.round((todayTotals.fat / fatTarget) * 100) : 0;
                 const proteinDisplay = todayTotals.protein;
                 const carbsDisplay = todayTotals.carbs;
@@ -1128,37 +830,6 @@ export default function HomeScreen() {
                         </View>
                         </View>
                       </View>
-                      {!isPremium && (
-                        <Pressable
-                          style={styles.premiumMaskOverlay}
-                          onPress={() => openPaywall('Buka fitur makro dengan Premium')}
-                          accessibilityRole="button"
-                          accessibilityLabel="Upgrade untuk lacak Protein, Karbo, Lemak"
-                        >
-                          <BlurView
-                            pointerEvents="none"
-                            intensity={8}
-                            tint={themeMode === 'light' ? 'light' : 'dark'}
-                            style={{ flex: 1 }}
-                          >
-                            <View
-                              pointerEvents="none"
-                              style={[
-                                styles.premiumMaskDim,
-                                {
-                                  backgroundColor:
-                                    themeMode === 'light' ? 'rgba(120, 120, 120, 0.18)' : 'rgba(20,20,20,0.42)',
-                                },
-                              ]}
-                            >
-                              <View pointerEvents="none" style={styles.premiumMaskBadge}>
-                                <Lock size={14} color="#FFFFFF" />
-                                <Text style={styles.premiumMaskText}>Upgrade untuk lacak Protein, Karbo, Lemak</Text>
-                              </View>
-                            </View>
-                          </BlurView>
-                        </Pressable>
-                      )}
                     </View>
                   </View>
                 );
@@ -1170,9 +841,12 @@ export default function HomeScreen() {
                   const currentSugar = todayMicros.sugar;
                   const currentFiber = todayMicros.fiber;
                   const currentSodium = todayMicros.sodium;
-                  const sugarPct = sugarTarget > 0 ? Math.round((currentSugar / sugarTarget) * 100) : 0;
-                  const fiberPct = fiberTarget > 0 ? Math.round((currentFiber / fiberTarget) * 100) : 0;
-                  const sodiumPct = sodiumTargetMg > 0 ? Math.round((currentSodium / sodiumTargetMg) * 100) : 0;
+                  const sugarPct =
+                    sugarTarget > 0 ? Math.round((currentSugar / sugarTarget) * 100) : 0;
+                  const fiberPct =
+                    fiberTarget > 0 ? Math.round((currentFiber / fiberTarget) * 100) : 0;
+                  const sodiumPct =
+                    sodiumTargetMg > 0 ? Math.round((currentSodium / sodiumTargetMg) * 100) : 0;
                   return (
                     <View style={styles.macroCardsRow}>
                       <View style={[styles.macroSeparateCard, styles.separatedCard, { backgroundColor: theme.card }]}>
@@ -1241,43 +915,14 @@ export default function HomeScreen() {
                     </View>
                   );
                 })()}
-                {!isPremium && (
-                  <Pressable
-                    style={styles.premiumMaskOverlay}
-                    onPress={() => openPaywall('Buka fitur mikro dengan Premium')}
-                    accessibilityRole="button"
-                    accessibilityLabel="Upgrade untuk lacak Gula, Serat, Sodium"
-                  >
-                    <BlurView
-                      pointerEvents="none"
-                      intensity={8}
-                      tint={themeMode === 'light' ? 'light' : 'dark'}
-                      style={{ flex: 1 }}
-                    >
-                      <View
-                        pointerEvents="none"
-                        style={[
-                          styles.premiumMaskDim,
-                          {
-                            backgroundColor:
-                              themeMode === 'light' ? 'rgba(120, 120, 120, 0.18)' : 'rgba(20,20,20,0.42)',
-                          },
-                        ]}
-                      >
-                        <View pointerEvents="none" style={styles.premiumMaskBadge}>
-                          <Lock size={14} color="#FFFFFF" />
-                          <Text style={styles.premiumMaskText}>Upgrade untuk lacak Gula, Serat, Sodium</Text>
-                        </View>
-                      </View>
-                    </BlurView>
-                  </Pressable>
-                )}
                 </View>
                 <View style={[styles.premiumMaskSection, { flex: 1 }]}>
                 <View style={[styles.separatedCard, styles.waterCardExpanded, { backgroundColor: theme.card, flex: 1, minHeight: 0 }]}>
                   {(() => {
-                    const currentWater = getTodayWaterCups();
-                    const waterPct = Math.round((currentWater / waterTarget) * 100);
+                    const liveWater = getTodayWaterCups();
+                    const currentWater = liveWater;
+                    const waterPct =
+                      waterTarget > 0 ? Math.round((liveWater / waterTarget) * 100) : 0;
                     return (
                       <View style={styles.waterCompactExpanded}>
                         <View style={styles.waterHeaderExpanded}>
@@ -1286,7 +931,9 @@ export default function HomeScreen() {
                           </View>
                           <View style={styles.waterHeaderTextCol}>
                             <Text style={[styles.waterTitleExpanded, { color: theme.text }]}>Air</Text>
-                            <Text style={[styles.waterSubtitleExpanded, { color: theme.textTertiary }]}>{currentWater} dari {waterTarget} gelas</Text>
+                            <Text style={[styles.waterSubtitleExpanded, { color: theme.textTertiary }]}>
+                              {currentWater} dari {waterTarget} gelas
+                            </Text>
                           </View>
                           <View style={[styles.waterPctBadge, { backgroundColor: 'rgba(56,189,248,0.12)' }]}>
                             <Text style={styles.waterPctText}>{waterPct}%</Text>
@@ -1311,7 +958,10 @@ export default function HomeScreen() {
                                 key={i}
                                 style={[
                                   styles.waterDotExpanded,
-                                  { backgroundColor: i < currentWater ? '#38BDF8' : theme.border },
+                                  {
+                                    backgroundColor:
+                                      i < liveWater ? '#38BDF8' : theme.border,
+                                  },
                                 ]}
                               />
                             ))}
@@ -1328,37 +978,6 @@ export default function HomeScreen() {
                     );
                   })()}
                 </View>
-                {!isPremium && (
-                  <Pressable
-                    style={styles.premiumMaskOverlay}
-                    onPress={() => openPaywall('Buka fitur air dengan Premium')}
-                    accessibilityRole="button"
-                    accessibilityLabel="Upgrade untuk lacak Air harian"
-                  >
-                    <BlurView
-                      pointerEvents="none"
-                      intensity={8}
-                      tint={themeMode === 'light' ? 'light' : 'dark'}
-                      style={{ flex: 1 }}
-                    >
-                      <View
-                        pointerEvents="none"
-                        style={[
-                          styles.premiumMaskDim,
-                          {
-                            backgroundColor:
-                              themeMode === 'light' ? 'rgba(120, 120, 120, 0.18)' : 'rgba(20,20,20,0.42)',
-                          },
-                        ]}
-                      >
-                        <View pointerEvents="none" style={styles.premiumMaskBadge}>
-                          <Lock size={14} color="#FFFFFF" />
-                          <Text style={styles.premiumMaskText}>Upgrade untuk lacak Air harian</Text>
-                        </View>
-                      </View>
-                    </BlurView>
-                  </Pressable>
-                )}
                 </View>
               </View>
 
@@ -1556,6 +1175,7 @@ export default function HomeScreen() {
               </View>
               )}
             </ScrollView>
+            </View>
             <View style={styles.carouselDots}>
               {[0, 1].map((i) => (
                 <View
@@ -1684,7 +1304,6 @@ export default function HomeScreen() {
             )}
           </View>
 
-          <View style={styles.bottomPadding} />
         </ScrollView>
 
         <TouchableOpacity
@@ -1927,574 +1546,6 @@ export default function HomeScreen() {
               </ScrollView>
             </View>
           </KeyboardAvoidingView>
-        </Modal>
-        {/* Pending Entry Detail Modal */}
-        <Modal
-          visible={!!selectedPending}
-          transparent={false}
-          animationType="slide"
-          onRequestClose={handleClosePendingModal}
-          {...(Platform.OS === 'ios' ? { presentationStyle: 'fullScreen' as const } : {})}
-        >
-          <View style={[styles.pendingModalScreen, { backgroundColor: theme.card }]}>
-            <View style={[styles.pendingModalContent, { backgroundColor: theme.card }]}>
-              <View
-                style={[
-                  styles.pendingModalHeader,
-                  { borderBottomColor: theme.border, paddingTop: insets.top + 16 },
-                ]}
-              >
-                {selectedPending?.status === 'done' && selectedPending.analysis ? (
-                  <View style={styles.pendingModalTitleContainer}>
-                    <Text style={[styles.pendingModalTitle, { color: theme.text }]} numberOfLines={1}>
-                      {(() => {
-                        const items = selectedPending.analysis.items.map(i => i.name);
-                        const mainDish = items[0] || 'Makanan';
-                        return mainDish
-                          .replace(/\s*\/\s*/g, ' ')
-                          .replace(/\s+or\s+/gi, ' ')
-                          .replace(/about\s+/gi, '')
-                          .trim();
-                      })()}
-                    </Text>
-                    <Text style={[styles.pendingModalSubtitle, { color: theme.textSecondary }]} numberOfLines={1}>
-                      {selectedPending.analysis.items.map(item => {
-                        const cleanName = item.name
-                          .replace(/\s*\/\s*/g, ', ')
-                          .replace(/\s+or\s+/gi, ', ')
-                          .replace(/about\s+/gi, '')
-                          .split(',')
-                          .map(s => s.trim())
-                          .filter(Boolean)[0] || item.name;
-                        return cleanName;
-                      }).join(' • ')}
-                    </Text>
-                  </View>
-                ) : (
-                  <Text style={[styles.pendingModalTitle, { color: theme.text }]}>
-                    {selectedPending?.status === 'analyzing' ? 'Menganalisis...' : 
-                     selectedPending?.status === 'error' ? 'Gagal Analisis' : 'Detail Makanan'}
-                  </Text>
-                )}
-                <View style={styles.pendingHeaderActions}>
-                  {selectedPending?.status === 'done' && selectedPending.analysis && (
-                    <>
-                      <TouchableOpacity
-                        style={styles.shareHeaderButton}
-                        onPress={() => {
-                          if (!selectedPending?.analysis) return;
-                          const analysis = selectedPending.analysis;
-                          const mealName = analysis.items[0]?.name
-                            .replace(/\s*\/\s*/g, ' ')
-                            .replace(/\s+or\s+/gi, ' ')
-                            .replace(/about\s+/gi, '')
-                            .trim() || 'Makanan';
-                          const mealSubtitle = analysis.items.map(item => {
-                            const cleanName = item.name
-                              .replace(/\s*\/\s*/g, ', ')
-                              .replace(/\s+or\s+/gi, ', ')
-                              .replace(/about\s+/gi, '')
-                              .split(',')
-                              .map(s => s.trim())
-                              .filter(Boolean)[0] || item.name;
-                            return cleanName;
-                          }).join(' • ');
-                          const avgCalories = Math.round((analysis.totalCaloriesMin + analysis.totalCaloriesMax) / 2);
-                          const avgProtein = Math.round((analysis.totalProteinMin + analysis.totalProteinMax) / 2);
-                          const avgCarbs = Math.round(analysis.items.reduce((sum, item) => sum + (item.carbsMin + item.carbsMax) / 2, 0));
-                          const avgFat = Math.round(analysis.items.reduce((sum, item) => sum + (item.fatMin + item.fatMax) / 2, 0));
-                          const photoUri = selectedPending.photoUri;
-                          const timestamp = selectedPending.timestamp.toString();
-                          
-                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                          setSelectedPending(null);
-                          setTimeout(() => {
-                            router.push({
-                              pathname: '/story-share',
-                              params: {
-                                mealName,
-                                mealSubtitle,
-                                calories: avgCalories.toString(),
-                                protein: avgProtein.toString(),
-                                carbs: avgCarbs.toString(),
-                                fat: avgFat.toString(),
-                                photoUri,
-                                timestamp,
-                              },
-                            });
-                          }, 100);
-                        }}
-                        activeOpacity={0.7}
-                      >
-                        <Share2 size={18} color="#FFFFFF" />
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.favoriteButton}
-                        onPress={handleSaveToFavorite}
-                        activeOpacity={0.7}
-                      >
-                        <Bookmark
-                          size={22}
-                          color={isFavorite(selectedPending.analysis.items.map(i => i.name).join(', ')) ? theme.primary : theme.textSecondary}
-                          fill={isFavorite(selectedPending.analysis.items.map(i => i.name).join(', ')) ? theme.primary : 'transparent'}
-                        />
-                      </TouchableOpacity>
-                    </>
-                  )}
-                  <TouchableOpacity onPress={handleClosePendingModal}>
-                    <X size={24} color={theme.textSecondary} />
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              <ScrollView 
-                ref={pendingModalScrollRef}
-                style={[styles.pendingModalBody, { flex: 1 }]} 
-                contentContainerStyle={styles.pendingModalBodyContent}
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-                keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-                nestedScrollEnabled={Platform.OS === 'android'}
-              >
-                {selectedPending?.photoUri && selectedPending?.status !== 'done' ? (
-                  <Image source={{ uri: selectedPending.photoUri }} style={styles.pendingModalImage} />
-                ) : selectedPending?.status !== 'done' ? (
-                  <View style={[styles.viewEntryImageContainer, { backgroundColor: theme.background }]}>
-                    <Camera size={48} color={theme.textTertiary} />
-                  </View>
-                ) : null}
-
-                {selectedPending?.status === 'analyzing' && (
-                  <View style={styles.pendingAnalyzingState}>
-                    <ActivityIndicator size="large" color={theme.primary} />
-                    <Text style={[styles.pendingAnalyzingText, { color: theme.text }]}>Menganalisis makanan Anda...</Text>
-                    <Text style={[styles.pendingAnalyzingSubtext, { color: theme.textSecondary }]}>Mohon tunggu sebentar</Text>
-                  </View>
-                )}
-
-                {selectedPending?.status === 'error' && (
-                  <View style={styles.pendingErrorState}>
-                    <Text style={[styles.pendingErrorText, { color: theme.text }]}>Gagal menganalisis foto</Text>
-                    <Text style={[styles.pendingErrorSubtext, { color: theme.textSecondary }]}>{selectedPending.error || 'Terjadi kesalahan'}</Text>
-                    <View style={styles.pendingErrorButtons}>
-                      <TouchableOpacity
-                        style={[styles.pendingRetryButton, { backgroundColor: theme.background, borderColor: theme.border }]}
-                        onPress={handleRetryPending}
-                        activeOpacity={0.7}
-                      >
-                        <RefreshCw size={18} color={theme.text} />
-                        <Text style={[styles.pendingRetryText, { color: theme.text }]}>Coba Lagi</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[styles.pendingDeleteButton, { backgroundColor: 'rgba(197, 48, 48, 0.08)' }]}
-                        onPress={handleRemovePending}
-                        activeOpacity={0.7}
-                      >
-                        <Trash2 size={18} color="#C53030" />
-                        <Text style={styles.pendingDeleteText}>Hapus</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                )}
-
-                {selectedPending?.status === 'done' && selectedPending.analysis && (
-                  <View style={styles.pendingResultState}>
-                    {(() => {
-                      const totals = getEditedTotals();
-                      const analysis = selectedPending.analysis;
-                      const avgSugar = Math.round(
-                        analysis.items.reduce(
-                          (sum, item) => sum + ((item.sugarMin ?? 0) + (item.sugarMax ?? 0)) / 2,
-                          0,
-                        ),
-                      );
-                      const avgFiber = Math.round(
-                        analysis.items.reduce(
-                          (sum, item) => sum + ((item.fiberMin ?? 0) + (item.fiberMax ?? 0)) / 2,
-                          0,
-                        ),
-                      );
-                      const avgSodium = Math.round(
-                        analysis.items.reduce(
-                          (sum, item) => sum + ((item.sodiumMin ?? 0) + (item.sodiumMax ?? 0)) / 2,
-                          0,
-                        ),
-                      );
-                      return (
-                        <>
-                          <View style={styles.pendingHeroImageWrap}>
-                            {selectedPending?.photoUri ? (
-                              <Image source={{ uri: selectedPending.photoUri }} style={styles.pendingHeroImage} />
-                            ) : (
-                              <View style={[styles.pendingHeroImageFallback, { backgroundColor: theme.card }]}>
-                                <Camera size={36} color={theme.textTertiary} />
-                              </View>
-                            )}
-                            <View style={styles.pendingImageCaloriesBadge}>
-                              <Text style={styles.pendingCaloriesEmoji}>🔥</Text>
-                              <Text style={[styles.pendingImageCaloriesValue, { color: '#FFFFFF' }]}>{totals.calories}</Text>
-                              <Text style={styles.pendingImageCaloriesUnit}>kcal</Text>
-                            </View>
-                          </View>
-                          <View style={[styles.pendingTotalCard, { backgroundColor: theme.background, borderColor: theme.border }]}>
-                          <View style={[styles.premiumMaskSection, { borderRadius: 12 }]}>
-                            <View style={styles.pendingStatsSection}>
-                              <View style={styles.pendingMacros}>
-                                <View style={styles.pendingMacro}>
-                                  <Text style={styles.pendingMacroEmoji}>🥩</Text>
-                                  <Text style={[styles.pendingMacroValue, { color: theme.text }]}>
-                                    {totals.protein}g
-                                  </Text>
-                                  <Text style={[styles.pendingMacroLabel, { color: theme.textSecondary }]}>Protein</Text>
-                                </View>
-                                <View style={styles.pendingMacro}>
-                                  <Text style={styles.pendingMacroEmoji}>🌾</Text>
-                                  <Text style={[styles.pendingMacroValue, { color: theme.text }]}>
-                                    {totals.carbs}g
-                                  </Text>
-                                  <Text style={[styles.pendingMacroLabel, { color: theme.textSecondary }]}>Karbo</Text>
-                                </View>
-                                <View style={styles.pendingMacro}>
-                                  <Text style={styles.pendingMacroEmoji}>🥑</Text>
-                                  <Text style={[styles.pendingMacroValue, { color: theme.text }]}>
-                                    {totals.fat}g
-                                  </Text>
-                                  <Text style={[styles.pendingMacroLabel, { color: theme.textSecondary }]}>Lemak</Text>
-                                </View>
-                              </View>
-                              <View style={styles.pendingMicrosRow}>
-                                <View style={styles.pendingMicro}>
-                                  <Text style={[styles.pendingMicroValue, { color: theme.text }]}>
-                                    {avgSugar}g
-                                  </Text>
-                                  <Text style={[styles.pendingMicroLabel, { color: theme.textSecondary }]}>Gula</Text>
-                                </View>
-                                <View style={styles.pendingMicro}>
-                                  <Text style={[styles.pendingMicroValue, { color: theme.text }]}>
-                                    {avgFiber}g
-                                  </Text>
-                                  <Text style={[styles.pendingMicroLabel, { color: theme.textSecondary }]}>Serat</Text>
-                                </View>
-                                <View style={styles.pendingMicro}>
-                                  <Text style={[styles.pendingMicroValue, { color: theme.text }]}>
-                                    {avgSodium}mg
-                                  </Text>
-                                  <Text style={[styles.pendingMicroLabel, { color: theme.textSecondary }]}>Natrium</Text>
-                                </View>
-                              </View>
-                            </View>
-                            {!isPremium && (
-                              <Pressable
-                                style={[styles.premiumMaskOverlay, { borderRadius: 12 }]}
-                                onPress={() =>
-                                  openPaywall(
-                                    totals.calories >= 350 && totals.protein < dailyTargets.protein * 0.18
-                                      ? 'Premium: protein & nutrisi lengkap'
-                                      : 'Buka fitur makro dan mikro dengan Premium',
-                                  )
-                                }
-                                accessibilityRole="button"
-                                accessibilityLabel="Upgrade untuk lacak Protein, Karbo, Lemak, Gula, Serat dan Natrium"
-                              >
-                                <BlurView
-                                  pointerEvents="none"
-                                  intensity={8}
-                                  tint={themeMode === 'light' ? 'light' : 'dark'}
-                                  style={{ flex: 1 }}
-                                >
-                                  <View
-                                    pointerEvents="none"
-                                    style={[
-                                      styles.premiumMaskDim,
-                                      {
-                                        backgroundColor:
-                                          themeMode === 'light' ? 'rgba(120, 120, 120, 0.18)' : 'rgba(20,20,20,0.42)',
-                                      },
-                                    ]}
-                                  >
-                                    <View
-                                      pointerEvents="none"
-                                      style={[
-                                        styles.premiumMaskBadge,
-                                        { maxWidth: '94%', flexDirection: 'column', gap: 6, paddingVertical: 10 },
-                                      ]}
-                                    >
-                                      <Lock size={14} color="#FFFFFF" />
-                                      <Text style={[styles.premiumMaskText, { textAlign: 'center' }]} numberOfLines={3}>
-                                        {totals.calories >= 350 && totals.protein < dailyTargets.protein * 0.18
-                                          ? 'Kurang protein? Upgrade untuk lacak Protein, Karbo, Lemak, Gula, Serat & Natrium'
-                                          : 'Upgrade untuk lacak Protein, Karbo, Lemak, Gula, Serat & Natrium'}
-                                      </Text>
-                                    </View>
-                                  </View>
-                                </BlurView>
-                              </Pressable>
-                            )}
-                          </View>
-                          </View>
-                        </>
-                      );
-                    })()}
-
-                    <View style={styles.itemsTitleRow}>
-                      <Text style={[styles.pendingItemsTitle, { color: theme.text }]}>Komponen Makanan</Text>
-                      <TouchableOpacity
-                        style={[styles.addItemButton, { backgroundColor: theme.background, borderColor: theme.border }]}
-                        onPress={handleAddNewItem}
-                        activeOpacity={0.7}
-                      >
-                        <PlusCircle size={16} color={theme.primary} />
-                        <Text style={styles.addItemButtonText}>Tambah</Text>
-                      </TouchableOpacity>
-                    </View>
-
-                    {showAddItem && (
-                      <View style={[styles.editItemCard, { backgroundColor: theme.background, borderColor: theme.primary }]}>
-                        <Text style={[styles.editItemTitle, { color: theme.text }]}>Tambah Item Baru</Text>
-                        <View style={styles.editItemRow}>
-                          <View style={styles.editItemField}>
-                            <Text style={[styles.editItemLabel, { color: theme.textSecondary }]}>Nama</Text>
-                            <TextInput
-                              style={[styles.editItemInput, { backgroundColor: theme.card, borderColor: theme.border, color: theme.text }]}
-                              placeholder="Nama makanan"
-                              placeholderTextColor={theme.textTertiary}
-                              value={editItemName}
-                              onChangeText={setEditItemName}
-                            />
-                          </View>
-                        </View>
-                        <View style={styles.editItemRow}>
-                          <View style={styles.editItemField}>
-                            <Text style={[styles.editItemLabel, { color: theme.textSecondary }]}>Porsi</Text>
-                            <TextInput
-                              style={[styles.editItemInput, { backgroundColor: theme.card, borderColor: theme.border, color: theme.text }]}
-                              placeholder="1 porsi"
-                              placeholderTextColor={theme.textTertiary}
-                              value={editItemPortion}
-                              onChangeText={setEditItemPortion}
-                            />
-                          </View>
-                        </View>
-                        <View style={styles.editItemRowMulti}>
-                          <View style={styles.editItemFieldSmall}>
-                            <Text style={[styles.editItemLabel, { color: theme.textSecondary }]}>Kalori</Text>
-                            <TextInput
-                              style={[styles.editItemInput, { backgroundColor: theme.card, borderColor: theme.border, color: theme.text }]}
-                              placeholder="0"
-                              placeholderTextColor={theme.textTertiary}
-                              keyboardType="numeric"
-                              value={editItemCalories}
-                              onChangeText={setEditItemCalories}
-                            />
-                          </View>
-                          <View style={styles.editItemFieldSmall}>
-                            <Text style={[styles.editItemLabel, { color: theme.textSecondary }]}>Protein</Text>
-                            <TextInput
-                              style={[styles.editItemInput, { backgroundColor: theme.card, borderColor: theme.border, color: theme.text }]}
-                              placeholder="0"
-                              placeholderTextColor={theme.textTertiary}
-                              keyboardType="numeric"
-                              value={editItemProtein}
-                              onChangeText={setEditItemProtein}
-                            />
-                          </View>
-                        </View>
-                        <View style={styles.editItemRowMulti}>
-                          <View style={styles.editItemFieldSmall}>
-                            <Text style={[styles.editItemLabel, { color: theme.textSecondary }]}>Karbo</Text>
-                            <TextInput
-                              style={[styles.editItemInput, { backgroundColor: theme.card, borderColor: theme.border, color: theme.text }]}
-                              placeholder="0"
-                              placeholderTextColor={theme.textTertiary}
-                              keyboardType="numeric"
-                              value={editItemCarbs}
-                              onChangeText={setEditItemCarbs}
-                            />
-                          </View>
-                          <View style={styles.editItemFieldSmall}>
-                            <Text style={[styles.editItemLabel, { color: theme.textSecondary }]}>Lemak</Text>
-                            <TextInput
-                              style={[styles.editItemInput, { backgroundColor: theme.card, borderColor: theme.border, color: theme.text }]}
-                              placeholder="0"
-                              placeholderTextColor={theme.textTertiary}
-                              keyboardType="numeric"
-                              value={editItemFat}
-                              onChangeText={setEditItemFat}
-                            />
-                          </View>
-                        </View>
-                        <View style={styles.editItemActions}>
-                          <TouchableOpacity
-                            style={[styles.editItemCancelBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
-                            onPress={() => setShowAddItem(false)}
-                          >
-                            <Text style={[styles.editItemCancelText, { color: theme.textSecondary }]}>Batal</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            style={styles.editItemSaveBtn}
-                            onPress={handleSaveNewItem}
-                          >
-                            <Text style={styles.editItemSaveText}>Simpan</Text>
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                    )}
-
-                    {editedItems.map((item, index) => (
-                      editingItemIndex === index ? (
-                        <View key={index} style={[styles.editItemCard, { backgroundColor: theme.background, borderColor: theme.primary }]}>
-                          <Text style={[styles.editItemTitle, { color: theme.text }]}>Edit Item</Text>
-                          <View style={styles.editItemRow}>
-                            <View style={styles.editItemField}>
-                              <Text style={[styles.editItemLabel, { color: theme.textSecondary }]}>Nama</Text>
-                              <TextInput
-                                style={[styles.editItemInput, { backgroundColor: theme.card, borderColor: theme.border, color: theme.text }]}
-                                placeholder="Nama makanan"
-                                placeholderTextColor={theme.textTertiary}
-                                value={editItemName}
-                                onChangeText={setEditItemName}
-                              />
-                            </View>
-                          </View>
-                          <View style={styles.editItemRow}>
-                            <View style={styles.editItemField}>
-                              <Text style={[styles.editItemLabel, { color: theme.textSecondary }]}>Porsi</Text>
-                              <TextInput
-                                style={[styles.editItemInput, { backgroundColor: theme.card, borderColor: theme.border, color: theme.text }]}
-                                placeholder="1 porsi"
-                                placeholderTextColor={theme.textTertiary}
-                                value={editItemPortion}
-                                onChangeText={setEditItemPortion}
-                              />
-                            </View>
-                          </View>
-                          <View style={styles.editItemRowMulti}>
-                            <View style={styles.editItemFieldSmall}>
-                              <Text style={[styles.editItemLabel, { color: theme.textSecondary }]}>Kalori</Text>
-                              <TextInput
-                                style={[styles.editItemInput, { backgroundColor: theme.card, borderColor: theme.border, color: theme.text }]}
-                                placeholder="0"
-                                placeholderTextColor={theme.textTertiary}
-                                keyboardType="numeric"
-                                value={editItemCalories}
-                                onChangeText={setEditItemCalories}
-                              />
-                            </View>
-                            <View style={styles.editItemFieldSmall}>
-                              <Text style={[styles.editItemLabel, { color: theme.textSecondary }]}>Protein</Text>
-                              <TextInput
-                                style={[styles.editItemInput, { backgroundColor: theme.card, borderColor: theme.border, color: theme.text }]}
-                                placeholder="0"
-                                placeholderTextColor={theme.textTertiary}
-                                keyboardType="numeric"
-                                value={editItemProtein}
-                                onChangeText={setEditItemProtein}
-                              />
-                            </View>
-                          </View>
-                          <View style={styles.editItemRowMulti}>
-                            <View style={styles.editItemFieldSmall}>
-                              <Text style={[styles.editItemLabel, { color: theme.textSecondary }]}>Karbo</Text>
-                              <TextInput
-                                style={[styles.editItemInput, { backgroundColor: theme.card, borderColor: theme.border, color: theme.text }]}
-                                placeholder="0"
-                                placeholderTextColor={theme.textTertiary}
-                                keyboardType="numeric"
-                                value={editItemCarbs}
-                                onChangeText={setEditItemCarbs}
-                              />
-                            </View>
-                            <View style={styles.editItemFieldSmall}>
-                              <Text style={[styles.editItemLabel, { color: theme.textSecondary }]}>Lemak</Text>
-                              <TextInput
-                                style={[styles.editItemInput, { backgroundColor: theme.card, borderColor: theme.border, color: theme.text }]}
-                                placeholder="0"
-                                placeholderTextColor={theme.textTertiary}
-                                keyboardType="numeric"
-                                value={editItemFat}
-                                onChangeText={setEditItemFat}
-                              />
-                            </View>
-                          </View>
-                          <View style={styles.editItemActions}>
-                            <TouchableOpacity
-                              style={[styles.editItemDeleteBtn, { backgroundColor: 'rgba(197, 48, 48, 0.08)' }]}
-                              onPress={() => handleDeleteItem(index)}
-                            >
-                              <Trash2 size={16} color="#C53030" />
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                              style={[styles.editItemCancelBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
-                              onPress={() => setEditingItemIndex(null)}
-                            >
-                              <Text style={[styles.editItemCancelText, { color: theme.textSecondary }]}>Batal</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                              style={styles.editItemSaveBtn}
-                              onPress={handleSaveEditItem}
-                            >
-                              <Text style={styles.editItemSaveText}>Simpan</Text>
-                            </TouchableOpacity>
-                          </View>
-                        </View>
-                      ) : (
-                        <TouchableOpacity
-                          key={index}
-                          style={[styles.pendingItemCard, { backgroundColor: theme.background, borderColor: theme.border }]}
-                          onPress={() => handleStartEditItem(index)}
-                          activeOpacity={0.7}
-                        >
-                          <View style={{ flex: 1 }}>
-                            <Text style={[styles.pendingItemName, { color: theme.text }]}>
-                              {item.name
-                                .replace(/\s*\/\s*/g, ' ')
-                                .replace(/\s+or\s+/gi, ' ')
-                                .replace(/about\s+/gi, '')
-                                .trim()}
-                            </Text>
-                            <Text style={[styles.pendingItemPortion, { color: theme.textSecondary }]}>
-                              {item.portion
-                                .replace(/about\s+/gi, '')
-                                .replace(/approximately\s+/gi, '')
-                                .trim()}
-                            </Text>
-                          </View>
-                          <View style={styles.itemRightSection}>
-                            <Text style={[styles.pendingItemCalories, { color: theme.textTertiary }]}>
-                              {item.calories} kcal
-                            </Text>
-                            <Edit3 size={14} color={theme.textTertiary} />
-                          </View>
-                        </TouchableOpacity>
-                      )
-                    ))}
-                  </View>
-                )}
-              </ScrollView>
-
-              <View
-                style={[
-                  styles.pendingModalFooter,
-                  {
-                    paddingBottom: insets.bottom + 8,
-                    backgroundColor: theme.card,
-                    borderTopColor: theme.border,
-                  },
-                ]}
-              >
-                <TouchableOpacity
-                  style={styles.confirmEditedButton}
-                  onPress={handleConfirmEdited}
-                  activeOpacity={0.8}
-                >
-                  <Check size={20} color="#FFFFFF" />
-                  <Text style={styles.confirmEditedText}>
-                    {viewingLoggedEntryId ? 'Simpan Perubahan' : 'Konfirmasi & Tambah ke Log'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
         </Modal>
       {showFavoriteToast && (
           <View style={[styles.favoriteToast, favoriteToastMessage.includes('Dihapus') && { backgroundColor: '#6B7280' }]}>

@@ -28,6 +28,10 @@ export interface SupabaseProfile {
   protein_target: number | null;
   carbs_target: number | null;
   fat_target: number | null;
+  weekly_weight_change: number | null;
+  /** Server-set; referral trial access until this instant (UTC). */
+  referral_trial_ends_at?: string | null;
+  app_role?: string | null;
   created_at: string;
   updated_at: string;
 }

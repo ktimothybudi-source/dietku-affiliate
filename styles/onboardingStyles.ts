@@ -467,6 +467,20 @@ export const onboardingStyles = StyleSheet.create({
   subscriptionFooter: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8 },
   subscriptionFooterLink: { fontSize: 12, color: '#666666' },
   subscriptionFooterDivider: { fontSize: 12, color: '#999999' },
+  subscriptionPopularBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#22C55E',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  subscriptionPopularBadgeText: { fontSize: 11, fontWeight: '700' as const, color: '#FFFFFF' },
+  subscriptionSavingsText: { fontSize: 13, fontWeight: '600' as const, color: '#16A34A', marginTop: 6 },
+  subscriptionYearCardHighlight: { borderColor: '#22C55E', borderWidth: 2, backgroundColor: 'rgba(34, 197, 94, 0.06)' },
+  subscriptionRestoreTextBtn: { paddingVertical: 14, alignItems: 'center' },
+  subscriptionRestoreTextBtnLabel: { fontSize: 15, fontWeight: '700' as const, color: '#22C55E' },
+  subscriptionFootnoteTrial: { fontSize: 12, color: '#666666', textAlign: 'center', lineHeight: 18, marginTop: 8 },
 
   healthFeatures: {
     gap: 14,

@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   protein_target NUMERIC(5,2),
   carbs_target NUMERIC(5,2),
   fat_target NUMERIC(5,2),
+  weekly_weight_change NUMERIC(5,2),
   health_connect_enabled BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -287,3 +288,5 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION handle_new_user();
+
+-- Referral / affiliate (profiles columns, referral_codes, RPC redeem, RLS): see migrations/20260329_referral_affiliate_system.sql

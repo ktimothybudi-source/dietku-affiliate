@@ -13,7 +13,7 @@ import {
   Alert,
 } from 'react-native';
 import { Stack, router } from 'expo-router';
-import { X, HelpCircle, Zap, ZapOff, ImageIcon, Crown } from 'lucide-react-native';
+import { X, HelpCircle, Zap, ZapOff, ImageIcon } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -21,12 +21,10 @@ import { useNutrition } from '@/contexts/NutritionContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ANIMATION_DURATION } from '@/constants/animations';
 import { callAIProxy } from '@/utils/aiProxy';
-import { useSubscription } from '@/contexts/SubscriptionContext';
 import { optimizeImageForScan } from '@/utils/imageOptimization';
 import { DietKuWordmark } from '@/components/DietKuWordmark';
 
 type FlashMode = 'off' | 'auto' | 'on';
-const SCAN_LIMIT = 3;
 
 type ScanQuotaResponse = {
   allowed: boolean;
@@ -39,7 +37,6 @@ type ScanQuotaResponse = {
 export default function CameraScanScreen() {
   const insets = useSafeAreaInsets();
   const { addPendingEntry, authState } = useNutrition();
-  const { isPremium, openPaywall } = useSubscription();
 
   const cameraRef = useRef<CameraView>(null);
 
@@ -48,7 +45,7 @@ export default function CameraScanScreen() {
   const [flashMode, setFlashMode] = useState<FlashMode>('off');
   const [helpOpen, setHelpOpen] = useState(false);
   const [showHelper, setShowHelper] = useState(false);
-  const [remainingScans, setRemainingScans] = useState(SCAN_LIMIT);
+  const [remainingScans, setRemainingScans] = useState(3);
   const [timeUntilResetMs, setTimeUntilResetMs] = useState(0);
   const [dailyScanUnlimited, setDailyScanUnlimited] = useState(false);
 
@@ -68,7 +65,7 @@ export default function CameraScanScreen() {
     } catch (error) {
       // Fail open for quota UI so temporary network issues don't block scanning.
       setDailyScanUnlimited(true);
-      setRemainingScans(SCAN_LIMIT);
+      setRemainingScans(999);
       setTimeUntilResetMs(0);
       console.warn('Failed to fetch scan quota:', error);
     }
@@ -114,19 +111,13 @@ export default function CameraScanScreen() {
   }, [refreshScanQuota]);
 
   useEffect(() => {
-    const tick = () => setTimeUntilResetMs((prev) => Math.max(0, prev - 1000));
-    const interval = setInterval(tick, 1000);
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
     const interval = setInterval(() => {
       refreshScanQuota();
-    }, 15_000);
+    }, 60_000);
     return () => clearInterval(interval);
   }, [refreshScanQuota]);
 
-  const hasReachedLimit = !isPremium && !dailyScanUnlimited && remainingScans === 0;
+  const hasReachedLimit = !dailyScanUnlimited && remainingScans === 0;
 
   const formatDuration = (ms: number) => {
     const totalSeconds = Math.ceil(Math.max(0, ms) / 1000);
@@ -154,11 +145,10 @@ export default function CameraScanScreen() {
     if (hasReachedLimit) {
       Alert.alert(
         'Batas scan tercapai',
-        `Maksimal ${SCAN_LIMIT} scan per 24 jam. Coba lagi dalam ${formatDuration(timeUntilResetMs)}.`,
-        [
-          { text: 'Nanti' },
-          { text: 'Upgrade Premium', onPress: () => openPaywall('Premium dapat scan makanan tanpa batas') },
-        ]
+        timeUntilResetMs > 0
+          ? `Coba lagi dalam ${formatDuration(timeUntilResetMs)}.`
+          : 'Silakan coba lagi nanti.',
+        [{ text: 'OK' }]
       );
       return;
     }
@@ -211,11 +201,10 @@ export default function CameraScanScreen() {
     if (hasReachedLimit) {
       Alert.alert(
         'Batas scan tercapai',
-        `Maksimal ${SCAN_LIMIT} scan per 24 jam. Coba lagi dalam ${formatDuration(timeUntilResetMs)}.`,
-        [
-          { text: 'Nanti' },
-          { text: 'Upgrade Premium', onPress: () => openPaywall('Premium dapat scan makanan tanpa batas') },
-        ]
+        timeUntilResetMs > 0
+          ? `Coba lagi dalam ${formatDuration(timeUntilResetMs)}.`
+          : 'Silakan coba lagi nanti.',
+        [{ text: 'OK' }]
       );
       return;
     }
@@ -322,7 +311,7 @@ export default function CameraScanScreen() {
               <View style={styles.brandPill}>
                 <Image source={logo} style={styles.brandLogo} />
                 <DietKuWordmark
-                  premium={isPremium}
+                  premium={false}
                   color="#FFFFFF"
                   fontSize={22}
                   letterSpacing={0.2}
@@ -347,39 +336,6 @@ export default function CameraScanScreen() {
               {showHelper && (
                 <Text style={styles.helperText}>Posisikan makanan di dalam area</Text>
               )}
-              <View style={styles.scanQuotaStack}>
-                <View style={styles.scanLimitPill}>
-                  <Text style={styles.scanLimitText}>
-                    {isPremium || dailyScanUnlimited
-                      ? 'Scan harian: tanpa batas'
-                      : `Scan tersisa: ${Math.min(remainingScans, SCAN_LIMIT)}/${SCAN_LIMIT}`}
-                  </Text>
-                  <Text style={styles.scanLimitSubtext}>
-                    {isPremium || dailyScanUnlimited
-                      ? 'Akun ini dikecualikan dari batas 3/24 jam'
-                      : `Reset dalam ${formatDuration(timeUntilResetMs)}`}
-                  </Text>
-                </View>
-                {!isPremium && !dailyScanUnlimited && (
-                  <TouchableOpacity
-                    style={[styles.upgradeUnlimitedButton, hasReachedLimit && styles.upgradeUnlimitedButtonEmphasis]}
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      openPaywall(
-                        hasReachedLimit
-                          ? 'Batas 3 scan/24 jam — Premium untuk scan tanpa batas'
-                          : 'Premium: scan makanan tanpa batas',
-                      );
-                    }}
-                    activeOpacity={0.88}
-                  >
-                    <Crown size={15} color="#FFFFFF" />
-                    <Text style={styles.upgradeUnlimitedText}>
-                      {hasReachedLimit ? 'Upgrade — scan tanpa batas' : 'Upgrade untuk scan tanpa batas'}
-                    </Text>
-                  </TouchableOpacity>
-                )}
-              </View>
               <View style={styles.focusFrame}>
                 <Animated.View 
                   style={[
@@ -441,7 +397,7 @@ export default function CameraScanScreen() {
               </Animated.View>
 
               <TouchableOpacity
-                style={[styles.galleryButton, hasReachedLimit && styles.controlDisabled]}
+                style={[styles.galleryButton, hasReachedLimit && { opacity: 0.55 }]}
                 onPress={handleGalleryPick}
                 activeOpacity={0.9}
                 disabled={hasReachedLimit}
@@ -556,64 +512,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 16,
   },
-  scanQuotaStack: {
-    position: 'absolute',
-    top: '17%',
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    zIndex: 2,
-  },
-  scanLimitPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 12,
-    backgroundColor: 'rgba(0,0,0,0.52)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.20)',
-    alignItems: 'center',
-  },
-  upgradeUnlimitedButton: {
-    marginTop: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 11,
-    borderRadius: 999,
-    backgroundColor: '#22C55E',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.35)',
-    maxWidth: '100%',
-  },
-  upgradeUnlimitedButtonEmphasis: {
-    backgroundColor: '#16A34A',
-    shadowColor: '#22C55E',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.55,
-    shadowRadius: 10,
-    elevation: 6,
-  },
-  upgradeUnlimitedText: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '800' as const,
-    letterSpacing: 0.2,
-    flexShrink: 1,
-  },
-  scanLimitText: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '700' as const,
-  },
-  scanLimitSubtext: {
-    marginTop: 3,
-    color: 'rgba(255,255,255,0.78)',
-    fontSize: 11,
-    fontWeight: '500' as const,
-  },
   focusFrame: {
     width: FOCUS_SIZE,
     height: FOCUS_SIZE,
@@ -685,9 +583,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.10)',
-  },
-  controlDisabled: {
-    opacity: 0.45,
   },
   shutterOuter: {
     width: 92,

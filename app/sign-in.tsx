@@ -10,7 +10,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { ArrowLeft, ArrowRight, Eye, EyeOff, Mail } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { Svg, Path } from 'react-native-svg';
@@ -20,6 +20,7 @@ import { makeRedirectUri } from 'expo-auth-session';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useNutrition } from '@/contexts/NutritionContext';
 import { supabase } from '@/lib/supabase';
+import { stashPendingReferralCode } from '@/lib/pendingReferralCode';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -27,6 +28,7 @@ WebBrowser.maybeCompleteAuthSession();
 const SHOW_GOOGLE_SIGN_IN = false;
 
 export default function SignInScreen() {
+  const params = useLocalSearchParams<{ ref?: string | string[] }>();
   const { t } = useLanguage();
   const { signIn } = useNutrition();
   const insets = useSafeAreaInsets();
@@ -37,6 +39,14 @@ export default function SignInScreen() {
   const [isGoogleSigningIn, setIsGoogleSigningIn] = useState<boolean>(false);
   const [isResending, setIsResending] = useState<boolean>(false);
   const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null);
+
+  useEffect(() => {
+    const rawRef = params.ref;
+    const refStr = typeof rawRef === 'string' ? rawRef : rawRef?.[0];
+    if (refStr?.trim()) {
+      void stashPendingReferralCode(refStr);
+    }
+  }, [params.ref]);
 
   useEffect(() => {
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event) => {
@@ -249,7 +259,11 @@ export default function SignInScreen() {
 
   const handleBack = () => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    router.back();
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace('/onboarding');
   };
 
   return (

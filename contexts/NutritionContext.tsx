@@ -7,6 +7,7 @@ import { calculateDailyTargets, getTodayKey, sumMidpointMicrosFromItems } from '
 import { analyzeMealPhoto } from '@/utils/photoAnalysis';
 import { saveImagePermanently } from '@/utils/imageStorage';
 import { supabase, SupabaseProfile, SupabaseFoodEntry, SupabaseWeightHistory, SupabaseStreak } from '@/lib/supabase';
+import { getPremiumWriteGate } from '@/lib/premiumWriteGate';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { Session } from '@supabase/supabase-js';
@@ -48,15 +49,22 @@ export interface PendingFoodEntry {
 
 const mapSupabaseProfileToUserProfile = (sp: SupabaseProfile): UserProfile => {
   const goal = (sp.goal === 'fat_loss' || sp.goal === 'maintenance' || sp.goal === 'muscle_gain') ? sp.goal : 'maintenance';
-  
-  // Derive weeklyWeightChange from goal if not stored
-  let weeklyWeightChange = 0;
-  if (goal === 'fat_loss') {
-    weeklyWeightChange = 0.5; // Default 0.5kg/week loss
+
+  const hasStoredWeekly =
+    sp.weekly_weight_change != null && !Number.isNaN(Number(sp.weekly_weight_change));
+
+  // Derive weeklyWeightChange from goal only when not persisted (legacy rows)
+  let weeklyWeightChange: number | undefined;
+  if (hasStoredWeekly) {
+    weeklyWeightChange = Number(sp.weekly_weight_change);
+  } else if (goal === 'fat_loss') {
+    weeklyWeightChange = 0.5;
   } else if (goal === 'muscle_gain') {
-    weeklyWeightChange = 0.3; // Default 0.3kg/week gain
+    weeklyWeightChange = 0.3;
+  } else {
+    weeklyWeightChange = 0;
   }
-  
+
   return {
     name: sp.name || undefined,
     age: sp.birth_date ? Math.floor((Date.now() - new Date(sp.birth_date).getTime()) / (365.25 * 24 * 60 * 60 * 1000)) : 25,
@@ -163,10 +171,6 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
         setAuthState({ isSignedIn: false, email: null, userId: null });
         return;
       }
-      if (event === 'INITIAL_SESSION') {
-        setAuthState({ isSignedIn: false, email: null, userId: null });
-        return;
-      }
 
       void supabase.auth.getSession().then(({ data: { session: recovered } }) => {
         if (recovered?.user) {
@@ -176,6 +180,8 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
             email: recovered.user.email || null,
             userId: recovered.user.id,
           });
+        } else if (event === 'INITIAL_SESSION') {
+          setAuthState({ isSignedIn: false, email: null, userId: null });
         }
       });
     });
@@ -506,6 +512,7 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
           target_weight: newProfile.goalWeight,
           activity_level: newProfile.activityLevel,
           goal: newProfile.goal,
+          weekly_weight_change: newProfile.weeklyWeightChange ?? null,
           daily_calories: calculatedTargets.calories,
           protein_target: calculatedTargets.protein,
           carbs_target: Math.round((calculatedTargets.carbsMin + calculatedTargets.carbsMax) / 2),
@@ -1179,18 +1186,23 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
       console.error('[addFoodEntry] Cannot add food: User not authenticated');
       return;
     }
+
+    const premium = getPremiumWriteGate();
+    const entryForStore: Omit<FoodEntry, 'id' | 'timestamp'> = premium
+      ? entry
+      : { ...entry, sugar: 0, fiber: 0, sodium: 0 };
     
     const logDateKey = selectedDate || getTodayKey();
     saveFoodEntryMutation.mutate(
-      { entry, dateKey: logDateKey },
+      { entry: entryForStore, dateKey: logDateKey },
       {
         onSuccess: () => {
           updateStreak(logDateKey);
-          updateRecentMeals(entry);
+          updateRecentMeals(entryForStore);
 
           if (autoPostToCommunity) {
             const eventData = {
-              foodEntry: entry,
+              foodEntry: entryForStore,
               timestamp: Date.now(),
             };
             eventEmitter.emit('foodEntryAdded', eventData);
@@ -1371,6 +1383,7 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
           target_weight: profileData.goalWeight || null,
           activity_level: profileData.activityLevel || null,
           goal: profileData.goal || null,
+          weekly_weight_change: profileData.weeklyWeightChange ?? null,
           daily_calories: calculatedTargets.calories,
           protein_target: calculatedTargets.protein,
           carbs_target: Math.round((calculatedTargets.carbsMin + calculatedTargets.carbsMax) / 2),
@@ -1392,6 +1405,7 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
           goalWeight: profileData.goalWeight || profileData.weight || 70,
           goal: profileData.goal || 'maintenance',
           activityLevel: profileData.activityLevel || 'moderate',
+          weeklyWeightChange: profileData.weeklyWeightChange,
         };
         setProfile(newProfile);
         // Also invalidate queries to refresh from server
@@ -1427,6 +1441,7 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
   }, [queryClient]);
 
   const addWaterCup = useCallback(() => {
+    if (!getPremiumWriteGate()) return;
     const dateKey = selectedDate || getTodayKey();
     const current = waterCups[dateKey] || 0;
     const updated = { ...waterCups, [dateKey]: current + 1 };
@@ -1435,6 +1450,7 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
   }, [waterCups, saveWaterMutation, selectedDate]);
 
   const removeWaterCup = useCallback(() => {
+    if (!getPremiumWriteGate()) return;
     const dateKey = selectedDate || getTodayKey();
     const current = waterCups[dateKey] || 0;
     if (current <= 0) return;
@@ -1448,6 +1464,7 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
   }, [waterCups, selectedDate]);
 
   const addSugarUnit = useCallback((amount: number = 1) => {
+    if (!getPremiumWriteGate()) return;
     const dateKey = selectedDate || getTodayKey();
     const current = sugarUnits[dateKey] || 0;
     const updated = { ...sugarUnits, [dateKey]: Math.round((current + amount) * 10) / 10 };
@@ -1456,6 +1473,7 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
   }, [sugarUnits, saveSugarMutation, selectedDate]);
 
   const removeSugarUnit = useCallback(() => {
+    if (!getPremiumWriteGate()) return;
     const dateKey = selectedDate || getTodayKey();
     const current = sugarUnits[dateKey] || 0;
     if (current <= 0) return;
@@ -1469,6 +1487,7 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
   }, [sugarUnits, selectedDate]);
 
   const addFiberUnit = useCallback((amount: number = 1) => {
+    if (!getPremiumWriteGate()) return;
     const dateKey = selectedDate || getTodayKey();
     const current = fiberUnits[dateKey] || 0;
     const updated = { ...fiberUnits, [dateKey]: Math.round((current + amount) * 10) / 10 };
@@ -1477,6 +1496,7 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
   }, [fiberUnits, saveFiberMutation, selectedDate]);
 
   const removeFiberUnit = useCallback(() => {
+    if (!getPremiumWriteGate()) return;
     const dateKey = selectedDate || getTodayKey();
     const current = fiberUnits[dateKey] || 0;
     if (current <= 0) return;
@@ -1490,6 +1510,7 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
   }, [fiberUnits, selectedDate]);
 
   const addSodiumUnit = useCallback((amount: number = 1) => {
+    if (!getPremiumWriteGate()) return;
     const dateKey = selectedDate || getTodayKey();
     const current = sodiumUnits[dateKey] || 0;
     const updated = { ...sodiumUnits, [dateKey]: Math.round(current + amount) };
@@ -1498,6 +1519,7 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
   }, [sodiumUnits, saveSodiumMutation, selectedDate]);
 
   const removeSodiumUnit = useCallback(() => {
+    if (!getPremiumWriteGate()) return;
     const dateKey = selectedDate || getTodayKey();
     const current = sodiumUnits[dateKey] || 0;
     if (current <= 0) return;
@@ -1699,6 +1721,9 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
     updateFoodEntryMutation.mutate({ entryId, updates });
   }, [updateFoodEntryMutation]);
 
+  const referralTrialEndsAt = profileQuery.data?.referral_trial_ends_at ?? null;
+  const isAppAdmin = profileQuery.data?.app_role === 'admin';
+
   const dailyTargets: DailyTargets | null = useMemo(() => {
     if (!profile) {
       console.log('No profile, cannot calculate dailyTargets');
@@ -1748,6 +1773,8 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
 
   return {
     profile,
+    referralTrialEndsAt,
+    isAppAdmin,
     saveProfile,
     dailyTargets,
     todayEntries,

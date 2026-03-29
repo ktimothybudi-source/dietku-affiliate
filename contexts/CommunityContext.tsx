@@ -7,6 +7,7 @@ import { FoodEntry } from '@/types/nutrition';
 import { eventEmitter } from '@/utils/eventEmitter';
 import { supabase } from '@/lib/supabase';
 import { uploadImageToSupabase, deleteImageFromSupabase } from '@/utils/supabaseStorage';
+import { fetchPremiumBypassUserIdSet } from '@/utils/communityPremium';
 
 const COMMUNITY_POST_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const COMMUNITY_PHOTO_BUCKET = 'meal-photos';
@@ -330,6 +331,26 @@ export const [CommunityProvider, useCommunity] = createContextHook(() => {
     });
   }, [commentsRawQuery.data]);
 
+  const premiumCandidateUserIds = useMemo(() => {
+    const s = new Set<string>();
+    (postsRawQuery.data || []).forEach((p) => s.add(p.user_id));
+    (commentsRawQuery.data?.rows || []).forEach((c) => s.add(c.user_id));
+    (groupMembersQuery.data?.members || []).forEach((m) => s.add(m.user_id));
+    return Array.from(s).filter(Boolean).sort();
+  }, [postsRawQuery.data, commentsRawQuery.data, groupMembersQuery.data]);
+
+  const premiumBypassSetQuery = useQuery({
+    queryKey: ['community_premium_bypass_users', premiumCandidateUserIds.join('|')],
+    enabled: !!userId && premiumCandidateUserIds.length > 0,
+    staleTime: 2 * 60 * 1000,
+    queryFn: () => fetchPremiumBypassUserIdSet(premiumCandidateUserIds),
+  });
+
+  const isUserPremiumInCommunity = useCallback(
+    (id: string) => premiumBypassSetQuery.data?.has(id) ?? false,
+    [premiumBypassSetQuery.data],
+  );
+
   const posts = useMemo<FoodPost[]>(() => {
     const rows = postsRawQuery.data || [];
     const likes = likesQuery.data || [];
@@ -343,6 +364,7 @@ export const [CommunityProvider, useCommunity] = createContextHook(() => {
       commentsCountByPost[c.postId] = (commentsCountByPost[c.postId] || 0) + 1;
     });
     const profileMap = postAuthorsQuery.data || {};
+    const premiumSet = premiumBypassSetQuery.data;
     return rows.map((p) => {
       const author = profileMap[p.user_id];
       return {
@@ -350,6 +372,7 @@ export const [CommunityProvider, useCommunity] = createContextHook(() => {
         userId: p.user_id,
         username: author?.username || 'user',
         displayName: author?.display_name || 'User',
+        authorPremium: premiumSet?.has(p.user_id) ?? false,
         avatarColor: author?.avatar_color || '#22C55E',
         caption: p.caption || '',
         foodName: p.food_name,
@@ -371,7 +394,7 @@ export const [CommunityProvider, useCommunity] = createContextHook(() => {
         groupId: p.group_id,
       };
     });
-  }, [postsRawQuery.data, likesQuery.data, comments, postAuthorsQuery.data]);
+  }, [postsRawQuery.data, likesQuery.data, comments, postAuthorsQuery.data, premiumBypassSetQuery.data]);
 
   useEffect(() => {
     if (!activeGroupId) {
@@ -688,5 +711,6 @@ export const [CommunityProvider, useCommunity] = createContextHook(() => {
     addComment,
     deletePost,
     getPostComments,
+    isUserPremiumInCommunity,
   };
 });

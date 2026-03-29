@@ -15,6 +15,49 @@ function inferExtensionFromMime(mimeType?: string | null): string {
   return 'jpg';
 }
 
+function inferContentTypeFromUri(uri: string): string {
+  const lower = uri.split('?')[0].toLowerCase();
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  if (lower.endsWith('.heic')) return 'image/heic';
+  if (lower.endsWith('.heif')) return 'image/heif';
+  return 'image/jpeg';
+}
+
+function base64ToUint8Array(base64: string): Uint8Array {
+  const binaryString = atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
+/**
+ * Load image bytes for Supabase upload. RN iOS often throws "Network request failed" on fetch(file://...),
+ * so local files are read via Expo FileSystem instead.
+ */
+async function loadImageBytesForUpload(uri: string): Promise<{ body: Uint8Array; contentType: string }> {
+  const isRemote = /^https?:\/\//i.test(uri);
+  if (isRemote) {
+    const response = await fetch(uri);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch image: ${response.status}`);
+    }
+    const blob = await response.blob();
+    const contentType = blob.type || inferContentTypeFromUri(uri);
+    const ab = await blob.arrayBuffer();
+    return { body: new Uint8Array(ab), contentType };
+  }
+
+  const base64 = await FileSystem.readAsStringAsync(uri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+  const contentType = inferContentTypeFromUri(uri);
+  return { body: base64ToUint8Array(base64), contentType };
+}
+
 /**
  * Upload an image file to Supabase Storage
  * @param localUri - Local file URI to upload
@@ -33,18 +76,16 @@ export async function uploadImageToSupabase(
       console.warn('Image optimization before upload failed, using original URI:', optimizationError);
     }
 
-    const response = await fetch(optimizedUri);
-    const blob = await response.blob();
-    const contentType = blob.type || 'image/jpeg';
+    const { body, contentType } = await loadImageBytesForUpload(optimizedUri);
     const extension = inferExtensionFromMime(contentType) || 'jpg';
 
     // Generate unique filename
     const filename = `${userId}/${Date.now()}_${Math.random().toString(36).substring(7)}.${extension}`;
 
-    // Upload to Supabase Storage
+    // Upload to Supabase Storage (Uint8Array avoids fetch(file://) on iOS)
     const { data, error } = await supabase.storage
       .from(STORAGE_BUCKET)
-      .upload(filename, blob, {
+      .upload(filename, body, {
         contentType,
         upsert: false,
       });
@@ -108,24 +149,16 @@ export async function uploadBase64ImageToSupabase(
   try {
     // Remove data URL prefix if present
     const base64Data = base64Image.replace(/^data:image\/\w+;base64,/, '');
-
-    // Use Expo FileSystem to create a temporary file first, then upload as blob.
-    const tempUri = `${FileSystem.cacheDirectory || FileSystem.documentDirectory || 'file:///'}tmp_${Date.now()}.jpg`;
-    await FileSystem.writeAsStringAsync(tempUri, base64Data, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
-    const response = await fetch(tempUri);
-    const blob = await response.blob();
-    const contentType = blob.type || 'image/jpeg';
+    const contentTypeMatch = base64Image.match(/^data:(image\/[\w+.-]+);base64,/i);
+    const contentType = contentTypeMatch?.[1] || 'image/jpeg';
+    const body = base64ToUint8Array(base64Data);
     const extension = inferExtensionFromMime(contentType);
 
-    // Generate unique filename
     const filename = `${userId}/${Date.now()}_${Math.random().toString(36).substring(7)}.${extension}`;
 
-    // Upload to Supabase Storage
     const { data, error } = await supabase.storage
       .from(STORAGE_BUCKET)
-      .upload(filename, blob, {
+      .upload(filename, body, {
         contentType,
         upsert: false,
       });
@@ -138,12 +171,6 @@ export async function uploadBase64ImageToSupabase(
     const { data: signedData, error: signedError } = await supabase.storage
       .from(STORAGE_BUCKET)
       .createSignedUrl(data.path, SIGNED_URL_EXPIRY_SECONDS);
-
-    try {
-      await FileSystem.deleteAsync(tempUri, { idempotent: true });
-    } catch {
-      // no-op
-    }
 
     if (!signedError && signedData?.signedUrl) {
       console.log('Image uploaded successfully (signed URL):', signedData.signedUrl);

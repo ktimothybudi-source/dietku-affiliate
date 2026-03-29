@@ -1,4 +1,4 @@
-import { StyleSheet, Dimensions } from 'react-native';
+import { StyleSheet, Dimensions, Platform } from 'react-native';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const CAROUSEL_CARD_WIDTH = SCREEN_WIDTH - 28;
@@ -366,7 +366,6 @@ export const indexStyles = StyleSheet.create({
   premiumMaskSection: {
     position: 'relative' as const,
     borderRadius: 16,
-    overflow: 'hidden' as const,
   },
   premiumMaskDim: {
     flex: 1,
@@ -561,6 +560,10 @@ export const indexStyles = StyleSheet.create({
     marginBottom: 16,
     marginTop: 4,
   },
+  /** Full-width row for the horizontal carousel. Do not use overflow: 'hidden' here — it clips Android elevation shadows. */
+  carouselHorizontalScrollWrap: {
+    width: '100%' as const,
+  },
   carouselPageContainer: {
     width: CAROUSEL_CARD_WIDTH,
     gap: 8,
@@ -570,9 +573,9 @@ export const indexStyles = StyleSheet.create({
     padding: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowOpacity: 0.09,
+    shadowRadius: 10,
+    elevation: 5,
   },
   heroCardTaller: {
     minHeight: 200,
@@ -582,10 +585,10 @@ export const indexStyles = StyleSheet.create({
     padding: 20,
     borderWidth: 1,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 5,
   },
   heroRingOuterBorder: {
     borderWidth: 2,
@@ -762,7 +765,10 @@ export const indexStyles = StyleSheet.create({
     justifyContent: 'center' as const,
     alignItems: 'center' as const,
     gap: 6,
-    marginTop: 10,
+    marginTop: 12,
+    paddingTop: 6,
+    paddingBottom: 18,
+    minHeight: 14,
   },
   carouselDot: {
     width: 6,
@@ -1144,7 +1150,8 @@ export const indexStyles = StyleSheet.create({
   foodItem: {
     borderRadius: 18,
     paddingVertical: 16,
-    paddingHorizontal: 18,
+    paddingLeft: 18,
+    paddingRight: 70,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
@@ -1681,10 +1688,13 @@ export const indexStyles = StyleSheet.create({
   pendingModalScreen: {
     flex: 1,
     width: '100%',
+    minHeight: 0,
   },
   pendingModalContent: {
     flex: 1,
     width: '100%',
+    minHeight: 0,
+    flexDirection: 'column' as const,
     position: 'relative',
   },
   pendingModalHeader: {
@@ -1708,12 +1718,20 @@ export const indexStyles = StyleSheet.create({
     lineHeight: 16,
     marginTop: 2,
   },
+  /** Column: scroll fills space above footer (no overlap — fixes Android touches on Simpan). */
+  pendingModalScrollWrap: {
+    flex: 1,
+    minHeight: 0,
+    flexDirection: 'column' as const,
+  },
   pendingModalBody: {
+    flex: 1,
+    minHeight: 0,
     paddingHorizontal: 20,
     paddingTop: 20,
   },
   pendingModalBodyContent: {
-    paddingBottom: 120,
+    paddingBottom: 24,
   },
   pendingModalImage: {
     width: '100%',
@@ -1781,12 +1799,29 @@ export const indexStyles = StyleSheet.create({
   },
   pendingResultState: {
     gap: 16,
-    paddingBottom: 40,
+    paddingBottom: 12,
   },
   pendingTotalCard: {
     borderRadius: 12,
     padding: 14,
     borderWidth: 1,
+  },
+  pendingFoodTitleBlock: {
+    width: '100%',
+    marginBottom: 4,
+    marginTop: 0,
+  },
+  pendingFoodTitleMain: {
+    fontSize: 20,
+    fontWeight: '700' as const,
+    lineHeight: 26,
+    letterSpacing: -0.3,
+  },
+  pendingFoodTitleSub: {
+    fontSize: 14,
+    fontWeight: '500' as const,
+    lineHeight: 20,
+    marginTop: 6,
   },
   pendingHeroImageWrap: {
     width: '100%',
@@ -1920,14 +1955,28 @@ export const indexStyles = StyleSheet.create({
   pendingMicroLabel: {
     fontSize: 11,
   },
+  pendingModalFormToolbar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
   pendingModalFooter: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
+    flexShrink: 0,
     paddingHorizontal: 20,
     paddingTop: 12,
+    paddingBottom: 12,
     borderTopWidth: 1,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 8,
+      },
+      android: { elevation: 12 },
+      default: {},
+    }),
   },
   pendingItemsTitle: {
     fontSize: 16,

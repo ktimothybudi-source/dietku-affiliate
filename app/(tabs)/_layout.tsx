@@ -1,10 +1,12 @@
-import { Tabs } from "expo-router";
-import { Flame, User, BarChart3, Users } from "lucide-react-native";
+import { Tabs, Redirect } from "expo-router";
+import { Flame, User, BarChart3, Users, Shield } from "lucide-react-native";
 import React from "react";
 import { Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Theme } from "@/contexts/ThemeContext";
 import { useTheme } from "@/contexts/ThemeContext";
+import { useSubscription } from "@/contexts/SubscriptionContext";
+import { useNutrition } from "@/contexts/NutritionContext";
 
 const fallbackTheme: Theme = {
   background: "#FFFFFF",
@@ -28,7 +30,13 @@ export default function TabLayout() {
   const themeContext = useTheme();
   const theme = themeContext?.theme ?? fallbackTheme;
   const insets = useSafeAreaInsets();
-  
+  const { authState, isAppAdmin } = useNutrition();
+  const { isPremium, isLoading: subscriptionLoading } = useSubscription();
+
+  if (authState.isSignedIn && !subscriptionLoading && !isPremium) {
+    return <Redirect href="/subscribe" />;
+  }
+
   const tabBarHeight = Platform.select({
     ios: 49 + insets.bottom,
     android: 56 + Math.max(insets.bottom, 8),
@@ -76,6 +84,7 @@ export default function TabLayout() {
         name="index"
         options={{
           title: "DietKu",
+          headerShown: false,
           tabBarLabel: "Dashboard",
           tabBarIcon: ({ color, focused }) => (
             <Flame size={21} color={color} fill={focused ? color : 'transparent'} />
@@ -104,6 +113,15 @@ export default function TabLayout() {
           title: "Profil",
           tabBarLabel: "Profil",
           tabBarIcon: ({ color }) => <User size={21} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="admin"
+        options={{
+          title: "Admin",
+          tabBarLabel: "Admin",
+          href: isAppAdmin ? "/admin" : null,
+          tabBarIcon: ({ color }) => <Shield size={21} color={color} />,
         }}
       />
     </Tabs>

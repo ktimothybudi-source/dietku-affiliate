@@ -24,8 +24,10 @@ function RootLayoutNav() {
     <Stack screenOptions={{ headerBackTitle: "Back" }}>
       <Stack.Screen name="onboarding" options={{ headerShown: false }} />
       <Stack.Screen name="sign-in" options={{ headerShown: false }} />
+      <Stack.Screen name="subscribe" options={{ headerShown: false }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="food-search" options={{ headerShown: false, presentation: 'card' }} />
+      <Stack.Screen name="pending-food-detail" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="log-exercise" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="setup-community-profile" options={{ presentation: 'card' }} />
       <Stack.Screen name="create-post" options={{ presentation: 'card' }} />
@@ -37,6 +39,7 @@ function RootLayoutNav() {
       <Stack.Screen name="camera-scan" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="language-picker" options={{ presentation: 'card' }} />
       <Stack.Screen name="edit-profile" options={{ presentation: 'card' }} />
+      <Stack.Screen name="referral-share" options={{ presentation: 'card' }} />
       <Stack.Screen name="legal-terms" options={{ presentation: 'card' }} />
       <Stack.Screen name="legal-privacy" options={{ presentation: 'card' }} />
       <Stack.Screen name="legal-restore-purchase" options={{ presentation: 'card' }} />

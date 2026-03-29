@@ -218,6 +218,8 @@ app.post("/meal-analysis", async (c) => {
       '  "tips": string[]',
       "}",
       "Use realistic estimates and keep values non-negative.",
+      "For EACH item you MUST estimate sugar (g), dietary fiber (g), and sodium (mg) from the actual foods visible (sauces, fruit, bread, noodles, cheese, processed meat, etc.).",
+      "Do not use 0 for sugar, fiber, and sodium on all items at once unless the meal is truly negligible (e.g. plain water). Ranges should reflect uncertainty (min < max).",
     ].join("\n");
 
     const openAIData = await callOpenAI({

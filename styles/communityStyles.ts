@@ -174,6 +174,11 @@ export const communityStyles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.6,
   },
+  /** Required so FlatList does not expand to full content height and steal touches over the tab bar (Android). */
+  listFlex: {
+    flex: 1,
+    minHeight: 0,
+  },
   listContent: {
     paddingVertical: 8,
   },

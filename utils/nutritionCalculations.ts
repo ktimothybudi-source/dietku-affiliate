@@ -1,4 +1,4 @@
-import { UserProfile, DailyTargets, ActivityLevel, Sex } from '@/types/nutrition';
+import { UserProfile, DailyTargets, ActivityLevel, Sex, FoodItemEstimate, MealAnalysis } from '@/types/nutrition';
 
 export function calculateBMR(weight: number, height: number, age: number, sex: Sex): number {
   if (sex === 'male') {
@@ -8,14 +8,19 @@ export function calculateBMR(weight: number, height: number, age: number, sex: S
   }
 }
 
+/**
+ * Physical activity level (PAL) applied to BMR for TDEE (Mifflin–St Jeor style).
+ * Three app buckets map to standard tiers so consecutive steps are similar (~12–15%),
+ * not a large jump from sedentary straight to “moderate exercise”.
+ */
 export function getActivityMultiplier(activityLevel: ActivityLevel): number {
   switch (activityLevel) {
     case 'low':
-      return 1.2;
+      return 1.2; // sedentary (little/no exercise)
     case 'moderate':
-      return 1.55;
+      return 1.375; // lightly active
     case 'high':
-      return 1.725;
+      return 1.55; // moderately active
   }
 }
 
@@ -116,6 +121,52 @@ export function calculateFiberTargetFromCalories(calories: number): number {
 
 export function calculateSodiumTargetMg(): number {
   return 2300;
+}
+
+/**
+ * When the model returns all-zero sugar/fiber/sodium (common if the prompt is ignored), derive rough
+ * min/max ranges from calories and carbs so Gula/Serat/Natrium are usable. Skips if any micro is non-zero.
+ */
+function enrichItemMicrosIfAllZero(item: FoodItemEstimate): FoodItemEstimate {
+  const sMin = item.sugarMin ?? 0;
+  const sMax = item.sugarMax ?? 0;
+  const fMin = item.fiberMin ?? 0;
+  const fMax = item.fiberMax ?? 0;
+  const naMin = item.sodiumMin ?? 0;
+  const naMax = item.sodiumMax ?? 0;
+  const allSugarZero = sMin === 0 && sMax === 0;
+  const allFiberZero = fMin === 0 && fMax === 0;
+  const allSodiumZero = naMin === 0 && naMax === 0;
+  if (!allSugarZero || !allFiberZero || !allSodiumZero) {
+    return item;
+  }
+  const calMid = (item.caloriesMin + item.caloriesMax) / 2;
+  const carbMid = (item.carbsMin + item.carbsMax) / 2;
+  if (calMid < 12) {
+    return item;
+  }
+
+  const sugarMid =
+    carbMid > 1 ? Math.min(Math.max(0.3, carbMid * 0.22), Math.max(carbMid * 0.5, 0.5)) : 0.2;
+  const fiberMid = Math.max(0.3, (calMid / 1000) * 14 * 1.15);
+  const naMid = Math.max(100, calMid * 1.35);
+
+  return {
+    ...item,
+    sugarMin: Math.round(sugarMid * 0.5 * 10) / 10,
+    sugarMax: Math.round(sugarMid * 1.85 * 10) / 10,
+    fiberMin: Math.round(fiberMid * 0.5 * 10) / 10,
+    fiberMax: Math.round(fiberMid * 1.9 * 10) / 10,
+    sodiumMin: Math.round(naMid * 0.55),
+    sodiumMax: Math.round(naMid * 1.8),
+  };
+}
+
+export function enrichMealAnalysisMicros(analysis: MealAnalysis): MealAnalysis {
+  return {
+    ...analysis,
+    items: analysis.items.map(enrichItemMicrosIfAllZero),
+  };
 }
 
 /** Sum midpoint of min/max micro ranges per item (e.g. AI meal items). Scale for servings. */

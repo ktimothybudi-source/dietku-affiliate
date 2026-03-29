@@ -4,7 +4,6 @@ import {
   Text,
   ScrollView,
   TouchableOpacity,
-  Pressable,
   TextInput,
   Platform,
   Modal,
@@ -34,7 +33,6 @@ import {
   Footprints,
   Activity,
   Dumbbell,
-  Lock,
 } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -42,12 +40,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNutrition } from '@/contexts/NutritionContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useExercise } from '@/contexts/ExerciseContext';
-import { useSubscription } from '@/contexts/SubscriptionContext';
 import { FoodEntry } from '@/types/nutrition';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { analyticsStyles as styles } from '@/styles/analyticsStyles';
-import { BlurView } from 'expo-blur';
 import { optimizeImageForLocalStorage } from '@/utils/imageOptimization';
 import {
   calculateSugarTargetFromCalories,
@@ -94,8 +90,7 @@ function getTimeRangeDays(range: TimeRange): number {
 export default function AnalyticsScreen() {
   const nutrition = useNutrition() as any;
   const { profile, dailyTargets, foodLog, streakData, weightHistory } = nutrition;
-  const { theme, themeMode } = useTheme();
-  const { isPremium, openPaywall } = useSubscription();
+  const { theme } = useTheme();
   const insets = useSafeAreaInsets();
   const exerciseData = useExercise();
   const nutritionRaw = nutrition as any;
@@ -1726,66 +1721,6 @@ export default function AnalyticsScreen() {
     );
   };
 
-  const renderPremiumOverlay = (message: string, topInset: number = 56, bottomInset: number = 12) => {
-    if (isPremium) return null;
-    return (
-      <Pressable
-        style={{
-          position: 'absolute',
-          left: 0,
-          right: 0,
-          bottom: bottomInset,
-          top: topInset,
-          borderRadius: 16,
-          overflow: 'hidden',
-          zIndex: 20,
-        }}
-        onPress={() => openPaywall('Buka semua fitur Kemajuan dengan Premium')}
-        accessibilityRole="button"
-        accessibilityLabel={message}
-      >
-        <BlurView
-          pointerEvents="none"
-          intensity={8}
-          tint={themeMode === 'light' ? 'light' : 'dark'}
-          style={{ flex: 1 }}
-        >
-          <View
-            pointerEvents="none"
-            style={{
-              flex: 1,
-              backgroundColor: themeMode === 'light' ? 'rgba(120, 120, 120, 0.18)' : 'rgba(24,24,24,0.5)',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <View
-              pointerEvents="none"
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 8,
-                paddingHorizontal: 12,
-                paddingVertical: 8,
-                borderRadius: 999,
-                backgroundColor: 'rgba(0,0,0,0.55)',
-              }}
-            >
-              <Lock size={14} color="#FFFFFF" />
-              <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '700' }}>{message}</Text>
-            </View>
-          </View>
-        </BlurView>
-      </Pressable>
-    );
-  };
-
-  const premiumSectionWrapStyle = {
-    position: 'relative' as const,
-    borderRadius: 16,
-    overflow: 'hidden' as const,
-  };
-
   if (!setupReady) {
     return (
       <>
@@ -1823,37 +1758,16 @@ export default function AnalyticsScreen() {
         >
           {renderStreakVisualization()}
           {renderWeightSection()}
-          <View style={premiumSectionWrapStyle}>
-            {renderBodyProgress()}
-            {renderPremiumOverlay('Upgrade untuk buka Foto Kemajuan', 64)}
-          </View>
-          <View style={premiumSectionWrapStyle}>
-            {renderWeightChanges()}
-            {renderPremiumOverlay('Upgrade untuk lacak Perubahan Berat', 62)}
-          </View>
+          {renderBodyProgress()}
+          {renderWeightChanges()}
           {false && renderCalorieChart()}
           {false && renderActivitySection()}
           {false && renderWeeklyEnergy()}
-          <View style={premiumSectionWrapStyle}>
-            {renderExpenditureChanges()}
-            {renderPremiumOverlay('Upgrade untuk lacak Statistik Aktivitas', 62)}
-          </View>
-          <View style={premiumSectionWrapStyle}>
-            {renderMacroChart()}
-            {renderPremiumOverlay('Upgrade untuk lacak Protein, Karbo, Lemak', 62)}
-          </View>
-          <View style={premiumSectionWrapStyle}>
-            {renderMicrosSection()}
-            {renderPremiumOverlay('Upgrade untuk lacak Gula, Serat, Sodium', 62)}
-          </View>
-          <View style={premiumSectionWrapStyle}>
-            {renderWaterSection()}
-            {renderPremiumOverlay('Upgrade untuk lacak Air harian', 62)}
-          </View>
-          <View style={premiumSectionWrapStyle}>
-            {renderBMICard()}
-            {renderPremiumOverlay('Upgrade untuk lacak BMI', 54, 6)}
-          </View>
+          {renderExpenditureChanges()}
+          {renderMacroChart()}
+          {renderMicrosSection()}
+          {renderWaterSection()}
+          {renderBMICard()}
 
           {false && (
             <View style={styles.statsGrid}>

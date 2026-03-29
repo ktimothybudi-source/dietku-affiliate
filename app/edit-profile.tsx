@@ -54,7 +54,14 @@ export default function EditProfileScreen() {
     const heightNum = parseInt(height);
     const weightNum = parseFloat(weight);
     const goalWeightNum = parseFloat(goalWeight);
-    let weeklyWeightChangeNum = weeklyWeightChange ? parseFloat(weeklyWeightChange) : undefined;
+    let weeklyWeightChangeNum = weeklyWeightChange.trim()
+      ? parseFloat(weeklyWeightChange.replace(',', '.'))
+      : undefined;
+
+    if (weeklyWeightChange.trim() && (weeklyWeightChangeNum === undefined || Number.isNaN(weeklyWeightChangeNum))) {
+      Alert.alert('Error', 'Target per minggu harus berupa angka (contoh: 0.5 atau -0.5)');
+      return;
+    }
 
     if (ageNum < 15 || ageNum > 100) {
       Alert.alert('Error', 'Usia harus antara 15-100 tahun');
@@ -88,8 +95,13 @@ export default function EditProfileScreen() {
 
     if (weeklyWeightChangeNum !== undefined) {
       const absValue = Math.abs(weeklyWeightChangeNum);
-      if (absValue > 2) {
-        Alert.alert('Error', 'Target per minggu harus antara 0.1 sampai 2 kg');
+      const maxWeekly = goal === 'muscle_gain' ? 0.5 : 1.0;
+      if (absValue > maxWeekly || (absValue > 0 && absValue < 0.1)) {
+        const rangeHint =
+          goal === 'muscle_gain'
+            ? 'Untuk naik berat: 0.1–0.5 kg per minggu (lebih realistis untuk otot).'
+            : 'Untuk turun / pemeliharaan: 0.1–1 kg per minggu.';
+        Alert.alert('Error', `Target per minggu tidak valid. ${rangeHint} Kosongkan untuk pakai default.`);
         return;
       }
       weeklyWeightChangeNum = absValue;
@@ -280,7 +292,11 @@ export default function EditProfileScreen() {
 
           <View style={styles.field}>
             <Text style={[styles.label, { color: theme.text }]}>Target Per Minggu (kg)</Text>
-            <Text style={[styles.fieldHint, { color: theme.textSecondary }]}>Gunakan angka negatif untuk menurunkan berat (contoh: -0.5)</Text>
+            <Text style={[styles.fieldHint, { color: theme.textSecondary }]}>
+              {goal === 'muscle_gain'
+                ? 'Disarankan naik 0.2–0.5 kg/minggu (naik otot realistis).'
+                : 'Disarankan turun 0.2–1 kg/minggu. Boleh angka negatif di kolom (contoh: -0.5).'}
+            </Text>
             <TextInput
               style={[styles.input, { backgroundColor: theme.background, color: theme.text, borderColor: theme.border }]}
               value={weeklyWeightChange}

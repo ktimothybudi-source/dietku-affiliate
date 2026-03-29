@@ -2,6 +2,7 @@ import { z } from 'zod';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { MealAnalysis } from '@/types/nutrition';
 import { AIProxyError, callAIProxy } from '@/utils/aiProxy';
+import { enrichMealAnalysisMicros } from '@/utils/nutritionCalculations';
 
 /** Keep under backend `MAX_IMAGE_BASE64_LENGTH` (~2M) plus JSON wrapper headroom. */
 const MAX_BASE64_CHARS = 1_850_000;
@@ -115,7 +116,8 @@ export async function analyzeMealPhoto(
     throw new Error('Gagal membaca hasil analisis. Coba foto lagi dengan pencahayaan lebih terang.');
   }
   try {
-    return mealAnalysisSchema.parse(parsed);
+    const validated = mealAnalysisSchema.parse(parsed);
+    return enrichMealAnalysisMicros(validated);
   } catch (zErr) {
     if (zErr instanceof z.ZodError) {
       const first = zErr.issues[0];

@@ -12,6 +12,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { Stack, router } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   Heart,
   MessageCircle,
@@ -35,6 +36,7 @@ import { FoodPost, MEAL_TYPE_LABELS, CommunityGroup } from '@/types/community';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { communityStyles as styles } from '@/styles/communityStyles';
+import { PremiumDisplayName } from '@/components/PremiumDisplayName';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 
@@ -102,7 +104,13 @@ const PostCard = React.memo(({ post, onLike, onComment, onDelete, currentUserId,
         <TouchableOpacity style={styles.postUserInfo} activeOpacity={0.7} testID={`post-user-${post.id}`}>
           <Avatar name={post.displayName} color={post.avatarColor} size={38} />
           <View style={styles.postUserText}>
-            <Text style={[styles.postDisplayName, { color: theme.text }]}>{post.displayName}</Text>
+            <PremiumDisplayName
+              text={post.displayName}
+              premium={false}
+              color={theme.text}
+              fontSize={15}
+              fontWeight="700"
+            />
             <View style={styles.postMeta}>
               <Text style={[styles.postUsername, { color: theme.textTertiary }]}>@{post.username}</Text>
               <Text style={[styles.postDot, { color: theme.textTertiary }]}>·</Text>
@@ -237,6 +245,12 @@ export default function CommunityScreen() {
   const [showGroupPicker, setShowGroupPicker] = useState(false);
   const queryClient = useQueryClient();
 
+  useFocusEffect(
+    useCallback(() => {
+      return () => setShowGroupPicker(false);
+    }, []),
+  );
+
   const currentUserId = communityProfile?.userId || authState.userId || null;
 
   const chatMessagesQuery = useQuery({
@@ -302,7 +316,7 @@ export default function CommunityScreen() {
     if (!authState.isSignedIn) {
       Alert.alert('Masuk Diperlukan', 'Silakan masuk terlebih dahulu untuk membuat post.', [
         { text: 'Batal', style: 'cancel' },
-        { text: 'Masuk', onPress: () => router.push('/sign-in') },
+        { text: 'Masuk', onPress: () => router.replace('/sign-in') },
       ]);
       return;
     }
@@ -347,6 +361,7 @@ export default function CommunityScreen() {
       queryClient.invalidateQueries({ queryKey: ['community_comments'] }),
       queryClient.invalidateQueries({ queryKey: ['community_likes'] }),
       queryClient.invalidateQueries({ queryKey: ['community_group_messages', activeGroup?.id || 'none'] }),
+      queryClient.invalidateQueries({ queryKey: ['community_premium_bypass_users'] }),
     ]);
     setTimeout(() => setRefreshing(false), 400);
   }, [queryClient, activeGroup?.id]);
@@ -365,7 +380,7 @@ export default function CommunityScreen() {
     if (!authState.isSignedIn) {
       Alert.alert('Masuk Diperlukan', 'Silakan masuk terlebih dahulu.', [
         { text: 'Batal', style: 'cancel' },
-        { text: 'Masuk', onPress: () => router.push('/sign-in') },
+        { text: 'Masuk', onPress: () => router.replace('/sign-in') },
       ]);
       return;
     }
@@ -407,7 +422,13 @@ export default function CommunityScreen() {
       <View style={[styles.chatRow, isMe ? styles.chatRowMe : styles.chatRowOther]}>
         {!isMe && <Avatar name={item.displayName} color={item.avatarColor} size={32} />}
         <View style={[styles.chatBubble, { backgroundColor: isMe ? theme.primary : theme.surfaceElevated, borderColor: theme.border }]}>
-          <Text style={[styles.chatName, { color: isMe ? '#FFFFFF' : theme.text }]}>{item.displayName}</Text>
+          <PremiumDisplayName
+            text={item.displayName}
+            premium={false}
+            color={isMe ? '#FFFFFF' : theme.text}
+            fontSize={12}
+            fontWeight="700"
+          />
           <Text style={[styles.chatMessage, { color: isMe ? '#FFFFFF' : theme.text }]}>{item.message}</Text>
           <Text style={[styles.chatTime, { color: isMe ? 'rgba(255,255,255,0.75)' : theme.textTertiary }]}>{timeAgo(item.createdAt)}</Text>
         </View>
@@ -509,6 +530,7 @@ export default function CommunityScreen() {
           </View>
 
           <ScrollView
+            style={styles.listFlex}
             contentContainerStyle={styles.noGroupScroll}
             showsVerticalScrollIndicator={false}
           >
@@ -606,6 +628,7 @@ export default function CommunityScreen() {
 
         {activeTab === 'feed' ? (
           <FlatList
+            style={styles.listFlex}
             data={activeGroupPosts}
             renderItem={renderPost}
             keyExtractor={keyExtractor}
@@ -626,6 +649,7 @@ export default function CommunityScreen() {
 
         {activeTab === 'chat' ? (
           <FlatList
+            style={styles.listFlex}
             data={chatMessages}
             renderItem={renderChatMessage}
             keyExtractor={item => item.id}

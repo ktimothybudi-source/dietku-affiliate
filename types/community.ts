@@ -33,6 +33,8 @@ export interface FoodPost {
   userId: string;
   username: string;
   displayName: string;
+  /** Set by CommunityContext from ai_scan_quota_bypass (subscription / allowlist sync). */
+  authorPremium?: boolean;
   avatarColor: string;
   caption: string;
   foodName: string;

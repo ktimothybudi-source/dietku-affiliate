@@ -9,7 +9,7 @@ import {
   Alert,
 } from 'react-native';
 import { Stack, router } from 'expo-router';
-import { User, Settings as SettingsIcon, LogIn, LogOut, Globe, Moon, Sun, ChevronRight, UserCircle, Target, Flame, FileText, Shield, RefreshCw } from 'lucide-react-native';
+import { User, Settings as SettingsIcon, LogIn, LogOut, Globe, Moon, Sun, ChevronRight, UserCircle, Target, Flame, FileText, Shield, RefreshCw, Gift } from 'lucide-react-native';
 import { useNutrition } from '@/contexts/NutritionContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -47,7 +47,7 @@ export default function ProfileScreen() {
 
   const handleSignIn = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    router.push('/sign-in');
+    router.replace('/sign-in');
   };
 
   const handleSignOut = () => {
@@ -81,6 +81,11 @@ export default function ProfileScreen() {
     router.push('/setup-community-profile');
   };
 
+  const handleReferralShare = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    router.push('/referral-share');
+  };
+
   return (
     <>
       <Stack.Screen
@@ -108,6 +113,17 @@ export default function ProfileScreen() {
                 <View style={[styles.statusRow, { backgroundColor: theme.background }]}>
                   <Text style={[styles.statusText, { color: theme.textSecondary }]}>Terhubung sebagai: {authState.email}</Text>
                 </View>
+                <TouchableOpacity
+                  style={[styles.row, { borderTopColor: theme.border }]}
+                  onPress={handleReferralShare}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.rowLeft}>
+                    <Gift size={20} color={theme.primary} />
+                    <Text style={[styles.rowLabel, { color: theme.text }]}>Undangan & kode</Text>
+                  </View>
+                  <ChevronRight size={20} color={theme.textSecondary} />
+                </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.row, { borderTopColor: theme.border }]}
                   onPress={handleSignOut}

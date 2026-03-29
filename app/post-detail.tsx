@@ -16,6 +16,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { useCommunity } from '@/contexts/CommunityContext';
 import { useNutrition } from '@/contexts/NutritionContext';
 import { MEAL_TYPE_LABELS } from '@/types/community';
+import { PremiumDisplayName } from '@/components/PremiumDisplayName';
 import { Heart, Send, Utensils, Clock, Trash2 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 
@@ -166,7 +167,13 @@ export default function PostDetailScreen() {
               <View style={styles.postHeader}>
                 <Avatar name={post.displayName} color={post.avatarColor} size={42} />
                 <View style={styles.postUserText}>
-                  <Text style={[styles.postDisplayName, { color: theme.text }]}>{post.displayName}</Text>
+                  <PremiumDisplayName
+                    text={post.displayName}
+                    premium={false}
+                    color={theme.text}
+                    fontSize={16}
+                    fontWeight="700"
+                  />
                   <View style={styles.postMeta}>
                     <Text style={[styles.postUsername, { color: theme.textTertiary }]}>@{post.username}</Text>
                     <Text style={[styles.postDot, { color: theme.textTertiary }]}>·</Text>
@@ -251,7 +258,13 @@ export default function PostDetailScreen() {
                     <Avatar name={comment.displayName} color={comment.avatarColor} size={32} />
                     <View style={styles.commentContent}>
                       <View style={styles.commentHeader}>
-                        <Text style={[styles.commentName, { color: theme.text }]}>{comment.displayName}</Text>
+                        <PremiumDisplayName
+                          text={comment.displayName}
+                          premium={false}
+                          color={theme.text}
+                          fontSize={14}
+                          fontWeight="600"
+                        />
                         <Text style={[styles.commentTime, { color: theme.textTertiary }]}>
                           {timeAgo(comment.createdAt)}
                         </Text>

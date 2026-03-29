@@ -11,6 +11,7 @@ import {
   KeyboardAvoidingView,
   Keyboard,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useNutrition } from '@/contexts/NutritionContext';
@@ -27,8 +28,12 @@ import * as WebBrowser from 'expo-web-browser';
 import { makeRedirectUri } from 'expo-auth-session';
 import { supabase } from '@/lib/supabase';
 import { onboardingStyles as styles } from '@/styles/onboardingStyles';
+import { calculateTDEE } from '@/utils/nutritionCalculations';
 
 WebBrowser.maybeCompleteAuthSession();
+
+const WEEKLY_DEFAULT_LOSS_KG = 0.5;
+const WEEKLY_DEFAULT_GAIN_KG = 0.3;
 
 export default function OnboardingScreen() {
   const { saveProfile, profile, signUp, authState } = useNutrition();
@@ -88,10 +93,8 @@ export default function OnboardingScreen() {
   const [showSignInPasswordConfirm, setShowSignInPasswordConfirm] = useState(false);
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
-  const [userName, setUserName] = useState('');
   const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
-
-  const totalSteps = 17;
+  const totalSteps = 15;
 
   // Y positions for inputs
   const heightY = useRef(0);
@@ -168,8 +171,9 @@ export default function OnboardingScreen() {
                 (today.getMonth() === birthDate.getMonth() && today.getDate() < birthDate.getDate()) ? 1 : 0);
               const calculatedGoal = dreamWeight < weight ? 'fat_loss' : dreamWeight > weight ? 'muscle_gain' : 'maintenance';
               
+              const nameFromSignUp = `${firstName.trim()} ${lastName.trim()}`.trim();
               saveProfile({
-                name: userName || undefined,
+                name: nameFromSignUp || profile?.name || undefined,
                 age,
                 sex: sex || 'male',
                 height,
@@ -196,7 +200,7 @@ export default function OnboardingScreen() {
     return () => {
       timeouts.forEach(t => clearTimeout(t));
     };
-  }, [showLoading, circularProgress, isCompleteMode, authState.isSignedIn, birthDate, dreamWeight, weight, sex, height, activityLevel, weeklyWeightChange, userName, saveProfile]);
+  }, [showLoading, circularProgress, isCompleteMode, authState.isSignedIn, birthDate, dreamWeight, weight, sex, height, activityLevel, weeklyWeightChange, firstName, lastName, profile?.name, saveProfile]);
 
   useEffect(() => {
     if (step !== 0) return;
@@ -558,7 +562,7 @@ export default function OnboardingScreen() {
           style={styles.introSignInLink}
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            router.push('/sign-in');
+            router.replace('/sign-in');
           }}
           activeOpacity={0.7}
         >
@@ -793,6 +797,8 @@ export default function OnboardingScreen() {
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             setSelectedGoal('gain');
+            setWeeklyWeightChange(WEEKLY_DEFAULT_GAIN_KG);
+            setWeeklyWeightChangeText(String(WEEKLY_DEFAULT_GAIN_KG));
           }}
           activeOpacity={0.7}
         >
@@ -812,6 +818,8 @@ export default function OnboardingScreen() {
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             setSelectedGoal('maintain');
+            setWeeklyWeightChange(WEEKLY_DEFAULT_LOSS_KG);
+            setWeeklyWeightChangeText(String(WEEKLY_DEFAULT_LOSS_KG));
           }}
           activeOpacity={0.7}
         >
@@ -831,6 +839,8 @@ export default function OnboardingScreen() {
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             setSelectedGoal('lose');
+            setWeeklyWeightChange(WEEKLY_DEFAULT_LOSS_KG);
+            setWeeklyWeightChangeText(String(WEEKLY_DEFAULT_LOSS_KG));
           }}
           activeOpacity={0.7}
         >
@@ -1039,7 +1049,7 @@ export default function OnboardingScreen() {
     const isGaining = dreamWeight > weight;
 
     const minRec = 0.2;
-    const maxRec = 1.0;
+    const maxRec = isGaining ? 0.5 : 1.0;
 
     const parsed = parseFloat(weeklyWeightChangeText);
     const hasNumber = !Number.isNaN(parsed);
@@ -1049,7 +1059,8 @@ export default function OnboardingScreen() {
 
     const clampToRecommended = () => {
       const next = Math.min(maxRec, Math.max(minRec, hasNumber ? parsed : weeklyWeightChange));
-      const normalized = Number.isFinite(next) ? next : 0.5;
+      const fallback = isGaining ? WEEKLY_DEFAULT_GAIN_KG : WEEKLY_DEFAULT_LOSS_KG;
+      const normalized = Number.isFinite(next) ? next : fallback;
       const text = normalized.toString();
 
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -1092,7 +1103,7 @@ export default function OnboardingScreen() {
                 if (!Number.isNaN(num)) setWeeklyWeightChange(num);
               }}
               keyboardType="decimal-pad"
-              placeholder="0.5"
+              placeholder={isGaining ? String(WEEKLY_DEFAULT_GAIN_KG) : String(WEEKLY_DEFAULT_LOSS_KG)}
               placeholderTextColor="#666"
               selectTextOnFocus
               returnKeyType="done"
@@ -1365,13 +1376,7 @@ export default function OnboardingScreen() {
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
     const formattedDate = `${projectedDate.getDate()} ${monthNames[projectedDate.getMonth()]} ${projectedDate.getFullYear()}`;
 
-    const bmr =
-      sex === 'male'
-        ? 10 * weight + 6.25 * height - 5 * age + 5
-        : 10 * weight + 6.25 * height - 5 * age - 161;
-
-    const activityMultipliers = { low: 1.2, moderate: 1.55, high: 1.9 } as const;
-    const tdee = bmr * activityMultipliers[activityLevel];
+    const tdee = calculateTDEE(weight, height, age, sex, activityLevel);
 
     const goalCalories =
       calculatedGoal === 'fat_loss' ? tdee - 500 : calculatedGoal === 'muscle_gain' ? tdee + 300 : tdee;
@@ -1485,7 +1490,7 @@ export default function OnboardingScreen() {
         </View>
 
         <TouchableOpacity style={styles.primaryButton} onPress={handleComplete} activeOpacity={0.8}>
-          <Text style={styles.primaryButtonText}>Mulai Sekarang</Text>
+          <Text style={styles.primaryButtonText}>Lanjutkan</Text>
           <ArrowRight size={20} color="#FFFFFF" />
         </TouchableOpacity>
       </View>
@@ -1584,7 +1589,7 @@ export default function OnboardingScreen() {
             onPress={() => {
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
               setShowSubscription(false);
-              setStep(18);
+              setStep(19);
             }}
             activeOpacity={0.8}
           >
@@ -1604,63 +1609,6 @@ export default function OnboardingScreen() {
     );
   };
   */
-
-  const renderThankYouName = () => (
-    <View style={styles.stepContainer}>
-      <View style={styles.thankYouContainer}>
-        <View style={styles.thankYouIconCircle}>
-          <Text style={styles.thankYouEmoji}>🎉</Text>
-        </View>
-        <Text style={styles.thankYouTitle}>Terima Kasih!</Text>
-        <Text style={styles.thankYouSubtitle}>
-          Terima kasih telah bergabung dengan DietKu. Kami siap menemani perjalanan sehatmu.
-        </Text>
-      </View>
-
-      <View style={styles.nameInputSection}>
-        <Text style={styles.nameInputLabel}>Nama Kamu</Text>
-        <TextInput
-          style={styles.nameInput}
-          value={userName}
-          onChangeText={setUserName}
-          placeholder="Masukkan nama Anda"
-          placeholderTextColor="#999999"
-          autoCapitalize="words"
-          autoCorrect={false}
-          returnKeyType="done"
-          onSubmitEditing={() => {
-            if (userName.trim()) {
-              Keyboard.dismiss();
-            }
-          }}
-        />
-        <Text style={styles.nameInputHelper}>Nama ini akan digunakan untuk sapaan personal di aplikasi.</Text>
-      </View>
-
-      <TouchableOpacity
-        style={[styles.primaryButton, !userName.trim() && styles.primaryButtonDisabled]}
-        onPress={() => {
-          if (!userName.trim()) return;
-          
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          
-          if (profile) {
-            saveProfile({
-              ...profile,
-              name: userName.trim(),
-            });
-          }
-
-          handleNext();
-        }}
-        disabled={!userName.trim()}
-        activeOpacity={0.8}
-      >
-        <Text style={styles.primaryButtonText}>Lanjutkan</Text>
-        <ArrowRight size={20} color="#FFFFFF" />
-      </TouchableOpacity>
-    </View>
-  );
 
   const renderSignIn = () => (
     <View style={styles.stepContainer}>
@@ -1883,13 +1831,6 @@ export default function OnboardingScreen() {
       case 14:
         return renderSignIn();
       case 15:
-        return renderThankYouName();
-      case 16:
-        return renderNotificationPermission();
-      case 17:
-        // Keep compatibility for older saved step states.
-        return renderNotificationPermission();
-      case 18:
         return renderNotificationPermission();
       default:
         return renderIntro();
@@ -1934,7 +1875,9 @@ export default function OnboardingScreen() {
         ref={scrollRef}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: contentPaddingBottom, paddingTop: contentPaddingTop }]}
         showsVerticalScrollIndicator={false}
-        scrollEnabled={(step === 13 || step === 14 || step === 15) && !showLoading}
+        scrollEnabled={
+          (step === 13 || step === 14 || step === 15) && !showLoading
+        }
         nestedScrollEnabled
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}

@@ -20,7 +20,8 @@
     "production": {
       "android": {
         "buildType": "app-bundle",
-        "autoIncrement": false
+        "autoIncrement": false,
+        "credentialsSource": "local"
       },
       "ios": {
         "autoIncrement": "buildNumber"
