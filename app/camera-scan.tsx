@@ -130,7 +130,20 @@ export default function CameraScanScreen() {
   const ensureCameraPermission = async () => {
     if (permission?.granted) return true;
     const res = await requestPermission();
-    return !!res?.granted;
+    if (res?.granted) return true;
+
+    const canAskAgain = res?.canAskAgain ?? false;
+    if (!canAskAgain) {
+      Alert.alert(
+        'Izin kamera ditolak',
+        'Aktifkan izin kamera untuk DietKu di Settings iPhone.',
+        [
+          { text: 'Batal', style: 'cancel' },
+          { text: 'Buka Settings', onPress: openSettings },
+        ]
+      );
+    }
+    return false;
   };
 
   const openSettings = async () => {
@@ -245,7 +258,7 @@ export default function CameraScanScreen() {
   // ---------------- CAMERA SCREEN ----------------
   {
     const granted = !!permission?.granted;
-    const canAsk = permission?.status !== 'denied';
+    const canAsk = permission?.canAskAgain ?? permission?.status !== 'denied';
 
     return (
       <>
@@ -275,7 +288,17 @@ export default function CameraScanScreen() {
                   style={styles.permissionButton}
                   onPress={async () => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    await requestPermission();
+                    const res = await requestPermission();
+                    if (!res?.granted && !(res?.canAskAgain ?? false)) {
+                      Alert.alert(
+                        'Izin kamera ditolak',
+                        'Aktifkan izin kamera untuk DietKu di Settings iPhone.',
+                        [
+                          { text: 'Batal', style: 'cancel' },
+                          { text: 'Buka Settings', onPress: openSettings },
+                        ]
+                      );
+                    }
                   }}
                   activeOpacity={0.9}
                 >

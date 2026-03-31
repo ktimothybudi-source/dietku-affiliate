@@ -9,23 +9,22 @@ import {
   Image,
   ActivityIndicator,
   Keyboard,
-  Alert,
 } from 'react-native';
 import { Stack, router } from 'expo-router';
 import { Search, X, ChevronLeft, Flame, Drumstick, Droplets, Wheat } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/contexts/ThemeContext';
-import { useNutrition } from '@/contexts/NutritionContext';
+import { useMealDraft } from '@/contexts/MealDraftContext';
 import { searchFoods } from '@/lib/foodsApi';
-import { FoodSearchResult, formatNutrientRange, getAverageFromRange, DEFAULT_SERVING_SIZE_G } from '@/types/food';
+import { FoodSearchResult } from '@/types/food';
 
 const DEBOUNCE_DELAY = 300;
 
 export default function FoodSearchScreen() {
   const { theme } = useTheme();
-  const { addFoodEntry } = useNutrition();
   const insets = useSafeAreaInsets();
+  const { sessionActive, addFromSearchResult } = useMealDraft();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [results, setResults] = useState<FoodSearchResult[]>([]);
@@ -78,57 +77,24 @@ export default function FoodSearchScreen() {
     inputRef.current?.focus();
   }, []);
 
-  const handleSelectFood = useCallback((food: FoodSearchResult) => {
-    const avgCalories = getAverageFromRange(food.caloriesMin, food.caloriesMax);
-    const avgProtein = getAverageFromRange(food.proteinMin, food.proteinMax);
-    const avgCarbs = getAverageFromRange(food.carbsMin, food.carbsMax);
-    const avgFat = getAverageFromRange(food.fatMin, food.fatMax);
-    const servingLabel = `${food.servingSizeG}g`;
-    
-    console.log('[FoodSearch] Selected food:', food.name, 'serving:', food.servingSizeG, 'g', 'calories:', food.caloriesMin, '-', food.caloriesMax);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    
-    const hasRange = food.caloriesMin !== food.caloriesMax || 
-                     food.proteinMin !== food.proteinMax ||
-                     food.carbsMin !== food.carbsMax ||
-                     food.fatMin !== food.fatMax;
-    
-    const calRange = formatNutrientRange(food.caloriesMin, food.caloriesMax);
-    const proteinRange = formatNutrientRange(food.proteinMin, food.proteinMax);
-    const carbsRange = formatNutrientRange(food.carbsMin, food.carbsMax);
-    const fatRange = formatNutrientRange(food.fatMin, food.fatMax);
-    
-    const message = hasRange
-      ? `${food.name}\n🍽 Per sajian (${servingLabel})\n\n📊 Rentang Nutrisi:\n• Kalori: ${calRange} kcal\n• Protein: ${proteinRange}g\n• Karbo: ${carbsRange}g\n• Lemak: ${fatRange}g\n\n✅ Nilai rata-rata akan ditambahkan:\n• ${avgCalories} kcal • ${avgProtein}g protein\n• ${avgCarbs}g karbo • ${avgFat}g lemak`
-      : `${food.name}\n🍽 Per sajian (${servingLabel})\n\n• ${avgCalories} kcal\n• ${avgProtein}g protein\n• ${avgCarbs}g karbo\n• ${avgFat}g lemak`;
-
-    Alert.alert(
-      'Tambah Makanan',
-      message,
-      [
-        {
-          text: 'Batal',
-          style: 'cancel',
+  const handleSelectFood = useCallback(
+    (food: FoodSearchResult) => {
+      console.log('[FoodSearch] Selected food:', food.name, 'mealDraft:', sessionActive);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      if (sessionActive) {
+        addFromSearchResult(food);
+        router.back();
+        return;
+      }
+      router.push({
+        pathname: '/manual-food-detail',
+        params: {
+          foodId: String(food.id),
         },
-        {
-          text: 'Tambah',
-          onPress: () => {
-            addFoodEntry({
-              name: food.name,
-              calories: avgCalories,
-              protein: avgProtein,
-              carbs: avgCarbs,
-              fat: avgFat,
-              photoUri: food.image || undefined,
-            });
-
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            router.back();
-          },
-        },
-      ]
-    );
-  }, [addFoodEntry]);
+      });
+    },
+    [sessionActive, addFromSearchResult]
+  );
 
   const handleGoBack = useCallback(() => {
     Keyboard.dismiss();

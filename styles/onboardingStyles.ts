@@ -19,6 +19,9 @@ export const onboardingStyles = StyleSheet.create({
   },
   contentWrapper: { flex: 1 },
   stepContainer: { flex: 1, justifyContent: 'space-between' },
+  /** Use on long forms inside ScrollView so content scrolls above the keyboard (e.g. Simpan Progress Anda). */
+  stepContainerSignIn: { flex: 0, justifyContent: 'flex-start' },
+  signInFormNatural: { flex: 0 },
 
   heroContainer: { alignItems: 'center', marginTop: 20 },
   iconCircleLarge: {
@@ -631,4 +634,5 @@ export const onboardingStyles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
   },
+
 });

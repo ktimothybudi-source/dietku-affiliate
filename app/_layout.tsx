@@ -5,6 +5,7 @@ import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { NutritionProvider } from "@/contexts/NutritionContext";
+import { MealDraftProvider } from "@/contexts/MealDraftContext";
 import { ExerciseProvider } from "@/contexts/ExerciseContext";
 import { CommunityProvider } from "@/contexts/CommunityContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
@@ -27,6 +28,8 @@ function RootLayoutNav() {
       <Stack.Screen name="subscribe" options={{ headerShown: false }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="food-search" options={{ headerShown: false, presentation: 'card' }} />
+      <Stack.Screen name="meal-builder" options={{ headerShown: false, presentation: 'card' }} />
+      <Stack.Screen name="manual-food-detail" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="pending-food-detail" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="log-exercise" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="setup-community-profile" options={{ presentation: 'card' }} />
@@ -60,16 +63,18 @@ export default function RootLayout() {
           <ThemeProvider>
             <NotificationProvider>
               <NutritionProvider>
-                <SubscriptionProvider>
-                  <ExerciseProvider>
-                    <CommunityProvider>
-                      <GestureHandlerRootView>
-                        <RootLayoutNav />
-                        <PremiumPaywallModal />
-                      </GestureHandlerRootView>
-                    </CommunityProvider>
-                  </ExerciseProvider>
-                </SubscriptionProvider>
+                <MealDraftProvider>
+                  <SubscriptionProvider>
+                    <ExerciseProvider>
+                      <CommunityProvider>
+                        <GestureHandlerRootView>
+                          <RootLayoutNav />
+                          <PremiumPaywallModal />
+                        </GestureHandlerRootView>
+                      </CommunityProvider>
+                    </ExerciseProvider>
+                  </SubscriptionProvider>
+                </MealDraftProvider>
               </NutritionProvider>
             </NotificationProvider>
           </ThemeProvider>

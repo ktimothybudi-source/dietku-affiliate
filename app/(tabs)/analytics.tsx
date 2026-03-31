@@ -55,6 +55,7 @@ import {
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 type TimeRange = '7h' | '30h' | '90h';
+const WEIGHT_RANGE_OPTIONS = [7, 14, 30] as const;
 
 interface DayData {
   date: string;
@@ -96,6 +97,7 @@ export default function AnalyticsScreen() {
   const nutritionRaw = nutrition as any;
 
   const [timeRange, setTimeRange] = useState<TimeRange>('7h');
+  const [weightRangeDays, setWeightRangeDays] = useState<number>(7);
   const [showWeightModal, setShowWeightModal] = useState(false);
   const [weightInput, setWeightInput] = useState('');
   const [weightError, setWeightError] = useState<string | null>(null);
@@ -223,13 +225,56 @@ export default function AnalyticsScreen() {
     return list;
   }, [weightHistory, profile]);
 
+  const availableWeightDays = useMemo(() => {
+    if (allWeightData.length === 0) return 0;
+    const firstDate = new Date(allWeightData[0].date);
+    const today = new Date();
+    firstDate.setHours(0, 0, 0, 0);
+    today.setHours(0, 0, 0, 0);
+    const diff = Math.floor((today.getTime() - firstDate.getTime()) / (1000 * 60 * 60 * 24));
+    return Math.max(1, diff + 1);
+  }, [allWeightData]);
+
+  useEffect(() => {
+    if (availableWeightDays <= 0) return;
+    const isCurrentRangeAvailable = weightRangeDays <= availableWeightDays;
+    if (isCurrentRangeAvailable) return;
+    const fallbackRange = [...WEIGHT_RANGE_OPTIONS]
+      .reverse()
+      .find((range) => range <= availableWeightDays);
+    if (fallbackRange) {
+      setWeightRangeDays(fallbackRange);
+    }
+  }, [availableWeightDays, weightRangeDays]);
+
   const weightChartData = useMemo(() => {
     const list = allWeightData;
-
+    if (list.length === 0) return [];
     const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - timeRangeDays);
-    return list.filter((w: any) => new Date(w.date) >= cutoff);
-  }, [allWeightData, timeRangeDays]);
+    cutoff.setHours(0, 0, 0, 0);
+    cutoff.setDate(cutoff.getDate() - (weightRangeDays - 1));
+    return list.filter((w: any) => {
+      const entryDate = new Date(w.date);
+      entryDate.setHours(0, 0, 0, 0);
+      return entryDate >= cutoff;
+    });
+  }, [allWeightData, weightRangeDays]);
+
+  const weightSummary = useMemo(() => {
+    const latestWeight = allWeightData.length > 0
+      ? allWeightData[allWeightData.length - 1].weight
+      : (profile?.weight ?? 0);
+    const startWeight = weightChartData.length > 0
+      ? weightChartData[0].weight
+      : latestWeight;
+    const change = latestWeight - startWeight;
+
+    return {
+      currentWeight: latestWeight,
+      startWeight,
+      change,
+    };
+  }, [allWeightData, profile?.weight, weightChartData]);
 
   const stats = useMemo(() => {
     const daysWithData = dayData.filter(d => d.entries.length > 0);
@@ -659,14 +704,14 @@ export default function AnalyticsScreen() {
     const goal = profile?.goal;
     
     const getWeightChangeColor = () => {
-      if (stats.weightChange === 0) return theme.textSecondary;
+      if (weightSummary.change === 0) return theme.textSecondary;
       if (goal === 'lose') {
-        return stats.weightChange < 0 ? theme.primary : theme.destructive;
+        return weightSummary.change < 0 ? theme.primary : theme.destructive;
       }
       if (goal === 'gain') {
-        return stats.weightChange > 0 ? theme.primary : theme.destructive;
+        return weightSummary.change > 0 ? theme.primary : theme.destructive;
       }
-      return Math.abs(stats.weightChange) < 1 ? theme.primary : theme.warning;
+      return Math.abs(weightSummary.change) < 1 ? theme.primary : theme.warning;
     };
 
     return (
@@ -679,7 +724,7 @@ export default function AnalyticsScreen() {
             <View>
               <Text style={[styles.chartTitle, { color: theme.text }]}>Berat Badan</Text>
               <Text style={[styles.chartSubtitle, { color: theme.textSecondary }]}>
-                {hasWeightData ? 'Tren perubahan' : 'Catat untuk melihat tren'}
+                {hasWeightData ? `Tren ${weightRangeDays} hari` : 'Catat untuk melihat tren'}
               </Text>
             </View>
           </View>
@@ -696,7 +741,7 @@ export default function AnalyticsScreen() {
         <View style={styles.weightStats}>
           <View style={styles.weightStatItem}>
             <Text style={[styles.weightStatValue, { color: theme.text }]}>
-              {hasWeightData ? stats.currentWeight.toFixed(1) : (profile?.weight?.toFixed(1) ?? '-')}
+              {hasWeightData ? weightSummary.currentWeight.toFixed(1) : (profile?.weight?.toFixed(1) ?? '-')}
             </Text>
             <Text style={[styles.weightStatLabel, { color: theme.textSecondary }]}>kg saat ini</Text>
           </View>
@@ -705,13 +750,13 @@ export default function AnalyticsScreen() {
           
           <View style={styles.weightStatItem}>
             <View style={styles.weightChangeDisplay}>
-              {stats.weightChange !== 0 && (
-                stats.weightChange > 0 ? 
+              {weightSummary.change !== 0 && (
+                weightSummary.change > 0 ? 
                   <TrendingUp size={18} color={getWeightChangeColor()} /> : 
                   <TrendingDown size={18} color={getWeightChangeColor()} />
               )}
               <Text style={[styles.weightStatValue, { color: getWeightChangeColor() }]}>
-                {stats.weightChange > 0 ? '+' : ''}{stats.weightChange.toFixed(1)}
+                {weightSummary.change > 0 ? '+' : ''}{weightSummary.change.toFixed(1)}
               </Text>
             </View>
             <Text style={[styles.weightStatLabel, { color: theme.textSecondary }]}>kg perubahan</Text>
@@ -731,31 +776,38 @@ export default function AnalyticsScreen() {
 
         {renderWeightGraph()}
 
-        {false && (
+        {hasWeightData && (
           <View style={styles.weightTimeRange}>
-            {(['7h', '30h', '90h'] as const).map(range => (
+            {WEIGHT_RANGE_OPTIONS.map((range) => {
+              const isAvailable = range <= availableWeightDays;
+              const isSelected = weightRangeDays === range;
+              return (
               <TouchableOpacity
                 key={range}
                 style={[
                   styles.weightTimeRangePill,
                   { backgroundColor: theme.background, borderColor: theme.border },
-                  timeRange === range && { backgroundColor: theme.primary, borderColor: theme.primary },
+                  isSelected && { backgroundColor: theme.primary, borderColor: theme.primary },
+                  !isAvailable && { opacity: 0.45 },
                 ]}
                 onPress={() => {
+                  if (!isAvailable) return;
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  setTimeRange(range);
+                  setWeightRangeDays(range);
                 }}
+                disabled={!isAvailable}
                 activeOpacity={0.8}
               >
                 <Text style={[
                   styles.weightTimeRangeText,
                   { color: theme.textSecondary },
-                  timeRange === range && { color: '#ffffff' },
+                  isSelected && { color: '#ffffff' },
                 ]}>
-                  {range === '7h' ? '7 Hari' : range === '30h' ? '30 Hari' : '90 Hari'}
+                  {range} Hari
                 </Text>
               </TouchableOpacity>
-            ))}
+            );
+            })}
           </View>
         )}
         
@@ -810,25 +862,34 @@ export default function AnalyticsScreen() {
         <View style={styles.graphWrapper}>
           <View style={[styles.graphYLabels, { height: chartHeight }]}>
             <Text style={[styles.graphLabel, { color: theme.textTertiary }]}>{maxWeight.toFixed(0)} kg</Text>
-            {targetWeight > 0 && (
-              <Text style={[styles.graphLabel, styles.targetLabel, { color: theme.primary }]}>
-                {targetWeight.toFixed(0)} kg
-              </Text>
-            )}
             <Text style={[styles.graphLabel, { color: theme.textTertiary }]}>{minWeight.toFixed(0)} kg</Text>
           </View>
           
           <View style={[styles.weightGraph, { height: chartHeight, width: chartWidth }]}>
             {targetY !== null && (
-              <View 
-                style={[
-                  styles.targetGraphLine, 
-                  { 
-                    top: targetY,
-                    backgroundColor: theme.primary + '40',
-                  }
-                ]} 
-              />
+              <>
+                <View 
+                  style={[
+                    styles.targetGraphLine, 
+                    { 
+                      top: targetY,
+                      backgroundColor: theme.primary + '40',
+                    }
+                  ]} 
+                />
+                <Text
+                  style={[
+                    styles.targetLineLabel,
+                    {
+                      top: Math.max(2, targetY - 12),
+                      color: theme.primary,
+                      backgroundColor: theme.card,
+                    },
+                  ]}
+                >
+                  {targetWeight.toFixed(1)} kg
+                </Text>
+              </>
             )}
             {points.map((point: { x: number; y: number; weight: number; date: string }, index: number) => (
               <TouchableOpacity

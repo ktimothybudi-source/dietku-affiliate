@@ -287,7 +287,6 @@ export default function HomeScreen() {
     }
   };
 
-
   const handleUSDASearch = useCallback((query: string) => {
     setUsdaSearchQuery(query);
     setUsdaSearchError(null);
@@ -1451,7 +1450,9 @@ export default function HomeScreen() {
                     <TouchableOpacity
                       style={styles.bottomOption}
                       onPress={() => {
-                        setShowManualEntry(true);
+                        setModalVisible(false);
+                        setShowManualEntry(false);
+                        router.push('/meal-builder');
                       }}
                       activeOpacity={0.7}
                     >
@@ -1613,13 +1614,6 @@ export default function HomeScreen() {
                   <Text style={[styles.tabText, { color: activeTab === 'favorit' ? theme.primary : theme.textSecondary }]}>Favorit</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[styles.tab, activeTab === 'search' && styles.tabActive, activeTab === 'search' && { backgroundColor: theme.card }]}
-                  onPress={() => setActiveTab('search')}
-                >
-                  <SearchIcon size={16} color={activeTab === 'search' ? theme.primary : theme.textSecondary} />
-                  <Text style={[styles.tabText, { color: activeTab === 'search' ? theme.primary : theme.textSecondary }]}>Cari</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
                   style={[styles.tab, activeTab === 'scan' && styles.tabActive, activeTab === 'scan' && { backgroundColor: theme.card }]}
                   onPress={() => {
                     setAddFoodModalVisible(false);
@@ -1633,7 +1627,7 @@ export default function HomeScreen() {
 
               <ScrollView style={styles.addFoodModalBody} showsVerticalScrollIndicator={false}>
                 {activeTab === 'recent' && (
-                  <View style={styles.mealList}>
+                  <View>
                     {recentMeals.length === 0 ? (
                       <View style={styles.emptyMealList}>
                         <Clock size={40} color={theme.textTertiary} />
@@ -1641,41 +1635,47 @@ export default function HomeScreen() {
                         <Text style={[styles.emptyMealSubtext, { color: theme.textTertiary }]}>Scan makanan untuk memulai</Text>
                       </View>
                     ) : (
-                      recentMeals.slice(0, 20).map((meal) => (
-                        <View
-                          key={meal.id}
-                          style={[styles.mealItem, { backgroundColor: theme.background, borderColor: theme.border }]}
-                        >
-                          <TouchableOpacity
-                            style={styles.mealItemContent}
-                            onPress={() => handleQuickLogRecent(meal.id)}
-                            activeOpacity={0.7}
-                          >
-                            <View style={styles.mealItemInfo}>
-                              <Text style={[styles.mealItemName, { color: theme.text }]} numberOfLines={1}>
-                                {meal.name.split(',')[0]}
-                              </Text>
-                              <Text style={[styles.mealItemCalories, { color: theme.textSecondary }]}>
-                                {meal.calories} kcal
-                              </Text>
-                            </View>
-                            <Plus size={20} color={theme.primary} />
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            style={styles.removeRecentButton}
-                            onPress={() => removeFromRecent(meal.id)}
-                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                          >
-                            <X size={16} color={theme.textTertiary} />
-                          </TouchableOpacity>
-                        </View>
-                      ))
+                      <View style={{ maxHeight: 152, overflow: 'hidden' }}>
+                        <ScrollView nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                          <View style={styles.mealList}>
+                            {recentMeals.map((meal) => (
+                              <View
+                                key={meal.id}
+                                style={[styles.mealItem, { backgroundColor: theme.background, borderColor: theme.border }]}
+                              >
+                                <TouchableOpacity
+                                  style={styles.mealItemContent}
+                                  onPress={() => handleQuickLogRecent(meal.id)}
+                                  activeOpacity={0.7}
+                                >
+                                  <View style={styles.mealItemInfo}>
+                                    <Text style={[styles.mealItemName, { color: theme.text }]} numberOfLines={1}>
+                                      {meal.name.split(',')[0]}
+                                    </Text>
+                                    <Text style={[styles.mealItemCalories, { color: theme.textSecondary }]}>
+                                      {meal.calories} kcal
+                                    </Text>
+                                  </View>
+                                  <Plus size={20} color={theme.primary} />
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                  style={styles.removeRecentButton}
+                                  onPress={() => removeFromRecent(meal.id)}
+                                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                >
+                                  <X size={16} color={theme.textTertiary} />
+                                </TouchableOpacity>
+                              </View>
+                            ))}
+                          </View>
+                        </ScrollView>
+                      </View>
                     )}
                   </View>
                 )}
 
                 {activeTab === 'favorit' && (
-                  <View style={styles.mealList}>
+                  <View>
                     {favorites.length === 0 ? (
                       <View style={styles.emptyMealList}>
                         <Bookmark size={40} color={theme.textTertiary} />
@@ -1683,27 +1683,33 @@ export default function HomeScreen() {
                         <Text style={[styles.emptyMealSubtext, { color: theme.textTertiary }]}>Simpan makanan dari detail untuk akses cepat</Text>
                       </View>
                     ) : (
-                      favorites.map((meal) => (
-                        <TouchableOpacity
-                          key={meal.id}
-                          style={[styles.mealItem, { backgroundColor: theme.background, borderColor: theme.border }]}
-                          onPress={() => handleQuickLogFavorite(meal.id)}
-                          activeOpacity={0.7}
-                        >
-                          <View style={styles.mealItemInfo}>
-                            <View style={styles.mealItemNameRow}>
-                              <Star size={14} color="#FFC107" fill="#FFC107" />
-                              <Text style={[styles.mealItemName, { color: theme.text }]} numberOfLines={1}>
-                                {meal.name.split(',')[0]}
-                              </Text>
-                            </View>
-                            <Text style={[styles.mealItemCalories, { color: theme.textSecondary }]}>
-                              {meal.calories} kcal
-                            </Text>
+                      <View style={{ maxHeight: 152, overflow: 'hidden' }}>
+                        <ScrollView nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                          <View style={styles.mealList}>
+                            {favorites.map((meal) => (
+                              <TouchableOpacity
+                                key={meal.id}
+                                style={[styles.mealItem, { backgroundColor: theme.background, borderColor: theme.border }]}
+                                onPress={() => handleQuickLogFavorite(meal.id)}
+                                activeOpacity={0.7}
+                              >
+                                <View style={styles.mealItemInfo}>
+                                  <View style={styles.mealItemNameRow}>
+                                    <Star size={14} color="#FFC107" fill="#FFC107" />
+                                    <Text style={[styles.mealItemName, { color: theme.text }]} numberOfLines={1}>
+                                      {meal.name.split(',')[0]}
+                                    </Text>
+                                  </View>
+                                  <Text style={[styles.mealItemCalories, { color: theme.textSecondary }]}>
+                                    {meal.calories} kcal
+                                  </Text>
+                                </View>
+                                <Plus size={20} color={theme.primary} />
+                              </TouchableOpacity>
+                            ))}
                           </View>
-                          <Plus size={20} color={theme.primary} />
-                        </TouchableOpacity>
-                      ))
+                        </ScrollView>
+                      </View>
                     )}
                   </View>
                 )}
@@ -1855,8 +1861,7 @@ export default function HomeScreen() {
                   style={[styles.manualEntryButton, { backgroundColor: theme.background, borderColor: theme.border }]}
                   onPress={() => {
                     setAddFoodModalVisible(false);
-                    setShowManualEntry(true);
-                    setModalVisible(true);
+                    router.push('/meal-builder');
                   }}
                   activeOpacity={0.7}
                 >

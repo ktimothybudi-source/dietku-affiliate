@@ -84,6 +84,60 @@ GROUP BY s.owner_user_id, p.email, p.name
 ORDER BY total_redemptions DESC
 LIMIT 25;
 
+-- ---------------------------------------------------------------------------
+-- Creator / admin performance queries (new role model)
+-- ---------------------------------------------------------------------------
+
+-- Top creators by completed signups
+SELECT
+  creator_user_id,
+  name,
+  email,
+  signups
+FROM public.creator_performance
+ORDER BY signups DESC
+LIMIT 25;
+
+-- Top creators by completed subscriptions
+SELECT
+  creator_user_id,
+  name,
+  email,
+  subscriptions
+FROM public.creator_performance
+ORDER BY subscriptions DESC
+LIMIT 25;
+
+-- Creator conversion rate
+SELECT
+  creator_user_id,
+  name,
+  email,
+  validations,
+  subscriptions,
+  conversion_rate_pct
+FROM public.creator_performance
+ORDER BY conversion_rate_pct DESC, subscriptions DESC
+LIMIT 50;
+
+-- Creator daily referral performance
+SELECT
+  creator_user_id,
+  referral_code_id,
+  day,
+  entries,
+  successful_validations,
+  completed_signups,
+  completed_subscriptions,
+  failed_claims
+FROM public.creator_daily_referral_performance
+ORDER BY day DESC, creator_user_id
+LIMIT 500;
+
+-- Admin global stats across creators and promo codes
+SELECT *
+FROM public.admin_referral_global_stats;
+
 -- Admin audit trail
 SELECT *
 FROM public.referral_admin_audit_log

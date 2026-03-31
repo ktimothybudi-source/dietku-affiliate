@@ -1,4 +1,8 @@
-/** IDR anchors when store / RevenueCat price strings are unavailable. */
+/**
+ * IDR anchors when store / RevenueCat price strings are unavailable.
+ * Use .999 endings intentionally: Google Play price tiers can show a rounded consumer
+ * price (e.g. “Rp 70rb”) even when the micros price is 69.999 — that is store UI, not a bug in this app.
+ */
 const MONTHLY_IDR = 69999;
 const YEARLY_IDR = 279999;
 

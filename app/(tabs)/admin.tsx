@@ -68,6 +68,8 @@ export default function AdminReferralsScreen() {
   const [cLimit, setCLimit] = useState('');
   const [cExpires, setCExpires] = useState('');
   const [saving, setSaving] = useState(false);
+  const [creatorPerf, setCreatorPerf] = useState<Array<{ creator_user_id: string; name: string | null; email: string | null; signups: number; subscriptions: number; conversion_rate_pct: number }>>([]);
+  const [creatorFilter, setCreatorFilter] = useState<string | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 400);
@@ -97,6 +99,23 @@ export default function AdminReferralsScreen() {
       if (!error) setFailCount(count ?? 0);
       const a = await fetchReferralAudit(40);
       setAudit(a);
+      const { data: perfData, error: perfErr } = await supabase
+        .from('creator_performance')
+        .select('creator_user_id,name,email,signups,subscriptions,conversion_rate_pct')
+        .order('subscriptions', { ascending: false })
+        .limit(25);
+      if (!perfErr) {
+        setCreatorPerf(
+          ((perfData ?? []) as Array<Record<string, unknown>>).map((p) => ({
+            creator_user_id: String(p.creator_user_id),
+            name: p.name ? String(p.name) : null,
+            email: p.email ? String(p.email) : null,
+            signups: Number(p.signups ?? 0),
+            subscriptions: Number(p.subscriptions ?? 0),
+            conversion_rate_pct: Number(p.conversion_rate_pct ?? 0),
+          })),
+        );
+      }
     } catch (e) {
       console.warn(e);
       Alert.alert('Gagal memuat', e instanceof Error ? e.message : 'Coba lagi.');
@@ -146,10 +165,11 @@ export default function AdminReferralsScreen() {
   );
 
   const now = Date.now();
+  const visibleRows = creatorFilter ? rows.filter((r) => r.owner_user_id === creatorFilter) : rows;
 
   const pageRedemptions = useMemo(
-    () => rows.reduce((s, x) => s + x.redemption_count, 0),
-    [rows],
+    () => visibleRows.reduce((s, x) => s + x.redemption_count, 0),
+    [visibleRows],
   );
 
   const openDetail = async (row: ReferralCodeWithStats) => {
@@ -340,10 +360,21 @@ export default function AdminReferralsScreen() {
         {chip('Segera habis', sortKey === 'expiring', () => setSortKey('expiring'))}
       </View>
 
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+        {chip('Semua creator', creatorFilter == null, () => setCreatorFilter(null))}
+        {creatorPerf.slice(0, 10).map((c) =>
+          chip(
+            `${c.name?.trim() || c.email || c.creator_user_id.slice(0, 6)} (${c.subscriptions})`,
+            creatorFilter === c.creator_user_id,
+            () => setCreatorFilter(creatorFilter === c.creator_user_id ? null : c.creator_user_id),
+          ),
+        )}
+      </ScrollView>
+
       <View style={[styles.metrics, { backgroundColor: theme.card, borderColor: theme.border }]}>
         <Text style={{ color: theme.textSecondary, fontSize: 12, marginBottom: 6 }}>Ringkasan (filter aktif)</Text>
         <Text style={{ color: theme.text, fontSize: 13 }}>
-          Total cocok filter: {totalCount} · Terunduh: {rows.length}
+          Total cocok filter: {totalCount} · Terunduh: {visibleRows.length}
         </Text>
         <Text style={{ color: theme.text, fontSize: 13, marginTop: 4 }}>
           Σ redeem (baris terunduh): {pageRedemptions}
@@ -382,7 +413,7 @@ export default function AdminReferralsScreen() {
       ) : (
         <FlatList
           style={{ flex: 1 }}
-          data={rows}
+          data={visibleRows}
           keyExtractor={(x) => x.id}
           contentContainerStyle={{ paddingBottom: insets.bottom + 24, paddingHorizontal: 16 }}
           onEndReached={() => {

@@ -28,7 +28,7 @@ import { Users, Gift } from 'lucide-react-native';
 export default function ReferralShareScreen() {
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
-  const { authState, referralTrialEndsAt } = useNutrition();
+  const { authState, referralTrialEndsAt, isAppCreator, isAppAdmin } = useNutrition();
   const queryClient = useQueryClient();
   const { refreshSubscription } = useSubscription();
   const uid = authState.userId;
@@ -65,13 +65,17 @@ export default function ReferralShareScreen() {
       if (error) throw error;
       return count ?? 0;
     },
-    enabled: !!myCodeQuery.data?.id,
+    enabled: !!myCodeQuery.data?.id && (isAppCreator || isAppAdmin),
   });
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       if (!uid || !myCodeQuery.isSuccess || bootstrapDone) return;
+      if (!isAppCreator && !isAppAdmin) {
+        setBootstrapDone(true);
+        return;
+      }
       if (myCodeQuery.data !== null) {
         setBootstrapDone(true);
         return;
@@ -91,7 +95,7 @@ export default function ReferralShareScreen() {
     return () => {
       cancelled = true;
     };
-  }, [uid, myCodeQuery.isSuccess, myCodeQuery.data, bootstrapDone, queryClient]);
+  }, [uid, myCodeQuery.isSuccess, myCodeQuery.data, bootstrapDone, queryClient, isAppCreator, isAppAdmin]);
 
   const code = myCodeQuery.data?.code_normalized;
 
@@ -128,19 +132,21 @@ export default function ReferralShareScreen() {
             <Text style={[styles.title, { color: theme.text }]}>Kode undangan Anda</Text>
           </View>
           <Text style={[styles.sub, { color: theme.textSecondary }]}>
-            Bagikan kode ini. Teman Anda mendapat masa percobaan gratis saat mendaftar dengan kode yang valid.
+            {isAppCreator || isAppAdmin
+              ? 'Bagikan kode creator Anda. Pengguna yang memakai kode ini masuk ke flow trial 7 hari.'
+              : 'Kode undangan personal hanya tersedia untuk akun Creator/Admin.'}
           </Text>
           {creating || myCodeQuery.isLoading ? (
             <ActivityIndicator style={{ marginVertical: 24 }} color={theme.primary} />
           ) : (
             <>
               <Text style={[styles.code, { color: theme.primary }]} selectable>
-                {code ?? '—'}
+                {isAppCreator || isAppAdmin ? code ?? '—' : 'Creator only'}
               </Text>
               <TouchableOpacity
                 style={[styles.btn, { backgroundColor: theme.primary }]}
                 onPress={onShare}
-                disabled={!code}
+                disabled={!code || (!isAppCreator && !isAppAdmin)}
                 activeOpacity={0.85}
               >
                 <Users size={18} color="#FFFFFF" />
@@ -153,7 +159,11 @@ export default function ReferralShareScreen() {
         <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
           <Text style={[styles.statLabel, { color: theme.textSecondary }]}>Orang yang menggunakan kode Anda</Text>
           <Text style={[styles.statVal, { color: theme.text }]}>
-            {redemptionCountQuery.isLoading ? '…' : redemptionCountQuery.data ?? 0}
+            {isAppCreator || isAppAdmin
+              ? redemptionCountQuery.isLoading
+                ? '…'
+                : redemptionCountQuery.data ?? 0
+              : '—'}
           </Text>
         </View>
 

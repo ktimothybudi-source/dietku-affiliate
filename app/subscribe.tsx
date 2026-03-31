@@ -176,8 +176,7 @@ export default function SubscribeScreen() {
             <TouchableOpacity
               style={[
                 styles.toggleSeg,
-                billing === 'yearly' && styles.toggleSegOn,
-                billing === 'yearly' && styles.toggleSegYearlyOn,
+                billing === 'yearly' ? styles.toggleSegYearlyOn : null,
               ]}
               onPress={() => {
                 Haptics.selectionAsync();
@@ -386,6 +385,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 11,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   toggleSegOn: {
     backgroundColor: '#FFFFFF',
@@ -398,7 +398,8 @@ const styles = StyleSheet.create({
   toggleSegYearlyOn: {
     borderWidth: 1.5,
     borderColor: ACCENT,
-    backgroundColor: 'rgba(34, 197, 94, 0.12)',
+    // Solid fill avoids stacking with white + elevation (Android “square inside rounded” glitch).
+    backgroundColor: '#DCFCE7',
   },
   yearlyCard: {
     borderWidth: 2,

@@ -28,6 +28,7 @@ const REVENUECAT_IOS_API_KEY = process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY ||
 const REVENUECAT_TEST_STORE_API_KEY =
   (process.env.EXPO_PUBLIC_REVENUECAT_TEST_STORE_API_KEY ?? '').trim();
 const PREMIUM_ENTITLEMENT_ID = 'premium';
+const ALWAYS_PREMIUM_EMAILS = new Set(['testers@dietku.com']);
 
 function isRunningInExpoGo(): boolean {
   return Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
@@ -200,7 +201,7 @@ export const [SubscriptionProvider, useSubscription] = createContextHook(() => {
   const allowlistPremium = useMemo(() => {
     const emails = parsePremiumEmailAllowlist();
     const email = (authState.email ?? '').toLowerCase();
-    return email.length > 0 && emails.has(email);
+    return email.length > 0 && (emails.has(email) || ALWAYS_PREMIUM_EMAILS.has(email));
   }, [authState.email]);
 
   const referralTrialActive = useMemo(() => {

@@ -7,6 +7,7 @@ import { calculateDailyTargets, getTodayKey, sumMidpointMicrosFromItems } from '
 import { analyzeMealPhoto } from '@/utils/photoAnalysis';
 import { saveImagePermanently } from '@/utils/imageStorage';
 import { supabase, SupabaseProfile, SupabaseFoodEntry, SupabaseWeightHistory, SupabaseStreak } from '@/lib/supabase';
+import type { DbMealType } from '@/lib/mealDefaults';
 import { getPremiumWriteGate } from '@/lib/premiumWriteGate';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
@@ -90,6 +91,7 @@ const mapSupabaseFoodEntryToFoodEntry = (sfe: SupabaseFoodEntry): FoodEntry => (
   fiber: sfe.fiber ?? 0,
   sodium: sfe.sodium ?? 0,
   photoUri: sfe.photo_uri || undefined,
+  loggedMealId: sfe.logged_meal_id ?? undefined,
 });
 
 const mapFavoriteRow = (f: Record<string, unknown>): FavoriteMeal => ({
@@ -582,6 +584,108 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
     },
     onError: (error) => {
       console.error('Food entry mutation error:', error);
+    },
+  });
+
+  const saveComposedMealMutation = useMutation({
+    mutationFn: async ({
+      dateKey,
+      displayName,
+      mealType,
+      lines,
+    }: {
+      dateKey: string;
+      displayName: string;
+      mealType: DbMealType;
+      lines: Array<{
+        foodId: number;
+        foodName: string;
+        grams: number;
+        calories: number;
+        protein: number;
+        carbs: number;
+        fat: number;
+      }>;
+    }) => {
+      if (!authState.userId) throw new Error('Not authenticated');
+      if (lines.length === 0) throw new Error('No items in meal');
+
+      const totals = lines.reduce(
+        (a, l) => ({
+          cal: a.cal + l.calories,
+          p: a.p + l.protein,
+          c: a.c + l.carbs,
+          f: a.f + l.fat,
+        }),
+        { cal: 0, p: 0, c: 0, f: 0 }
+      );
+
+      const { data: mealRow, error: mealErr } = await supabase
+        .from('logged_meals')
+        .insert({
+          user_id: authState.userId,
+          date: dateKey,
+          display_name: displayName,
+          meal_type: mealType,
+          calories: Math.round(totals.cal * 10) / 10,
+          protein: Math.round(totals.p * 10) / 10,
+          carbs: Math.round(totals.c * 10) / 10,
+          fat: Math.round(totals.f * 10) / 10,
+        })
+        .select('id')
+        .single();
+
+      if (mealErr || !mealRow) {
+        console.error('logged_meals insert:', mealErr);
+        throw new Error(mealErr?.message || 'Failed to save meal');
+      }
+
+      const mealId = String(mealRow.id);
+
+      const itemRows = lines.map((l, i) => ({
+        logged_meal_id: mealId,
+        food_id: l.foodId,
+        food_name: l.foodName,
+        grams: l.grams,
+        calories: Math.round(l.calories * 10) / 10,
+        protein: Math.round(l.protein * 10) / 10,
+        carbs: Math.round(l.carbs * 10) / 10,
+        fat: Math.round(l.fat * 10) / 10,
+        sort_order: i,
+      }));
+
+      const { error: itemsErr } = await supabase.from('logged_meal_items').insert(itemRows);
+      if (itemsErr) {
+        await supabase.from('logged_meals').delete().eq('id', mealId);
+        throw new Error(itemsErr.message);
+      }
+
+      const entryPayload = {
+        user_id: authState.userId,
+        date: dateKey,
+        meal_type: mealType,
+        food_name: displayName,
+        calories: Math.round(totals.cal),
+        protein: Math.round(totals.p),
+        carbs: Math.round(totals.c),
+        fat: Math.round(totals.f),
+        sugar: 0,
+        fiber: 0,
+        sodium: 0,
+        photo_uri: null as string | null,
+        logged_meal_id: mealId,
+      };
+
+      const { error: entryErr } = await supabase.from('food_entries').insert(entryPayload);
+      if (entryErr) {
+        await supabase.from('logged_meals').delete().eq('id', mealId);
+        throw new Error(entryErr.message);
+      }
+
+      return { mealId };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['supabase_food_entries'] });
     },
   });
 
@@ -1212,6 +1316,75 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
     );
   }, [saveFoodEntryMutation, authState, selectedDate, updateRecentMeals]);
 
+  const addComposedMeal = useCallback(
+    (
+      payload: {
+        displayName: string;
+        mealType: DbMealType;
+        lines: Array<{
+          foodId: number;
+          foodName: string;
+          grams: number;
+          calories: number;
+          protein: number;
+          carbs: number;
+          fat: number;
+        }>;
+      },
+      autoPostToCommunity: boolean = true
+    ) => {
+      if (!authState.isSignedIn || !authState.userId) {
+        console.error('[addComposedMeal] Not authenticated');
+        return;
+      }
+
+      const logDateKey = selectedDate || getTodayKey();
+      const totals = payload.lines.reduce(
+        (a, l) => ({
+          calories: a.calories + l.calories,
+          protein: a.protein + l.protein,
+          carbs: a.carbs + l.carbs,
+          fat: a.fat + l.fat,
+        }),
+        { calories: 0, protein: 0, carbs: 0, fat: 0 }
+      );
+
+      const entryForStore: Omit<FoodEntry, 'id' | 'timestamp'> = {
+        name: payload.displayName,
+        calories: Math.round(totals.calories),
+        protein: Math.round(totals.protein),
+        carbs: Math.round(totals.carbs),
+        fat: Math.round(totals.fat),
+        sugar: 0,
+        fiber: 0,
+        sodium: 0,
+      };
+
+      saveComposedMealMutation.mutate(
+        {
+          dateKey: logDateKey,
+          displayName: payload.displayName,
+          mealType: payload.mealType,
+          lines: payload.lines,
+        },
+        {
+          onSuccess: () => {
+            updateStreak(logDateKey);
+            updateRecentMeals(entryForStore);
+
+            if (autoPostToCommunity) {
+              eventEmitter.emit('foodEntryAdded', {
+                foodEntry: entryForStore,
+                timestamp: Date.now(),
+              });
+            }
+          },
+        }
+      );
+    },
+    [saveComposedMealMutation, authState, selectedDate, updateRecentMeals]
+  );
+
   const addToFavorites = useCallback((meal: Omit<FavoriteMeal, 'id' | 'createdAt' | 'logCount'>) => {
     const normalizedName = meal.name.toLowerCase().trim();
     const exists = favorites.some(f => f.name.toLowerCase().trim() === normalizedName);
@@ -1722,7 +1895,10 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
   }, [updateFoodEntryMutation]);
 
   const referralTrialEndsAt = profileQuery.data?.referral_trial_ends_at ?? null;
-  const isAppAdmin = profileQuery.data?.app_role === 'admin';
+  const forceNoPrivilegedRole = (authState.email ?? '').trim().toLowerCase() === 'testers@dietku.com';
+  const isAppAdmin = !forceNoPrivilegedRole && profileQuery.data?.app_role === 'admin';
+  const isAppCreator =
+    !forceNoPrivilegedRole && (profileQuery.data?.app_role === 'creator' || isAppAdmin);
 
   const dailyTargets: DailyTargets | null = useMemo(() => {
     if (!profile) {
@@ -1775,6 +1951,7 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
     profile,
     referralTrialEndsAt,
     isAppAdmin,
+    isAppCreator,
     saveProfile,
     dailyTargets,
     todayEntries,
@@ -1782,6 +1959,7 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
     foodLog,
     weightHistory,
     addFoodEntry,
+    addComposedMeal,
     updateFoodEntry,
     deleteFoodEntry,
     streakData,
@@ -1831,6 +2009,7 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
     isSaving:
       saveProfileMutation.isPending ||
       saveFoodEntryMutation.isPending ||
+      saveComposedMealMutation.isPending ||
       saveWeightHistoryMutation.isPending ||
       insertFavoriteMutation.isPending ||
       deleteFavoriteMutation.isPending ||

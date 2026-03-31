@@ -77,22 +77,20 @@ export const storyShareStyles = StyleSheet.create({
   },
   previewContent: {
     position: 'absolute',
-    bottom: 40,
+    bottom: 36,
     left: 20,
     right: 20,
+    alignItems: 'flex-start',
   },
   previewContentMinimal: {
     bottom: 60,
     alignItems: 'center',
   },
   previewMealName: {
-    fontSize: 24,
+    fontSize: 21,
     fontWeight: '700' as const,
     color: '#FFFFFF',
     marginBottom: 4,
-    textShadowColor: 'rgba(0,0,0,0.5)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 4,
     flexWrap: 'wrap',
   },
   previewMealNameLarge: {
@@ -103,12 +101,9 @@ export const storyShareStyles = StyleSheet.create({
     marginBottom: 12,
   },
   previewCalories: {
-    fontSize: 52,
+    fontSize: 44,
     fontWeight: '800' as const,
     color: '#FFFFFF',
-    textShadowColor: 'rgba(0,0,0,0.5)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 4,
   },
   previewCaloriesHero: {
     fontSize: 64,
@@ -117,40 +112,29 @@ export const storyShareStyles = StyleSheet.create({
     marginTop: 4,
   },
   trackedByText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '500' as const,
     color: 'rgba(255,255,255,0.7)',
-    textShadowColor: 'rgba(0,0,0,0.5)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
   },
   trackedByBrand: {
     fontWeight: '700' as const,
     color: '#22C55E',
   },
   previewCaloriesUnit: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: '500' as const,
   },
   macroChips: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
+    flexDirection: 'column',
     marginBottom: 10,
   },
   macroChipsSpaced: {
     marginBottom: 0,
   },
-  macroChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-  },
-  macroChipText: {
-    fontSize: 14,
+  macroInlineText: {
+    fontSize: 12,
     fontWeight: '600' as const,
-    color: '#FFFFFF',
+    color: 'rgba(255,255,255,0.95)',
   },
   previewPills: {
     flexDirection: 'row',

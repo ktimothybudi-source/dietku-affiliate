@@ -29,6 +29,7 @@ import * as Haptics from 'expo-haptics';
 
 import { useNutrition } from '@/contexts/NutritionContext';
 import { useTheme } from '@/contexts/ThemeContext';
+import { supabase } from '@/lib/supabase';
 import { indexStyles as styles } from '@/styles/indexStyles';
 import {
   foodEntryToViewPending,
@@ -39,6 +40,11 @@ import {
 function firstParam(v: string | string[] | undefined): string | undefined {
   if (v == null) return undefined;
   return Array.isArray(v) ? v[0] : v;
+}
+
+function num(v: unknown): number {
+  const n = Number(v ?? 0);
+  return Number.isFinite(n) ? n : 0;
 }
 
 export default function PendingFoodDetailScreen() {
@@ -89,27 +95,79 @@ export default function PendingFoodDetailScreen() {
   const [hasEdited, setHasEdited] = useState(false);
   const [showFavoriteToast, setShowFavoriteToast] = useState(false);
   const [favoriteToastMessage, setFavoriteToastMessage] = useState('');
+  const [composedDetailItems, setComposedDetailItems] = useState<EditedFoodItem[] | null>(null);
+
+  const goBackSafely = useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace('/(tabs)');
+  }, []);
 
   useEffect(() => {
     if (!pendingId && !entryId) {
-      router.back();
+      goBackSafely();
     }
-  }, [pendingId, entryId]);
+  }, [pendingId, entryId, goBackSafely]);
 
   useEffect(() => {
     if ((pendingId || entryId) && !resolvedPending) {
-      router.back();
+      goBackSafely();
     }
-  }, [pendingId, entryId, resolvedPending]);
+  }, [pendingId, entryId, resolvedPending, goBackSafely]);
+
+  useEffect(() => {
+    if (!entryForView?.loggedMealId) {
+      setComposedDetailItems(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from('logged_meal_items')
+        .select('food_name,grams,calories,protein,carbs,fat')
+        .eq('logged_meal_id', entryForView.loggedMealId)
+        .order('sort_order', { ascending: true });
+      if (cancelled) return;
+      if (error || !data?.length) {
+        setComposedDetailItems(null);
+        return;
+      }
+      setComposedDetailItems(
+        data.map((r: Record<string, unknown>) => ({
+          name: String(r.food_name ?? ''),
+          portion: `${num(r.grams)} g`,
+          calories: Math.round(num(r.calories)),
+          protein: Math.round(num(r.protein)),
+          carbs: Math.round(num(r.carbs)),
+          fat: Math.round(num(r.fat)),
+        }))
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [entryForView?.loggedMealId]);
 
   useEffect(() => {
     if (!resolvedPending) return;
+    if (entryId && entryForView?.loggedMealId) return;
     if (resolvedPending.status !== 'done' || !resolvedPending.analysis) return;
     setEditedItems(mapAnalysisToEditedItems(resolvedPending.analysis));
     setHasEdited(false);
     setEditingItemIndex(null);
     setShowAddItem(false);
-  }, [resolvedPending?.id, resolvedPending?.status]);
+  }, [resolvedPending?.id, resolvedPending?.status, entryId, entryForView?.loggedMealId]);
+
+  useEffect(() => {
+    if (!entryId || !entryForView?.loggedMealId) return;
+    if (!composedDetailItems || composedDetailItems.length === 0) return;
+    setEditedItems(composedDetailItems);
+    setHasEdited(false);
+    setEditingItemIndex(null);
+    setShowAddItem(false);
+  }, [composedDetailItems, entryId, entryForView?.loggedMealId]);
 
   const performCloseCleanup = useCallback(() => {
     if (autoShown && pendingId && !entryId) {
@@ -126,15 +184,15 @@ export default function PendingFoodDetailScreen() {
           style: 'destructive',
           onPress: () => {
             performCloseCleanup();
-            router.back();
+            goBackSafely();
           },
         },
       ]);
     } else {
       performCloseCleanup();
-      router.back();
+      goBackSafely();
     }
-  }, [hasEdited, performCloseCleanup]);
+  }, [hasEdited, performCloseCleanup, goBackSafely]);
 
   const handleStartEditItem = (index: number) => {
     const item = editedItems[index];
@@ -250,7 +308,7 @@ export default function PendingFoodDetailScreen() {
 
     setHasEdited(false);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    router.back();
+    goBackSafely();
   };
 
   const handleSaveToFavorite = () => {
@@ -291,7 +349,7 @@ export default function PendingFoodDetailScreen() {
   const handleRemovePending = () => {
     if (!resolvedPending || !pendingId) return;
     removePendingEntry(pendingId);
-    router.back();
+    goBackSafely();
   };
 
   const handleRetryPending = () => {
@@ -329,7 +387,7 @@ export default function PendingFoodDetailScreen() {
     const timestamp = resolvedPending.timestamp.toString();
 
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    router.back();
+    goBackSafely();
     setTimeout(() => {
       router.push({
         pathname: '/story-share',
@@ -351,11 +409,18 @@ export default function PendingFoodDetailScreen() {
     const analysis = resolvedPending?.analysis;
     if (!analysis?.items?.length) return null;
     const rowItems = editedItems.length > 0 ? editedItems : analysis.items;
-    const title = (rowItems[0]?.name || 'Makanan')
-      .replace(/\s*\/\s*/g, ' ')
-      .replace(/\s+or\s+/gi, ' ')
-      .replace(/about\s+/gi, '')
-      .trim();
+    const isComposedSaved = !!entryForView?.loggedMealId;
+    const mealLabel = entryForView?.name?.trim();
+    const cleanTitle = (raw: string) =>
+      raw
+        .replace(/\s*\/\s*/g, ' ')
+        .replace(/\s+or\s+/gi, ' ')
+        .replace(/about\s+/gi, '')
+        .trim();
+    const title =
+      isComposedSaved && mealLabel
+        ? cleanTitle(mealLabel)
+        : cleanTitle(rowItems[0]?.name || 'Makanan');
     const subtitle = rowItems
       .map(item => {
         const cleanName =
@@ -370,7 +435,7 @@ export default function PendingFoodDetailScreen() {
       })
       .join(' • ');
     return { title, subtitle };
-  }, [resolvedPending?.analysis, editedItems]);
+  }, [resolvedPending?.analysis, editedItems, entryForView?.loggedMealId, entryForView?.name]);
 
   if (!resolvedPending) {
     return null;

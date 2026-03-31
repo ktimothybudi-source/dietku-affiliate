@@ -26,6 +26,8 @@ export interface FoodEntry {
   fiber?: number;
   sodium?: number;
   photoUri?: string;
+  /** When set, detail screen loads `logged_meal_items` for this composed meal. */
+  loggedMealId?: string;
 }
 
 export interface DailyTargets {

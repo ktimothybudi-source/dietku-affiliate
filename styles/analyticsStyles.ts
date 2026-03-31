@@ -203,6 +203,16 @@ export const analyticsStyles = StyleSheet.create({
   targetLabel: {
     fontWeight: '600' as const,
   },
+  targetLineLabel: {
+    position: 'absolute',
+    left: 6,
+    fontSize: 10,
+    fontWeight: '700' as const,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    overflow: 'hidden',
+  },
   graphDateLabels: {
     flexDirection: 'row',
     justifyContent: 'space-between',

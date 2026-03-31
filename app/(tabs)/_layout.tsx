@@ -1,5 +1,5 @@
 import { Tabs, Redirect } from "expo-router";
-import { Flame, User, BarChart3, Users, Shield } from "lucide-react-native";
+import { Flame, User, BarChart3, Users, Shield, Gift } from "lucide-react-native";
 import React from "react";
 import { Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -30,7 +30,7 @@ export default function TabLayout() {
   const themeContext = useTheme();
   const theme = themeContext?.theme ?? fallbackTheme;
   const insets = useSafeAreaInsets();
-  const { authState, isAppAdmin } = useNutrition();
+  const { authState, isAppAdmin, isAppCreator } = useNutrition();
   const { isPremium, isLoading: subscriptionLoading } = useSubscription();
 
   if (authState.isSignedIn && !subscriptionLoading && !isPremium) {
@@ -113,6 +113,15 @@ export default function TabLayout() {
           title: "Profil",
           tabBarLabel: "Profil",
           tabBarIcon: ({ color }) => <User size={21} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="creator"
+        options={{
+          title: "Creator",
+          tabBarLabel: "Creator",
+          href: isAppCreator || isAppAdmin ? "/creator" : null,
+          tabBarIcon: ({ color }) => <Gift size={21} color={color} />,
         }}
       />
       <Tabs.Screen

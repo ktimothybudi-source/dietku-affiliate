@@ -12,6 +12,7 @@ import {
   Keyboard,
   Alert,
   ActivityIndicator,
+  StyleSheet,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useNutrition } from '@/contexts/NutritionContext';
@@ -34,6 +35,7 @@ WebBrowser.maybeCompleteAuthSession();
 
 const WEEKLY_DEFAULT_LOSS_KG = 0.5;
 const WEEKLY_DEFAULT_GAIN_KG = 0.3;
+const MINIMUM_AGE = 13;
 
 export default function OnboardingScreen() {
   const { saveProfile, profile, signUp, authState } = useNutrition();
@@ -71,6 +73,9 @@ export default function OnboardingScreen() {
   const [activityLevel, setActivityLevel] = useState<ActivityLevel | null>(null);
   const [selectedGoal, setSelectedGoal] = useState<'lose' | 'gain' | 'maintain' | null>(null);
   const [motivations, setMotivations] = useState<string[]>([]);
+  const [mainObstacle, setMainObstacle] = useState<string | null>(null);
+  const [hasCoach, setHasCoach] = useState<'yes' | 'no' | null>(null);
+  const [usedTrackingApp, setUsedTrackingApp] = useState<'yes' | 'no' | null>(null);
   const [dietType, setDietType] = useState<string | null>(null);
 
   const [showLoading, setShowLoading] = useState(false);
@@ -80,6 +85,10 @@ export default function OnboardingScreen() {
   const introScaleAnim = useRef(new Animated.Value(0)).current;
   const introTextAnim = useRef(new Animated.Value(0)).current;
   const introCtaAnim = useRef(new Animated.Value(0)).current;
+  const optionEnterAnims = useRef(Array.from({ length: 6 }, () => new Animated.Value(1))).current;
+  const insightCardAnim = useRef(new Animated.Value(0)).current;
+  const insightLineAnim = useRef(new Animated.Value(0)).current;
+  const insightBarsAnim = useRef(new Animated.Value(0)).current;
 
   // HIDDEN: Subscription features
   // const [showSubscription, setShowSubscription] = useState(false);
@@ -94,7 +103,7 @@ export default function OnboardingScreen() {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
-  const totalSteps = 15;
+  const totalSteps = 19;
 
   // Y positions for inputs
   const heightY = useRef(0);
@@ -107,6 +116,16 @@ export default function OnboardingScreen() {
   const scrollToY = useCallback((y: number) => {
     requestAnimationFrame(() => {
       scrollRef.current?.scrollTo({ y: Math.max(0, y - 120), animated: true });
+    });
+  }, []);
+
+  /** Password fields sit at the bottom of the sign-in step; scroll after keyboard animation. */
+  const scrollSignInPasswordIntoView = useCallback(() => {
+    const delay = Platform.OS === 'ios' ? 320 : 150;
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        scrollRef.current?.scrollToEnd({ animated: true });
+      }, delay);
     });
   }, []);
 
@@ -224,6 +243,88 @@ export default function OnboardingScreen() {
     ]).start();
   }, [step, introScaleAnim, introTextAnim, introCtaAnim]);
 
+  useEffect(() => {
+    const optionCountByStep: Record<number, number> = {
+      2: 2,
+      5: 3,
+      8: 3,
+      11: 6,
+      12: 5,
+      13: 2,
+      14: 2,
+      15: 6,
+    };
+    const activeCount = optionCountByStep[step];
+    if (!activeCount || showLoading) return;
+
+    optionEnterAnims.forEach((anim, index) => {
+      anim.setValue(index < activeCount ? 0 : 1);
+    });
+
+    Animated.stagger(
+      75,
+      optionEnterAnims.slice(0, activeCount).map((anim) =>
+        Animated.timing(anim, {
+          toValue: 1,
+          duration: 220,
+          useNativeDriver: true,
+        })
+      )
+    ).start();
+  }, [step, showLoading, optionEnterAnims]);
+
+  useEffect(() => {
+    if (showLoading || ![6, 10, 16].includes(step)) return;
+
+    insightCardAnim.setValue(0);
+    insightLineAnim.setValue(0);
+    insightBarsAnim.setValue(0);
+
+    Animated.sequence([
+      Animated.timing(insightCardAnim, {
+        toValue: 1,
+        duration: 280,
+        useNativeDriver: true,
+      }),
+      Animated.stagger(120, [
+        Animated.timing(insightLineAnim, {
+          toValue: 1,
+          duration: 600,
+          useNativeDriver: false,
+        }),
+        Animated.timing(insightBarsAnim, {
+          toValue: 1,
+          duration: 420,
+          useNativeDriver: true,
+        }),
+      ]),
+    ]).start();
+  }, [step, showLoading, insightCardAnim, insightLineAnim, insightBarsAnim]);
+
+  const getOptionEnterStyle = useCallback(
+    (index: number) => {
+      const anim = optionEnterAnims[index] ?? optionEnterAnims[optionEnterAnims.length - 1];
+      return {
+        opacity: anim,
+        transform: [
+          {
+            translateY: anim.interpolate({
+              inputRange: [0, 1],
+              outputRange: [14, 0],
+            }),
+          },
+          {
+            scale: anim.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0.985, 1],
+            }),
+          },
+        ],
+      };
+    },
+    [optionEnterAnims]
+  );
+
   const animateTransition = useCallback(
     (forward: boolean, callback: () => void) => {
       Keyboard.dismiss();
@@ -263,8 +364,32 @@ export default function OnboardingScreen() {
   const handleNext = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
+    // Age gate: users must be at least 13 years old to continue onboarding.
+    if (step === 1) {
+      const today = new Date();
+      const age = today.getFullYear() - birthDate.getFullYear() -
+        (today.getMonth() < birthDate.getMonth() ||
+        (today.getMonth() === birthDate.getMonth() && today.getDate() < birthDate.getDate()) ? 1 : 0);
+
+      if (age < MINIMUM_AGE) {
+        Alert.alert(
+          'Usia tidak memenuhi syarat',
+          `Anda harus berusia minimal ${MINIMUM_AGE} tahun untuk menggunakan aplikasi ini.`,
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                animateTransition(false, () => setStep(0));
+              },
+            },
+          ]
+        );
+        return;
+      }
+    }
+
     // Show fake loading right before the final plan page.
-    if (step === 12) {
+    if (step === 16) {
       Keyboard.dismiss();
       Animated.timing(fadeAnim, {
         toValue: 0,
@@ -282,7 +407,7 @@ export default function OnboardingScreen() {
     }
 
     animateTransition(true, () => setStep(s => s + 1));
-  }, [step, fadeAnim, animateTransition]);
+  }, [step, birthDate, fadeAnim, animateTransition]);
 
   const handleBack = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -480,6 +605,7 @@ export default function OnboardingScreen() {
   });
 
   const AnimatedCircle = useMemo(() => Animated.createAnimatedComponent(Circle), []);
+  const AnimatedPath = useMemo(() => Animated.createAnimatedComponent(Path), []);
 
   const renderIntro = () => (
     <View style={styles.introContainer}>
@@ -644,51 +770,55 @@ export default function OnboardingScreen() {
       </View>
 
       <View style={styles.genderOptions}>
-        <TouchableOpacity
-          style={[styles.genderCard, sex === 'male' && styles.genderCardActive]}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            setSex('male');
-          }}
-          activeOpacity={0.7}
-        >
-          <View style={[styles.genderIconCircle, sex === 'male' && styles.genderIconCircleActive]}>
-            <Svg width="60" height="60" viewBox="0 0 24 24" fill="none">
-              <Circle cx="12" cy="12" r="5" stroke={sex === 'male' ? '#22C55E' : '#999999'} strokeWidth="2" />
-              <Path
-                d="M17 7L22 2M22 2h-5M22 2v5"
-                stroke={sex === 'male' ? '#22C55E' : '#999999'}
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </Svg>
-          </View>
-          <Text style={[styles.genderText, sex === 'male' && styles.genderTextActive]}>Pria</Text>
-        </TouchableOpacity>
+        <Animated.View style={getOptionEnterStyle(0)}>
+          <TouchableOpacity
+            style={[styles.genderCard, sex === 'male' && styles.genderCardActive]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              setSex('male');
+            }}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.genderIconCircle, sex === 'male' && styles.genderIconCircleActive]}>
+              <Svg width="60" height="60" viewBox="0 0 24 24" fill="none">
+                <Circle cx="12" cy="12" r="5" stroke={sex === 'male' ? '#22C55E' : '#999999'} strokeWidth="2" />
+                <Path
+                  d="M17 7L22 2M22 2h-5M22 2v5"
+                  stroke={sex === 'male' ? '#22C55E' : '#999999'}
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </Svg>
+            </View>
+            <Text style={[styles.genderText, sex === 'male' && styles.genderTextActive]}>Pria</Text>
+          </TouchableOpacity>
+        </Animated.View>
 
-        <TouchableOpacity
-          style={[styles.genderCard, sex === 'female' && styles.genderCardActive]}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            setSex('female');
-          }}
-          activeOpacity={0.7}
-        >
-          <View style={[styles.genderIconCircle, sex === 'female' && styles.genderIconCircleActive]}>
-            <Svg width="60" height="60" viewBox="0 0 24 24" fill="none">
-              <Circle cx="12" cy="9" r="5" stroke={sex === 'female' ? '#22C55E' : '#999999'} strokeWidth="2" />
-              <Path
-                d="M12 14v8M9 19h6"
-                stroke={sex === 'female' ? '#22C55E' : '#999999'}
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </Svg>
-          </View>
-          <Text style={[styles.genderText, sex === 'female' && styles.genderTextActive]}>Wanita</Text>
-        </TouchableOpacity>
+        <Animated.View style={getOptionEnterStyle(1)}>
+          <TouchableOpacity
+            style={[styles.genderCard, sex === 'female' && styles.genderCardActive]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              setSex('female');
+            }}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.genderIconCircle, sex === 'female' && styles.genderIconCircleActive]}>
+              <Svg width="60" height="60" viewBox="0 0 24 24" fill="none">
+                <Circle cx="12" cy="9" r="5" stroke={sex === 'female' ? '#22C55E' : '#999999'} strokeWidth="2" />
+                <Path
+                  d="M12 14v8M9 19h6"
+                  stroke={sex === 'female' ? '#22C55E' : '#999999'}
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </Svg>
+            </View>
+            <Text style={[styles.genderText, sex === 'female' && styles.genderTextActive]}>Wanita</Text>
+          </TouchableOpacity>
+        </Animated.View>
       </View>
 
       <TouchableOpacity
@@ -792,68 +922,74 @@ export default function OnboardingScreen() {
       </View>
 
       <View style={styles.optionsList}>
-        <TouchableOpacity
-          style={[styles.goalCard, selectedGoal === 'gain' && styles.goalCardActive]}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            setSelectedGoal('gain');
-            setWeeklyWeightChange(WEEKLY_DEFAULT_GAIN_KG);
-            setWeeklyWeightChangeText(String(WEEKLY_DEFAULT_GAIN_KG));
-          }}
-          activeOpacity={0.7}
-        >
-          <View style={styles.goalIconContainer}>
-            <Text style={styles.goalIcon}>💪</Text>
-          </View>
-          <View style={styles.goalTextContainer}>
-            <Text style={[styles.goalCardTitle, selectedGoal === 'gain' && styles.goalCardTitleActive]}>
-              Menambah Berat Badan
-            </Text>
-            <Text style={styles.goalCardDesc}>Bangun otot dan tingkatkan massa tubuh</Text>
-          </View>
-        </TouchableOpacity>
+        <Animated.View style={getOptionEnterStyle(0)}>
+          <TouchableOpacity
+            style={[styles.goalCard, selectedGoal === 'gain' && styles.goalCardActive]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setSelectedGoal('gain');
+              setWeeklyWeightChange(WEEKLY_DEFAULT_GAIN_KG);
+              setWeeklyWeightChangeText(String(WEEKLY_DEFAULT_GAIN_KG));
+            }}
+            activeOpacity={0.7}
+          >
+            <View style={styles.goalIconContainer}>
+              <Text style={styles.goalIcon}>💪</Text>
+            </View>
+            <View style={styles.goalTextContainer}>
+              <Text style={[styles.goalCardTitle, selectedGoal === 'gain' && styles.goalCardTitleActive]}>
+                Menambah Berat Badan
+              </Text>
+              <Text style={styles.goalCardDesc}>Bangun otot dan tingkatkan massa tubuh</Text>
+            </View>
+          </TouchableOpacity>
+        </Animated.View>
 
-        <TouchableOpacity
-          style={[styles.goalCard, selectedGoal === 'maintain' && styles.goalCardActive]}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            setSelectedGoal('maintain');
-            setWeeklyWeightChange(WEEKLY_DEFAULT_LOSS_KG);
-            setWeeklyWeightChangeText(String(WEEKLY_DEFAULT_LOSS_KG));
-          }}
-          activeOpacity={0.7}
-        >
-          <View style={styles.goalIconContainer}>
-            <Text style={styles.goalIcon}>⚖️</Text>
-          </View>
-          <View style={styles.goalTextContainer}>
-            <Text style={[styles.goalCardTitle, selectedGoal === 'maintain' && styles.goalCardTitleActive]}>
-              Mempertahankan Berat Badan
-            </Text>
-            <Text style={styles.goalCardDesc}>Jaga berat badan sehat yang stabil</Text>
-          </View>
-        </TouchableOpacity>
+        <Animated.View style={getOptionEnterStyle(1)}>
+          <TouchableOpacity
+            style={[styles.goalCard, selectedGoal === 'maintain' && styles.goalCardActive]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setSelectedGoal('maintain');
+              setWeeklyWeightChange(WEEKLY_DEFAULT_LOSS_KG);
+              setWeeklyWeightChangeText(String(WEEKLY_DEFAULT_LOSS_KG));
+            }}
+            activeOpacity={0.7}
+          >
+            <View style={styles.goalIconContainer}>
+              <Text style={styles.goalIcon}>⚖️</Text>
+            </View>
+            <View style={styles.goalTextContainer}>
+              <Text style={[styles.goalCardTitle, selectedGoal === 'maintain' && styles.goalCardTitleActive]}>
+                Mempertahankan Berat Badan
+              </Text>
+              <Text style={styles.goalCardDesc}>Jaga berat badan sehat yang stabil</Text>
+            </View>
+          </TouchableOpacity>
+        </Animated.View>
 
-        <TouchableOpacity
-          style={[styles.goalCard, selectedGoal === 'lose' && styles.goalCardActive]}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            setSelectedGoal('lose');
-            setWeeklyWeightChange(WEEKLY_DEFAULT_LOSS_KG);
-            setWeeklyWeightChangeText(String(WEEKLY_DEFAULT_LOSS_KG));
-          }}
-          activeOpacity={0.7}
-        >
-          <View style={styles.goalIconContainer}>
-            <Text style={styles.goalIcon}>🎯</Text>
-          </View>
-          <View style={styles.goalTextContainer}>
-            <Text style={[styles.goalCardTitle, selectedGoal === 'lose' && styles.goalCardTitleActive]}>
-              Menurunkan Berat Badan
-            </Text>
-            <Text style={styles.goalCardDesc}>Kurangi lemak dan capai berat sehat</Text>
-          </View>
-        </TouchableOpacity>
+        <Animated.View style={getOptionEnterStyle(2)}>
+          <TouchableOpacity
+            style={[styles.goalCard, selectedGoal === 'lose' && styles.goalCardActive]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setSelectedGoal('lose');
+              setWeeklyWeightChange(WEEKLY_DEFAULT_LOSS_KG);
+              setWeeklyWeightChangeText(String(WEEKLY_DEFAULT_LOSS_KG));
+            }}
+            activeOpacity={0.7}
+          >
+            <View style={styles.goalIconContainer}>
+              <Text style={styles.goalIcon}>🎯</Text>
+            </View>
+            <View style={styles.goalTextContainer}>
+              <Text style={[styles.goalCardTitle, selectedGoal === 'lose' && styles.goalCardTitleActive]}>
+                Menurunkan Berat Badan
+              </Text>
+              <Text style={styles.goalCardDesc}>Kurangi lemak dan capai berat sehat</Text>
+            </View>
+          </TouchableOpacity>
+        </Animated.View>
       </View>
 
       <TouchableOpacity
@@ -868,32 +1004,81 @@ export default function OnboardingScreen() {
     </View>
   );
 
-  const renderLongTermResults = () => (
-    <View style={styles.stepContainer}>
-      <View style={styles.reassuranceContainer}>
-        <View style={styles.reassuranceIconCircle}>
-          <Svg width="64" height="64" viewBox="0 0 24 24" fill="none">
-            <Path
-              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-              stroke="#22C55E"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </Svg>
-        </View>
-        <Text style={styles.reassuranceTitle}>DietKu menciptakan{'\n'}hasil jangka panjang</Text>
-        <Text style={styles.reassuranceSubtitle}>
-          Kami fokus pada perubahan berkelanjutan, bukan diet kilat. Konsistensi mengalahkan kesempurnaan.
-        </Text>
-      </View>
+  const renderLongTermResults = () => {
+    const lineDashOffset = insightLineAnim.interpolate({
+      inputRange: [0, 1],
+      outputRange: [560, 0],
+    });
 
-      <TouchableOpacity style={styles.primaryButton} onPress={handleNext} activeOpacity={0.8}>
-        <Text style={styles.primaryButtonText}>Lanjutkan</Text>
-        <ArrowRight size={20} color="#FFFFFF" />
-      </TouchableOpacity>
-    </View>
-  );
+    return (
+      <View style={styles.stepContainer}>
+        <View style={styles.questionContainer}>
+          <Text style={styles.questionTitle}>DietKu bantu hasil jangka panjang</Text>
+        </View>
+
+        <View style={premiumStyles.insightPageMain}>
+          <Animated.View
+            style={[
+              premiumStyles.insightCard,
+              {
+                opacity: insightCardAnim,
+                transform: [
+                  {
+                    translateY: insightCardAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [16, 0],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <View style={premiumStyles.insightCardHeaderRow}>
+              <Text style={premiumStyles.insightCardTitle}>Tren 3 bulan</Text>
+              <Text style={premiumStyles.insightCardHint}>DietKu vs cara biasa</Text>
+            </View>
+            <Svg width="100%" height="178" viewBox="0 0 360 178">
+              <Path d="M18 30H342M18 88H342M18 146H342" stroke="#E5E7EB" strokeDasharray="5 6" strokeWidth="1" />
+              <AnimatedPath
+                d="M18 122 C 70 130, 120 116, 168 94 C 214 74, 270 54, 342 30"
+                stroke="#22C55E"
+                strokeWidth="4"
+                fill="none"
+                strokeLinecap="round"
+                strokeDasharray={560}
+                strokeDashoffset={lineDashOffset}
+              />
+              <AnimatedPath
+                d="M18 106 C 84 100, 128 124, 178 138 C 224 148, 278 132, 342 102"
+                stroke="#9CA3AF"
+                strokeWidth="4"
+                fill="none"
+                strokeLinecap="round"
+                strokeDasharray={560}
+                strokeDashoffset={lineDashOffset}
+              />
+              <Path d="M18 148H342" stroke="#111827" strokeWidth="2.5" />
+              <Path d="M18 122a5 5 0 110 0.1M168 94a5 5 0 110 0.1M342 30a5 5 0 110 0.1" fill="#22C55E" />
+            </Svg>
+            <View style={premiumStyles.insightAxisRow}>
+              <Text style={premiumStyles.insightAxisLabel}>Minggu 2</Text>
+              <Text style={premiumStyles.insightAxisLabel}>Minggu 6</Text>
+              <Text style={premiumStyles.insightAxisLabel}>Minggu 12</Text>
+            </View>
+          </Animated.View>
+
+          <Text style={premiumStyles.insightSubheadline}>
+            Perubahan stabil lebih mudah dipertahankan daripada hasil instan.
+          </Text>
+        </View>
+
+        <TouchableOpacity style={styles.primaryButton} onPress={handleNext} activeOpacity={0.8}>
+          <Text style={styles.primaryButtonText}>Lanjutkan</Text>
+          <ArrowRight size={20} color="#FFFFFF" />
+        </TouchableOpacity>
+      </View>
+    );
+  };
 
   const renderDreamWeight = () => {
     const isInvalidForGoal = 
@@ -988,49 +1173,55 @@ export default function OnboardingScreen() {
       </View>
 
       <View style={styles.optionsList}>
-        <TouchableOpacity
-          style={[styles.activityCard, activityLevel === 'low' && styles.activityCardActive]}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            setActivityLevel('low');
-          }}
-          activeOpacity={0.7}
-        >
-          <Text style={[styles.activityCardTitle, activityLevel === 'low' && styles.activityCardTitleActive]}>
-            🚶 Minimal
-          </Text>
-          <Text style={styles.activityCardDesc}>Sempurna untuk mereka yang memiliki gaya hidup kurang aktif.</Text>
-        </TouchableOpacity>
+        <Animated.View style={getOptionEnterStyle(0)}>
+          <TouchableOpacity
+            style={[styles.activityCard, activityLevel === 'low' && styles.activityCardActive]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setActivityLevel('low');
+            }}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.activityCardTitle, activityLevel === 'low' && styles.activityCardTitleActive]}>
+              🚶 Minimal
+            </Text>
+            <Text style={styles.activityCardDesc}>Sempurna untuk mereka yang memiliki gaya hidup kurang aktif.</Text>
+          </TouchableOpacity>
+        </Animated.View>
 
-        <TouchableOpacity
-          style={[styles.activityCard, activityLevel === 'moderate' && styles.activityCardActive]}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            setActivityLevel('moderate');
-          }}
-          activeOpacity={0.7}
-        >
-          <Text style={[styles.activityCardTitle, activityLevel === 'moderate' && styles.activityCardTitleActive]}>
-            🏃 Sedang
-          </Text>
-          <Text style={styles.activityCardDesc}>Dirancang untuk mereka yang berolahraga secara teratur.</Text>
-        </TouchableOpacity>
+        <Animated.View style={getOptionEnterStyle(1)}>
+          <TouchableOpacity
+            style={[styles.activityCard, activityLevel === 'moderate' && styles.activityCardActive]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setActivityLevel('moderate');
+            }}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.activityCardTitle, activityLevel === 'moderate' && styles.activityCardTitleActive]}>
+              🏃 Sedang
+            </Text>
+            <Text style={styles.activityCardDesc}>Dirancang untuk mereka yang berolahraga secara teratur.</Text>
+          </TouchableOpacity>
+        </Animated.View>
 
-        <TouchableOpacity
-          style={[styles.activityCard, activityLevel === 'high' && styles.activityCardActive]}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            setActivityLevel('high');
-          }}
-          activeOpacity={0.7}
-        >
-          <Text style={[styles.activityCardTitle, activityLevel === 'high' && styles.activityCardTitleActive]}>
-            🔥 Sangat Aktif
-          </Text>
-          <Text style={styles.activityCardDesc}>
-            Cocok untuk atlet, penggemar fitness, atau individu dengan rutinitas sangat aktif.
-          </Text>
-        </TouchableOpacity>
+        <Animated.View style={getOptionEnterStyle(2)}>
+          <TouchableOpacity
+            style={[styles.activityCard, activityLevel === 'high' && styles.activityCardActive]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setActivityLevel('high');
+            }}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.activityCardTitle, activityLevel === 'high' && styles.activityCardTitleActive]}>
+              🔥 Sangat Aktif
+            </Text>
+            <Text style={styles.activityCardDesc}>
+              Cocok untuk atlet, penggemar fitness, atau individu dengan rutinitas sangat aktif.
+            </Text>
+          </TouchableOpacity>
+        </Animated.View>
       </View>
 
       <TouchableOpacity
@@ -1140,24 +1331,134 @@ export default function OnboardingScreen() {
   const renderReassurance = () => {
     const weightDiff = Math.abs(dreamWeight - weight);
     const isGaining = dreamWeight > weight;
+    const lineDashOffset = insightLineAnim.interpolate({
+      inputRange: [0, 1],
+      outputRange: [500, 0],
+    });
+    return (
+      <View style={styles.stepContainer}>
+        <View style={styles.questionContainer}>
+          <Text style={styles.questionTitle}>Target kamu realistis dan bisa dicapai</Text>
+        </View>
+
+        <View style={premiumStyles.insightPageMain}>
+          <Animated.View
+            style={[
+              premiumStyles.insightCard,
+              {
+                opacity: insightCardAnim,
+                transform: [
+                  {
+                    translateY: insightCardAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [16, 0],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <Text style={premiumStyles.insightCardTitle}>Proyeksi transformasi</Text>
+            <Svg width="100%" height="160" viewBox="0 0 350 160">
+              <Path d="M16 28H334M16 78H334M16 128H334" stroke="#E5E7EB" strokeDasharray="5 6" strokeWidth="1" />
+              <AnimatedPath
+                d="M16 112 C 72 108, 118 102, 174 82 C 220 64, 272 44, 334 30"
+                stroke="#A16207"
+                strokeWidth="4"
+                fill="none"
+                strokeLinecap="round"
+                strokeDasharray={500}
+                strokeDashoffset={lineDashOffset}
+              />
+              <Path d="M16 130H334" stroke="#111827" strokeWidth="2.5" />
+              <Path d="M16 112a5 5 0 110 0.1M96 106a5 5 0 110 0.1M174 82a5 5 0 110 0.1M334 30a6 6 0 110 0.1" fill="#111827" />
+            </Svg>
+            <View style={premiumStyles.insightAxisRow}>
+              <Text style={premiumStyles.insightAxisLabel}>4 hari</Text>
+              <Text style={premiumStyles.insightAxisLabel}>10 hari</Text>
+              <Text style={premiumStyles.insightAxisLabel}>5 minggu</Text>
+            </View>
+          </Animated.View>
+
+          <Text style={premiumStyles.insightSubheadline}>
+            {isGaining ? 'Naik' : 'Turun'}{' '}
+            <Text style={premiumStyles.insightHighlightValue}>{weightDiff.toFixed(1)} kg</Text>{' '}
+            biasanya terlihat jelas dalam beberapa minggu.
+          </Text>
+        </View>
+
+        <TouchableOpacity style={styles.primaryButton} onPress={handleNext} activeOpacity={0.8}>
+          <Text style={styles.primaryButtonText}>Lanjutkan</Text>
+          <ArrowRight size={20} color="#FFFFFF" />
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  const renderConsistencyEdge = () => {
+    const selfDots = 3;
+    const dietkuDots = 8;
 
     return (
       <View style={styles.stepContainer}>
-        <View style={styles.reassuranceContainer}>
-          <View style={styles.reassuranceIconCircle}>
-            <Svg width="64" height="64" viewBox="0 0 24 24" fill="none">
-              <Path
-                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                stroke="#22C55E"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </Svg>
-          </View>
-          <Text style={styles.reassuranceTitle}>✓ Itu target{'\n'}yang realistis</Text>
-          <Text style={styles.reassuranceSubtitle}>
-            {isGaining ? 'Menambah' : 'Menurunkan'} {weightDiff.toFixed(1)} kg dapat dicapai dengan konsistensi dan dedikasi.
+        <View style={styles.questionContainer}>
+          <Text style={styles.questionTitle}>Dengan support yang tepat, hasilnya lebih konsisten</Text>
+        </View>
+
+        <View style={premiumStyles.insightPageMain}>
+          <Animated.View
+            style={[
+              premiumStyles.insightMiniCompareCard,
+              {
+                opacity: insightCardAnim,
+                transform: [
+                  {
+                    translateY: insightCardAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [16, 0],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <Text style={premiumStyles.insightMiniCompareTitle}>Konsistensi mingguan</Text>
+            <View style={premiumStyles.dotCompareRow}>
+              <View style={premiumStyles.dotCompareCol}>
+                <Text style={premiumStyles.insightBarTopLabel}>Sendiri</Text>
+                <View style={premiumStyles.dotGrid}>
+                  {Array.from({ length: 10 }).map((_, idx) => (
+                    <View
+                      key={`self-dot-${idx}`}
+                      style={[
+                        premiumStyles.dotCell,
+                        idx < selfDots ? premiumStyles.dotCellMutedOn : premiumStyles.dotCellOff,
+                      ]}
+                    />
+                  ))}
+                </View>
+                <Text style={premiumStyles.insightBarBottomLabel}>28%</Text>
+              </View>
+              <View style={premiumStyles.dotCompareCol}>
+                <Text style={premiumStyles.insightBarTopLabel}>Dengan DietKu</Text>
+                <View style={premiumStyles.dotGrid}>
+                  {Array.from({ length: 10 }).map((_, idx) => (
+                    <View
+                      key={`dietku-dot-${idx}`}
+                      style={[
+                        premiumStyles.dotCell,
+                        idx < dietkuDots ? premiumStyles.dotCellStrongOn : premiumStyles.dotCellOff,
+                      ]}
+                    />
+                  ))}
+                </View>
+                <Text style={premiumStyles.insightBarBottomLabel}>1.8x</Text>
+              </View>
+            </View>
+          </Animated.View>
+
+          <Text style={premiumStyles.insightSubheadline}>
+            Tracking harian + target personal membuat progres lebih stabil.
           </Text>
         </View>
 
@@ -1192,17 +1493,18 @@ export default function OnboardingScreen() {
         </View>
 
         <View style={styles.optionsList}>
-          {motivationOptions.map(option => (
-            <TouchableOpacity
-              key={option.id}
-              style={[styles.activityCard, motivations.includes(option.id) && styles.activityCardActive]}
-              onPress={() => toggleMotivation(option.id)}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.activityCardTitle, motivations.includes(option.id) && styles.activityCardTitleActive]}>
-                {option.label}
-              </Text>
-            </TouchableOpacity>
+          {motivationOptions.map((option, index) => (
+            <Animated.View key={option.id} style={getOptionEnterStyle(index)}>
+              <TouchableOpacity
+                style={[styles.activityCard, motivations.includes(option.id) && styles.activityCardActive]}
+                onPress={() => toggleMotivation(option.id)}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.activityCardTitle, motivations.includes(option.id) && styles.activityCardTitleActive]}>
+                  {option.label}
+                </Text>
+              </TouchableOpacity>
+            </Animated.View>
           ))}
         </View>
 
@@ -1218,6 +1520,134 @@ export default function OnboardingScreen() {
       </View>
     );
   };
+
+  const renderMainObstacle = () => {
+    const obstacleOptions = [
+      { id: 'consistency', label: '🎯 Sulit konsisten setiap hari' },
+      { id: 'eating_pattern', label: '🍽️ Pola makan belum teratur' },
+      { id: 'support', label: '🤝 Kurang dukungan lingkungan' },
+      { id: 'time', label: '⏰ Waktu sangat terbatas' },
+      { id: 'planning', label: '🧩 Bingung menyusun menu' },
+    ];
+
+    return (
+      <View style={styles.stepContainer}>
+        <View style={styles.questionContainer}>
+          <Text style={styles.questionTitle}>Apa hambatan terbesar Anda saat ini?</Text>
+          <Text style={styles.questionSubtitle}>Pilih satu yang paling sering membuat Anda mundur</Text>
+        </View>
+
+        <View style={styles.optionsList}>
+          {obstacleOptions.map((option, index) => (
+            <Animated.View key={option.id} style={getOptionEnterStyle(index)}>
+              <TouchableOpacity
+                style={[styles.activityCard, mainObstacle === option.id && styles.activityCardActive]}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setMainObstacle(option.id);
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.activityCardTitle, mainObstacle === option.id && styles.activityCardTitleActive]}>
+                  {option.label}
+                </Text>
+              </TouchableOpacity>
+            </Animated.View>
+          ))}
+        </View>
+
+        <TouchableOpacity
+          style={[styles.primaryButton, !mainObstacle && styles.primaryButtonDisabled]}
+          onPress={handleNext}
+          disabled={!mainObstacle}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.primaryButtonText}>Lanjutkan</Text>
+          <ArrowRight size={20} color="#FFFFFF" />
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  const renderCoachStatus = () => (
+    <View style={styles.stepContainer}>
+      <View style={styles.questionContainer}>
+        <Text style={styles.questionTitle}>Saat ini Anda didampingi coach atau nutritionist?</Text>
+      </View>
+
+      <View style={styles.optionsList}>
+        {[
+          { id: 'yes' as const, label: '✅ Ya, saat ini didampingi' },
+          { id: 'no' as const, label: '👤 Belum, saya jalan sendiri' },
+        ].map((option, index) => (
+          <Animated.View key={option.id} style={getOptionEnterStyle(index)}>
+            <TouchableOpacity
+              style={[styles.activityCard, hasCoach === option.id && styles.activityCardActive]}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setHasCoach(option.id);
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.activityCardTitle, hasCoach === option.id && styles.activityCardTitleActive]}>
+                {option.label}
+              </Text>
+            </TouchableOpacity>
+          </Animated.View>
+        ))}
+      </View>
+
+      <TouchableOpacity
+        style={[styles.primaryButton, !hasCoach && styles.primaryButtonDisabled]}
+        onPress={handleNext}
+        disabled={!hasCoach}
+        activeOpacity={0.8}
+      >
+        <Text style={styles.primaryButtonText}>Lanjutkan</Text>
+        <ArrowRight size={20} color="#FFFFFF" />
+      </TouchableOpacity>
+    </View>
+  );
+
+  const renderTrackingAppExperience = () => (
+    <View style={styles.stepContainer}>
+      <View style={styles.questionContainer}>
+        <Text style={styles.questionTitle}>Pernah mencoba aplikasi hitung kalori lain sebelumnya?</Text>
+      </View>
+
+      <View style={styles.optionsList}>
+        {[
+          { id: 'yes' as const, label: '📱 Pernah, sudah coba beberapa' },
+          { id: 'no' as const, label: '🌱 Belum pernah, ini yang pertama' },
+        ].map((option, index) => (
+          <Animated.View key={option.id} style={getOptionEnterStyle(index)}>
+            <TouchableOpacity
+              style={[styles.activityCard, usedTrackingApp === option.id && styles.activityCardActive]}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setUsedTrackingApp(option.id);
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.activityCardTitle, usedTrackingApp === option.id && styles.activityCardTitleActive]}>
+                {option.label}
+              </Text>
+            </TouchableOpacity>
+          </Animated.View>
+        ))}
+      </View>
+
+      <TouchableOpacity
+        style={[styles.primaryButton, !usedTrackingApp && styles.primaryButtonDisabled]}
+        onPress={handleNext}
+        disabled={!usedTrackingApp}
+        activeOpacity={0.8}
+      >
+        <Text style={styles.primaryButtonText}>Lanjutkan</Text>
+        <ArrowRight size={20} color="#FFFFFF" />
+      </TouchableOpacity>
+    </View>
+  );
 
   const renderDietType = () => {
     const dietOptions = [
@@ -1236,20 +1666,21 @@ export default function OnboardingScreen() {
         </View>
 
         <View style={styles.optionsList}>
-          {dietOptions.map(option => (
-            <TouchableOpacity
-              key={option.id}
-              style={[styles.activityCard, dietType === option.id && styles.activityCardActive]}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setDietType(option.id);
-              }}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.activityCardTitle, dietType === option.id && styles.activityCardTitleActive]}>
-                {option.label}
-              </Text>
-            </TouchableOpacity>
+          {dietOptions.map((option, index) => (
+            <Animated.View key={option.id} style={getOptionEnterStyle(index)}>
+              <TouchableOpacity
+                style={[styles.activityCard, dietType === option.id && styles.activityCardActive]}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setDietType(option.id);
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.activityCardTitle, dietType === option.id && styles.activityCardTitleActive]}>
+                  {option.label}
+                </Text>
+              </TouchableOpacity>
+            </Animated.View>
           ))}
         </View>
 
@@ -1500,9 +1931,9 @@ export default function OnboardingScreen() {
   // HIDDEN: Subscription modal
   /* 
   const renderSubscription = () => {
-    const yearlyPrice = 'Rp 349.000 / tahun';
-    const yearlyEquiv = 'Rp 29.000 / bulan';
-    const monthlyPrice = 'Rp 59.000 / bulan';
+    const yearlyPrice = 'Rp 279.999 / tahun';
+    const yearlyEquiv = 'Rp 23.333 / bulan';
+    const monthlyPrice = 'Rp 69.999 / bulan';
 
     return (
       <View style={styles.subscriptionOverlay}>
@@ -1611,7 +2042,7 @@ export default function OnboardingScreen() {
   */
 
   const renderSignIn = () => (
-    <View style={styles.stepContainer}>
+    <View style={[styles.stepContainer, styles.stepContainerSignIn]}>
       <View style={styles.header}>
         <View style={styles.iconCircle}>
           <Svg width="64" height="64" viewBox="0 0 24 24" fill="none">
@@ -1625,7 +2056,7 @@ export default function OnboardingScreen() {
         <Text style={styles.signInSubtitle}>Masuk untuk menyinkronkan data di semua perangkat</Text>
       </View>
 
-      <View style={styles.signInForm}>
+      <View style={[styles.signInForm, styles.signInFormNatural]}>
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>Nama Depan</Text>
           <TextInput
@@ -1674,6 +2105,7 @@ export default function OnboardingScreen() {
             returnKeyType="next"
             onSubmitEditing={() => {
               scrollToY(signInPasswordY.current);
+              scrollSignInPasswordIntoView();
             }}
           />
         </View>
@@ -1689,8 +2121,11 @@ export default function OnboardingScreen() {
             <TextInput
               style={styles.signInPasswordInput}
               value={signInPassword}
-              onFocus={() => scrollToY(signInPasswordY.current)}
-              onChangeText={setSignInPassword}
+            onFocus={() => {
+              scrollToY(signInPasswordY.current);
+              scrollSignInPasswordIntoView();
+            }}
+            onChangeText={setSignInPassword}
               placeholder="••••••••"
               placeholderTextColor="#999999"
               secureTextEntry={!showSignInPassword}
@@ -1724,6 +2159,9 @@ export default function OnboardingScreen() {
             <TextInput
               style={styles.signInPasswordInput}
               value={signInPasswordConfirm}
+              onFocus={() => {
+                scrollSignInPasswordIntoView();
+              }}
               onChangeText={setSignInPasswordConfirm}
               placeholder="••••••••"
               placeholderTextColor="#999999"
@@ -1825,24 +2263,32 @@ export default function OnboardingScreen() {
       case 11:
         return renderMotivations();
       case 12:
-        return renderDietType();
+        return renderMainObstacle();
       case 13:
-        return renderFinal();
+        return renderCoachStatus();
       case 14:
-        return renderSignIn();
+        return renderTrackingAppExperience();
       case 15:
+        return renderDietType();
+      case 16:
+        return renderConsistencyEdge();
+      case 17:
+        return renderFinal();
+      case 18:
+        return renderSignIn();
+      case 19:
         return renderNotificationPermission();
       default:
         return renderIntro();
     }
   };
 
-  const contentPaddingBottom = Platform.OS === 'android' 
-    ? Math.max(24, insets.bottom) + 16 
-    : Math.max(20, insets.bottom);
+  const contentPaddingBottom =
+    Platform.OS === 'android'
+      ? Math.max(24, insets.bottom) + 16 + (step === 18 ? 120 : 0)
+      : Math.max(20, insets.bottom) + (step === 18 ? 140 : 0);
   const contentPaddingTop = Platform.OS === 'android' ? 24 : insets.top + 8;
   const ScreenWrapper = Platform.OS === 'ios' ? KeyboardAvoidingView : View;
-
 
   const renderContent = () => (
     <>
@@ -1869,18 +2315,21 @@ export default function OnboardingScreen() {
   return (
     <ScreenWrapper
       style={styles.container}
-      {...(Platform.OS === 'ios' ? { behavior: 'padding', keyboardVerticalOffset: 0 } : {})}
+      {...(Platform.OS === 'ios'
+        ? { behavior: 'height' as const, keyboardVerticalOffset: insets.top + 12 }
+        : {})}
     >
       <ScrollView
         ref={scrollRef}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: contentPaddingBottom, paddingTop: contentPaddingTop }]}
         showsVerticalScrollIndicator={false}
         scrollEnabled={
-          (step === 13 || step === 14 || step === 15) && !showLoading
+          (step === 17 || step === 18 || step === 19) && !showLoading
         }
         nestedScrollEnabled
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+        automaticallyAdjustKeyboardInsets={false}
       >
         {renderContent()}
       </ScrollView>
@@ -1890,4 +2339,163 @@ export default function OnboardingScreen() {
     </ScreenWrapper>
   );
 }
+
+const premiumStyles = StyleSheet.create({
+  insightPageMain: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  insightCard: {
+    width: '100%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 26,
+    borderWidth: 1,
+    borderColor: '#EEF0F3',
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 14,
+    marginBottom: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.06,
+    shadowRadius: 14,
+    elevation: 3,
+  },
+  insightCardHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  insightCardTitle: {
+    fontSize: 18,
+    fontWeight: '700' as const,
+    color: '#111827',
+  },
+  insightCardHint: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '600' as const,
+  },
+  insightAxisRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 2,
+    marginBottom: 8,
+  },
+  insightAxisLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '600' as const,
+  },
+  insightFootnote: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#374151',
+    textAlign: 'center',
+  },
+  insightSubheadline: {
+    fontSize: 16,
+    lineHeight: 24,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginTop: 4,
+    marginBottom: 14,
+    paddingHorizontal: 6,
+  },
+  insightHighlightValue: {
+    color: '#22C55E',
+    fontWeight: '800' as const,
+  },
+  insightMiniCompareCard: {
+    width: '100%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: '#EEF0F3',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginBottom: 10,
+  },
+  insightMiniCompareTitle: {
+    fontSize: 15,
+    fontWeight: '700' as const,
+    color: '#111827',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  insightBarsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-evenly',
+    gap: 20,
+  },
+  dotCompareRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 20,
+  },
+  dotCompareCol: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  dotGrid: {
+    width: 98,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 10,
+  },
+  dotCell: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+  },
+  dotCellOff: {
+    backgroundColor: '#E5E7EB',
+  },
+  dotCellMutedOn: {
+    backgroundColor: '#9CA3AF',
+  },
+  dotCellStrongOn: {
+    backgroundColor: '#111827',
+  },
+  insightBarColumn: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  insightBarTopLabel: {
+    fontSize: 13,
+    fontWeight: '600' as const,
+    color: '#374151',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  insightBarTrack: {
+    width: 72,
+    height: 110,
+    borderRadius: 18,
+    justifyContent: 'flex-end',
+    overflow: 'hidden',
+    backgroundColor: '#F3F4F6',
+    marginBottom: 8,
+  },
+  insightBarFillSoft: {
+    width: '100%',
+    height: 44,
+    borderRadius: 18,
+    backgroundColor: '#D1D5DB',
+  },
+  insightBarFillStrong: {
+    width: '100%',
+    height: 96,
+    borderRadius: 18,
+    backgroundColor: '#111827',
+  },
+  insightBarBottomLabel: {
+    fontSize: 16,
+    fontWeight: '700' as const,
+    color: '#111827',
+  },
+});
 

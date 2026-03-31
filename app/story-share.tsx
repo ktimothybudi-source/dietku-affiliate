@@ -49,6 +49,9 @@ import { LOCATION_PRESETS } from '@/constants/storyShare';
 import { ANIMATION_DURATION, SPRING_CONFIG } from '@/constants/animations';
 import { storyShareStyles as styles } from '@/styles/storyShareStyles';
 
+const STORY_EXPORT_WIDTH = 2160;
+const STORY_EXPORT_HEIGHT = 3840;
+
 export default function StoryShareScreen() {
   const { theme, themeMode } = useTheme();
   const insets = useSafeAreaInsets();
@@ -199,9 +202,11 @@ export default function StoryShareScreen() {
   const captureStoryImage = async (): Promise<string> => {
     if (!previewRef.current) throw new Error('Story preview belum siap.');
     const uri = await captureRef(previewRef, {
-      format: 'jpg',
-      quality: 0.95,
+      format: 'png',
+      quality: 1,
       result: 'tmpfile',
+      width: STORY_EXPORT_WIDTH,
+      height: STORY_EXPORT_HEIGHT,
     });
     if (!uri) throw new Error('Gagal menangkap gambar story.');
     return uri;
@@ -418,8 +423,6 @@ export default function StoryShareScreen() {
     );
   };
 
-  const hasAnyPills = includeOptions.healthRating && currentHealthRating;
-
   const renderPreview = () => (
     <View
       ref={previewRef}
@@ -467,14 +470,11 @@ export default function StoryShareScreen() {
         </View>
       ) : null}
 
-      <View style={[
-        styles.previewContent,
-        !includeOptions.name && !includeOptions.macros && !hasAnyPills && styles.previewContentMinimal
-      ]}>
+      <View style={styles.previewContent}>
         {includeOptions.name && (
           <Text style={[
             styles.previewMealName,
-            !includeOptions.macros && !hasAnyPills && styles.previewMealNameLarge
+            !includeOptions.macros && !includeOptions.healthRating && styles.previewMealNameLarge
           ]}>
             {customMealName}
           </Text>
@@ -501,29 +501,21 @@ export default function StoryShareScreen() {
         {includeOptions.macros && (
           <View style={[
             styles.macroChips,
-            !hasAnyPills && styles.macroChipsSpaced
+            !includeOptions.healthRating && styles.macroChipsSpaced
           ]}>
-            <View style={styles.macroChip}>
-              <Text style={styles.macroChipText}>💪 {storyData.protein}g</Text>
-            </View>
-            <View style={styles.macroChip}>
-              <Text style={styles.macroChipText}>🍞 {storyData.carbs}g</Text>
-            </View>
-            <View style={styles.macroChip}>
-              <Text style={styles.macroChipText}>🥑 {storyData.fat}g</Text>
-            </View>
+            <Text style={styles.macroInlineText}>
+              {storyData.protein}g protein • {storyData.carbs}g carbs • {storyData.fat}g fat
+            </Text>
           </View>
         )}
 
-        {hasAnyPills && (
+        {includeOptions.healthRating && currentHealthRating && (
           <View style={styles.previewPills}>
-            {includeOptions.healthRating && currentHealthRating && (
-              <View style={[styles.previewPill, { backgroundColor: `${currentHealthRating.color}20` }]}>
-                <Text style={styles.previewPillText}>
-                  {currentHealthRating.icon} {currentHealthRating.label}
-                </Text>
-              </View>
-            )}
+            <View style={[styles.previewPill, { backgroundColor: `${currentHealthRating.color}20` }]}>
+              <Text style={styles.previewPillText}>
+                {currentHealthRating.icon} {currentHealthRating.label}
+              </Text>
+            </View>
           </View>
         )}
       </View>

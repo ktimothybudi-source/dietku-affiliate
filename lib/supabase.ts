@@ -51,6 +51,7 @@ export interface SupabaseFoodEntry {
   sodium: number | null;
   photo_uri: string | null;
   created_at: string;
+  logged_meal_id?: string | null;
 }
 
 export interface SupabaseWeightHistory {

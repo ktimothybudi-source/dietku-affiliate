@@ -10,11 +10,12 @@
     "newArchEnabled": false,
     "splash": {
       "image": "./assets/images/icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "resizeMode": "native",
+      "backgroundColor": "#F6F4F1"
     },
     "ios": {
       "supportsTablet": false,
+      "usesAppleSignIn": true,
       "bundleIdentifier": "app.rork.dietku-clone-jlejfwy",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
@@ -26,10 +27,11 @@
           "instagram",
           "instagram-stories"
         ]
-      }
+      },
+      "buildNumber": "2"
     },
     "android": {
-      "versionCode": 9,
+      "versionCode": 12,
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
@@ -58,6 +60,14 @@
           "origin": "https://rork.com/"
         }
       ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/icon.png",
+          "imageWidth": 140,
+          "backgroundColor": "#F6F4F1"
+        }
+      ],
       "expo-font",
       "expo-web-browser",
       [
@@ -72,7 +82,15 @@
           "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera"
         }
       ],
-      "expo-media-library"
+      "expo-media-library",
+      "expo-apple-authentication",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow $(PRODUCT_NAME) to use your location only when you add a location label to a story image."
+        }
+      ],
+      "expo-notifications"
     ],
     "experiments": {
       "typedRoutes": true
