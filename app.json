@@ -2,7 +2,7 @@
   "expo": {
     "name": "DietKu",
     "slug": "dietku-clone-jlejfwy",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "rork-app",
@@ -28,10 +28,10 @@
           "instagram-stories"
         ]
       },
-      "buildNumber": "2"
+      "buildNumber": "5"
     },
     "android": {
-      "versionCode": 12,
+      "versionCode": 14,
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
