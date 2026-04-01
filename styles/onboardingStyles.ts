@@ -18,6 +18,8 @@ export const onboardingStyles = StyleSheet.create({
     borderRadius: 2,
   },
   contentWrapper: { flex: 1 },
+  /** Sign-up step: don’t stretch inside ScrollView (avoids odd vertical gaps / keyboard fights). */
+  contentWrapperSignUp: { flexGrow: 0, flexShrink: 0 },
   stepContainer: { flex: 1, justifyContent: 'space-between' },
   /** Use on long forms inside ScrollView so content scrolls above the keyboard (e.g. Simpan Progress Anda). */
   stepContainerSignIn: { flex: 0, justifyContent: 'flex-start' },
@@ -230,6 +232,8 @@ export const onboardingStyles = StyleSheet.create({
   primaryButtonText: { fontSize: 18, fontWeight: '600', color: '#FFFFFF' },
 
   genderOptions: { flexDirection: 'row', gap: 16, marginBottom: 24 },
+  /** Animated.View wrappers must flex so cards share row width (otherwise row is intrinsic-width and sits left). */
+  genderOptionWrapper: { flex: 1, minWidth: 0 },
   genderCard: {
     flex: 1,
     backgroundColor: '#FFFFFF',
@@ -393,7 +397,10 @@ export const onboardingStyles = StyleSheet.create({
   signInLink: { marginTop: 20, padding: 12, alignItems: 'center' },
   signInLinkText: { fontSize: 15, fontWeight: '600' as const, color: '#666666' },
 
-  notificationButtons: { gap: 12 },
+  notificationButtons: {
+    gap: 12,
+    width: '100%',
+  },
   skipButton: {
     backgroundColor: 'transparent',
     borderWidth: 1.5,
@@ -510,10 +517,23 @@ export const onboardingStyles = StyleSheet.create({
 
   header: { alignItems: 'center', marginBottom: 32 },
   iconCircle: { width: 100, height: 100, borderRadius: 50, backgroundColor: 'rgba(34, 197, 94, 0.08)', alignItems: 'center', justifyContent: 'center', marginBottom: 24 },
-  signInTitle: { fontSize: 28, fontWeight: '700' as const, color: '#000000', textAlign: 'center', marginBottom: 12 },
-  signInSubtitle: { fontSize: 16, color: '#666666', textAlign: 'center', lineHeight: 24 },
+  signInTitle: {
+    fontSize: 28,
+    fontWeight: '700' as const,
+    color: '#000000',
+    textAlign: 'center',
+    marginBottom: 12,
+    alignSelf: 'stretch',
+  },
+  signInSubtitle: {
+    fontSize: 16,
+    color: '#666666',
+    textAlign: 'center',
+    lineHeight: 24,
+    alignSelf: 'stretch',
+  },
 
-  signInForm: { flex: 1 },
+  signInForm: { width: '100%' },
   inputGroup: { marginBottom: 20 },
   inputLabel: { fontSize: 15, fontWeight: '600' as const, color: '#000000', marginBottom: 8 },
   signInInput: { backgroundColor: '#FFFFFF', borderWidth: 1.5, borderColor: '#EEEDF2', borderRadius: 24, paddingHorizontal: 20, paddingVertical: 16, fontSize: 16, color: '#1A1A2E' },

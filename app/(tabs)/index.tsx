@@ -10,12 +10,12 @@ import {
   Modal,
   KeyboardAvoidingView,
   Platform,
-  Image,
   ActivityIndicator,
   Alert,
   Animated,
   Dimensions,
 } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 
 import { indexStyles as styles } from '@/styles/indexStyles';
 const SCREEN_WIDTH = Dimensions.get('window').width;
@@ -1219,7 +1219,13 @@ export default function HomeScreen() {
                       activeOpacity={0.7}
                     >
                       <View style={styles.pendingThumbnailContainer}>
-                        <Image source={{ uri: pending.photoUri }} style={styles.pendingThumbnail} />
+                        <ExpoImage
+                          source={{ uri: pending.photoUri }}
+                          style={styles.pendingThumbnail}
+                          contentFit="cover"
+                          cachePolicy="memory-disk"
+                          transition={0}
+                        />
                         {isAnalyzing && (
                           <View style={styles.pendingOverlay}>
                             <ActivityIndicator size="small" color={theme.primary} />
@@ -1258,7 +1264,13 @@ export default function HomeScreen() {
                     >
                       <View style={[styles.foodThumbnail, { backgroundColor: theme.background }]}>
                         {entry.photoUri ? (
-                          <Image source={{ uri: entry.photoUri }} style={styles.foodThumbnailImage} />
+                          <ExpoImage
+                            source={{ uri: entry.photoUri }}
+                            style={styles.foodThumbnailImage}
+                            contentFit="cover"
+                            cachePolicy="memory-disk"
+                            transition={0}
+                          />
                         ) : (
                           <Camera size={18} color={theme.textSecondary} />
                         )}
@@ -1373,7 +1385,13 @@ export default function HomeScreen() {
 
                 {photoUri && !analyzing && analysis && (
                   <View style={styles.analysisContainer}>
-                    <Image source={{ uri: photoUri }} style={styles.photoPreview} />
+                    <ExpoImage
+                      source={{ uri: photoUri }}
+                      style={styles.photoPreview}
+                      contentFit="cover"
+                      cachePolicy="memory-disk"
+                      transition={0}
+                    />
                     
                     <View style={[styles.confidenceBadge, { backgroundColor: theme.background }]}>
                       <Text style={[styles.confidenceText, { color: theme.text }]}>
@@ -1480,7 +1498,13 @@ export default function HomeScreen() {
                     >
                       {photoUri ? (
                         <View style={styles.optionalImagePreviewContainer}>
-                          <Image source={{ uri: photoUri }} style={styles.optionalImagePreview} />
+                          <ExpoImage
+                            source={{ uri: photoUri }}
+                            style={styles.optionalImagePreview}
+                            contentFit="cover"
+                            cachePolicy="memory-disk"
+                            transition={0}
+                          />
                           <TouchableOpacity
                             style={styles.removeImageButton}
                             onPress={() => setPhotoUri(null)}
@@ -1796,7 +1820,13 @@ export default function HomeScreen() {
                             activeOpacity={0.7}
                           >
                             {food.image && (
-                              <Image source={{ uri: food.image }} style={styles.supabaseFoodImage} />
+                              <ExpoImage
+                                source={{ uri: food.image }}
+                                style={styles.supabaseFoodImage}
+                                contentFit="cover"
+                                cachePolicy="memory-disk"
+                                transition={0}
+                              />
                             )}
                             <View style={styles.mealItemInfo}>
                               <Text style={[styles.mealItemName, { color: theme.text }]} numberOfLines={2}>

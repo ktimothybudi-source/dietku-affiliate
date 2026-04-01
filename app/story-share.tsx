@@ -8,12 +8,12 @@ import {
   Animated,
   Share,
   Alert,
-  Image,
   TextInput,
   Platform,
   ActivityIndicator,
   Linking,
 } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -36,6 +36,7 @@ import {
 import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
 import * as MediaLibrary from 'expo-media-library';
+import * as ImageManipulator from 'expo-image-manipulator';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { captureRef } from 'react-native-view-shot';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -49,8 +50,47 @@ import { LOCATION_PRESETS } from '@/constants/storyShare';
 import { ANIMATION_DURATION, SPRING_CONFIG } from '@/constants/animations';
 import { storyShareStyles as styles } from '@/styles/storyShareStyles';
 
+/** 9:16 story export width; height follows aspect (e.g. 2160×3840). Upscale via ImageManipulator after capture. */
 const STORY_EXPORT_WIDTH = 2160;
-const STORY_EXPORT_HEIGHT = 3840;
+/** Portrait story: width / height (matches preview `aspectRatio: 9/16`). */
+const STORY_ASPECT_WIDTH_OVER_HEIGHT = 9 / 16;
+/** Slight zoom so view-shot / rounding doesn’t leave thin edge bands (clipped by card overflow). */
+const PREVIEW_PHOTO_BLEED_SCALE = 1.08;
+
+async function exportStoryPngFromCapture(rawUri: string): Promise<string> {
+  // Resize alone never “adds” black bars — it only scales pixels. Bars come from the capture.
+  // If the PNG aspect is off 9:16 (common with snapshot quirks), center-crop then scale.
+  const probe = await ImageManipulator.manipulateAsync(rawUri, [], {
+    compress: 1,
+    format: ImageManipulator.SaveFormat.PNG,
+  });
+  const w = probe.width;
+  const h = probe.height;
+  if (w <= 0 || h <= 0) throw new Error('Gagal membaca dimensi gambar story.');
+
+  const srcAspect = w / h;
+  const actions: ImageManipulator.Action[] = [];
+  if (Math.abs(srcAspect - STORY_ASPECT_WIDTH_OVER_HEIGHT) > 0.004) {
+    let originX = 0;
+    let originY = 0;
+    let cw = w;
+    let ch = h;
+    if (srcAspect > STORY_ASPECT_WIDTH_OVER_HEIGHT) {
+      cw = Math.round(h * STORY_ASPECT_WIDTH_OVER_HEIGHT);
+      originX = Math.max(0, Math.floor((w - cw) / 2));
+    } else {
+      ch = Math.round(w / STORY_ASPECT_WIDTH_OVER_HEIGHT);
+      originY = Math.max(0, Math.floor((h - ch) / 2));
+    }
+    actions.push({ crop: { originX, originY, width: cw, height: ch } });
+  }
+  actions.push({ resize: { width: STORY_EXPORT_WIDTH } });
+  const { uri } = await ImageManipulator.manipulateAsync(rawUri, actions, {
+    compress: 1,
+    format: ImageManipulator.SaveFormat.PNG,
+  });
+  return uri;
+}
 
 export default function StoryShareScreen() {
   const { theme, themeMode } = useTheme();
@@ -95,6 +135,8 @@ export default function StoryShareScreen() {
   const [showShareSheet, setShowShareSheet] = useState(false);
   const [isLoadingLocation, setIsLoadingLocation] = useState(false);
   const [isPreparingStory, setIsPreparingStory] = useState(false);
+  /** Laid-out size of the story card so the photo view matches pixels exactly (avoids iOS snapshot letterboxing). */
+  const [previewLayout, setPreviewLayout] = useState<{ w: number; h: number } | null>(null);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -201,15 +243,16 @@ export default function StoryShareScreen() {
 
   const captureStoryImage = async (): Promise<string> => {
     if (!previewRef.current) throw new Error('Story preview belum siap.');
-    const uri = await captureRef(previewRef, {
+    // Capture at the preview's native pixel size (never pass fake 4K into captureRef — iOS draws a wrong canvas).
+    // iOS: useRenderInContext breaks UIImageView/expo-image aspectFill — produces black letterboxing in the PNG.
+    // Default drawViewHierarchyInRect matches on-screen layout (gradients + text still snapshot correctly).
+    const rawUri = await captureRef(previewRef, {
       format: 'png',
       quality: 1,
       result: 'tmpfile',
-      width: STORY_EXPORT_WIDTH,
-      height: STORY_EXPORT_HEIGHT,
     });
-    if (!uri) throw new Error('Gagal menangkap gambar story.');
-    return uri;
+    if (!rawUri) throw new Error('Gagal menangkap gambar story.');
+    return exportStoryPngFromCapture(rawUri);
   };
 
   const saveStoryImage = async (imageUri: string): Promise<void> => {
@@ -427,17 +470,39 @@ export default function StoryShareScreen() {
     <View
       ref={previewRef}
       collapsable={false}
+      onLayout={(e) => {
+        const { width, height } = e.nativeEvent.layout;
+        if (width <= 0 || height <= 0) return;
+        setPreviewLayout((prev) =>
+          prev && Math.abs(prev.w - width) < 0.5 && Math.abs(prev.h - height) < 0.5 ? prev : { w: width, h: height }
+        );
+      }}
       style={[
         styles.previewContainer,
         { backgroundColor: themeMode === 'light' ? theme.border : '#1a1a2e' },
       ]}
     >
       {storyData.photoUri ? (
-        <Image
-          source={{ uri: storyData.photoUri }}
-          style={styles.previewImage}
-          resizeMode="cover"
-        />
+        <View style={styles.previewImage} collapsable={false}>
+          <ExpoImage
+            source={{ uri: storyData.photoUri }}
+            style={
+              previewLayout != null
+                ? {
+                    position: 'absolute',
+                    left: 0,
+                    top: 0,
+                    width: previewLayout.w,
+                    height: previewLayout.h,
+                    transform: [{ scale: PREVIEW_PHOTO_BLEED_SCALE }],
+                  }
+                : [styles.previewPhotoExpo, { transform: [{ scale: PREVIEW_PHOTO_BLEED_SCALE }] }]
+            }
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            transition={0}
+          />
+        </View>
       ) : (
         <LinearGradient
           colors={
@@ -450,8 +515,9 @@ export default function StoryShareScreen() {
       )}
       
       <LinearGradient
-        colors={['transparent', 'rgba(0,0,0,0.3)', 'rgba(0,0,0,0.85)']}
-        locations={[0, 0.4, 1]}
+        pointerEvents="none"
+        colors={['transparent', 'rgba(0,0,0,0.22)', 'rgba(0,0,0,0.68)']}
+        locations={[0, 0.48, 1]}
         style={styles.previewGradient}
       />
 

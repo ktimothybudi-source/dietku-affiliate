@@ -110,22 +110,9 @@ export default function OnboardingScreen() {
   const weightY = useRef(0);
   const dreamWeightY = useRef(0);
   const weeklyWeightChangeY = useRef(0);
-  const signInEmailY = useRef(0);
-  const signInPasswordY = useRef(0);
-
   const scrollToY = useCallback((y: number) => {
     requestAnimationFrame(() => {
       scrollRef.current?.scrollTo({ y: Math.max(0, y - 120), animated: true });
-    });
-  }, []);
-
-  /** Password fields sit at the bottom of the sign-in step; scroll after keyboard animation. */
-  const scrollSignInPasswordIntoView = useCallback(() => {
-    const delay = Platform.OS === 'ios' ? 320 : 150;
-    requestAnimationFrame(() => {
-      setTimeout(() => {
-        scrollRef.current?.scrollToEnd({ animated: true });
-      }, delay);
     });
   }, []);
 
@@ -770,7 +757,7 @@ export default function OnboardingScreen() {
       </View>
 
       <View style={styles.genderOptions}>
-        <Animated.View style={getOptionEnterStyle(0)}>
+        <Animated.View style={[styles.genderOptionWrapper, getOptionEnterStyle(0)]}>
           <TouchableOpacity
             style={[styles.genderCard, sex === 'male' && styles.genderCardActive]}
             onPress={() => {
@@ -795,7 +782,7 @@ export default function OnboardingScreen() {
           </TouchableOpacity>
         </Animated.View>
 
-        <Animated.View style={getOptionEnterStyle(1)}>
+        <Animated.View style={[styles.genderOptionWrapper, getOptionEnterStyle(1)]}>
           <TouchableOpacity
             style={[styles.genderCard, sex === 'female' && styles.genderCardActive]}
             onPress={() => {
@@ -2085,17 +2072,11 @@ export default function OnboardingScreen() {
           />
         </View>
 
-        <View
-          onLayout={(e) => {
-            signInEmailY.current = e.nativeEvent.layout.y;
-          }}
-          style={styles.inputGroup}
-        >
+        <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>Email</Text>
           <TextInput
             style={styles.signInInput}
             value={signInEmail}
-            onFocus={() => scrollToY(signInEmailY.current)}
             onChangeText={setSignInEmail}
             placeholder="nama@email.com"
             placeholderTextColor="#999999"
@@ -2103,29 +2084,16 @@ export default function OnboardingScreen() {
             autoCapitalize="none"
             autoCorrect={false}
             returnKeyType="next"
-            onSubmitEditing={() => {
-              scrollToY(signInPasswordY.current);
-              scrollSignInPasswordIntoView();
-            }}
           />
         </View>
 
-        <View
-          onLayout={(e) => {
-            signInPasswordY.current = e.nativeEvent.layout.y;
-          }}
-          style={styles.inputGroup}
-        >
+        <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>Password</Text>
           <View style={styles.signInPasswordRow}>
             <TextInput
               style={styles.signInPasswordInput}
               value={signInPassword}
-            onFocus={() => {
-              scrollToY(signInPasswordY.current);
-              scrollSignInPasswordIntoView();
-            }}
-            onChangeText={setSignInPassword}
+              onChangeText={setSignInPassword}
               placeholder="••••••••"
               placeholderTextColor="#999999"
               secureTextEntry={!showSignInPassword}
@@ -2159,9 +2127,6 @@ export default function OnboardingScreen() {
             <TextInput
               style={styles.signInPasswordInput}
               value={signInPasswordConfirm}
-              onFocus={() => {
-                scrollSignInPasswordIntoView();
-              }}
               onChangeText={setSignInPasswordConfirm}
               placeholder="••••••••"
               placeholderTextColor="#999999"
@@ -2283,12 +2248,15 @@ export default function OnboardingScreen() {
     }
   };
 
-  const contentPaddingBottom =
-    Platform.OS === 'android'
-      ? Math.max(24, insets.bottom) + 16 + (step === 18 ? 120 : 0)
-      : Math.max(20, insets.bottom) + (step === 18 ? 140 : 0);
+  const isSignUpStep = step === 18;
+  const contentPaddingBottom = isSignUpStep
+    ? Math.max(28, insets.bottom) + 28
+    : Platform.OS === 'android'
+      ? Math.max(24, insets.bottom) + 16
+      : Math.max(20, insets.bottom);
   const contentPaddingTop = Platform.OS === 'android' ? 24 : insets.top + 8;
-  const ScreenWrapper = Platform.OS === 'ios' ? KeyboardAvoidingView : View;
+  const ScreenWrapper =
+    Platform.OS === 'ios' && !isSignUpStep ? KeyboardAvoidingView : View;
 
   const renderContent = () => (
     <>
@@ -2306,7 +2274,13 @@ export default function OnboardingScreen() {
         </View>
       )}
 
-      <Animated.View style={[styles.contentWrapper, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+      <Animated.View
+        style={[
+          styles.contentWrapper,
+          isSignUpStep && styles.contentWrapperSignUp,
+          { opacity: fadeAnim, transform: [{ translateY: slideAnim }] },
+        ]}
+      >
         {renderStep()}
       </Animated.View>
     </>
@@ -2315,7 +2289,7 @@ export default function OnboardingScreen() {
   return (
     <ScreenWrapper
       style={styles.container}
-      {...(Platform.OS === 'ios'
+      {...(Platform.OS === 'ios' && !isSignUpStep
         ? { behavior: 'height' as const, keyboardVerticalOffset: insets.top + 12 }
         : {})}
     >
@@ -2329,7 +2303,7 @@ export default function OnboardingScreen() {
         nestedScrollEnabled
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-        automaticallyAdjustKeyboardInsets={false}
+        automaticallyAdjustKeyboardInsets={isSignUpStep && Platform.OS === 'ios'}
       >
         {renderContent()}
       </ScrollView>

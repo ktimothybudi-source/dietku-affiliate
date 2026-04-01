@@ -48,6 +48,9 @@ const ANDROID_BASEPLAN_MONTHLY = (
 const ANDROID_BASEPLAN_YEARLY = (
   process.env.EXPO_PUBLIC_ANDROID_BASEPLAN_YEARLY ?? 'tahunan'
 ).trim();
+/** App Store subscription product IDs (must match App Store Connect / RevenueCat iOS mapping). */
+const IOS_SUB_MONTHLY = (process.env.EXPO_PUBLIC_IOS_SUBSCRIPTION_MONTHLY ?? 'dietku_monthly').trim();
+const IOS_SUB_YEARLY = (process.env.EXPO_PUBLIC_IOS_SUBSCRIPTION_YEARLY ?? 'dietku_yearly').trim();
 
 type RevenuePackage = any;
 type OfferingsResult = any;
@@ -76,6 +79,15 @@ async function fetchAndroidSubscriptionStoreProduct(
     if (p) return p;
   }
   return products[0] ?? null;
+}
+
+async function fetchIosSubscriptionStoreProduct(
+  period: 'monthly' | 'annual'
+): Promise<any | null> {
+  const id = period === 'monthly' ? IOS_SUB_MONTHLY : IOS_SUB_YEARLY;
+  if (!id) return null;
+  const products = await Purchases.getProducts([id], Purchases.PRODUCT_CATEGORY.SUBSCRIPTION);
+  return products.find((x: any) => x.identifier === id) ?? products[0] ?? null;
 }
 
 function getOfferingPackages(offerings: OfferingsResult): any[] {
@@ -483,25 +495,71 @@ export const [SubscriptionProvider, useSubscription] = createContextHook(() => {
     [isConfigured, finalizePurchaseCustomerInfo]
   );
 
+  /** When offerings omit packages but App Store returns products (fix Offering or use this fallback). */
+  const purchaseIosSubscriptionByProductId = useCallback(
+    async (period: 'monthly' | 'annual') => {
+      if (!isConfigured) {
+        Alert.alert(
+          'Pembayaran belum siap',
+          'Kunci RevenueCat iOS belum ada di build ini. Set EXPO_PUBLIC_REVENUECAT_IOS_API_KEY di EAS lalu build ulang.'
+        );
+        return false;
+      }
+      try {
+        setPurchaseBusy(true);
+        const storeProduct = await fetchIosSubscriptionStoreProduct(period);
+        if (!storeProduct) {
+          Alert.alert(
+            'Produk App Store belum tersedia',
+            'StoreKit tidak mengembalikan langganan ini. Di App Store Connect pastikan produk disetujui / siap sandbox, IAP terhubung ke versi app, dan perjanjian pembayaran aktif. Di RevenueCat, paket $rc_monthly harus memakai dietku_monthly (bukan dietku_yearly).'
+          );
+          return false;
+        }
+        const result = await Purchases.purchaseStoreProduct(storeProduct);
+        return finalizePurchaseCustomerInfo(result?.customerInfo);
+      } catch (error: any) {
+        if (!error?.userCancelled) {
+          Alert.alert('Pembelian gagal', 'Silakan coba lagi.');
+        }
+        return false;
+      } finally {
+        setPurchaseBusy(false);
+      }
+    },
+    [isConfigured, finalizePurchaseCustomerInfo]
+  );
+
   const purchaseMonthly = useCallback(async () => {
     if (monthlyPackage) return purchasePackage(monthlyPackage);
     if (Platform.OS === 'android') return purchaseAndroidSubscriptionByProductId('monthly');
+    if (Platform.OS === 'ios') return purchaseIosSubscriptionByProductId('monthly');
     Alert.alert(
       'Paket belum tersedia',
       'Tidak ada paket bulanan dari RevenueCat. Periksa Offering di dashboard (iOS).'
     );
     return false;
-  }, [monthlyPackage, purchasePackage, purchaseAndroidSubscriptionByProductId]);
+  }, [
+    monthlyPackage,
+    purchasePackage,
+    purchaseAndroidSubscriptionByProductId,
+    purchaseIosSubscriptionByProductId,
+  ]);
 
   const purchaseAnnual = useCallback(async () => {
     if (annualPackage) return purchasePackage(annualPackage);
     if (Platform.OS === 'android') return purchaseAndroidSubscriptionByProductId('annual');
+    if (Platform.OS === 'ios') return purchaseIosSubscriptionByProductId('annual');
     Alert.alert(
       'Paket belum tersedia',
       'Tidak ada paket tahunan dari RevenueCat. Periksa Offering di dashboard (iOS).'
     );
     return false;
-  }, [annualPackage, purchasePackage, purchaseAndroidSubscriptionByProductId]);
+  }, [
+    annualPackage,
+    purchasePackage,
+    purchaseAndroidSubscriptionByProductId,
+    purchaseIosSubscriptionByProductId,
+  ]);
 
   const restorePurchases = useCallback(async () => {
     try {

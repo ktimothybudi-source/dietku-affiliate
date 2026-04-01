@@ -1448,6 +1448,7 @@ export const indexStyles = StyleSheet.create({
     width: '100%',
     height: 200,
     borderRadius: 16,
+    overflow: 'hidden',
   },
   confidenceBadge: {
     paddingHorizontal: 16,
@@ -1738,6 +1739,7 @@ export const indexStyles = StyleSheet.create({
     height: 200,
     borderRadius: 12,
     marginBottom: 20,
+    overflow: 'hidden',
   },
   pendingAnalyzingState: {
     alignItems: 'center',
@@ -1830,8 +1832,14 @@ export const indexStyles = StyleSheet.create({
     overflow: 'hidden',
     marginBottom: 12,
     position: 'relative',
+    backgroundColor: 'transparent',
   },
   pendingHeroImage: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    right: 0,
+    bottom: 0,
     width: '100%',
     height: '100%',
   },
@@ -2525,6 +2533,7 @@ export const indexStyles = StyleSheet.create({
     width: '100%',
     height: 120,
     borderRadius: 12,
+    overflow: 'hidden',
   },
   removeImageButton: {
     position: 'absolute',
@@ -2599,6 +2608,7 @@ export const indexStyles = StyleSheet.create({
     height: 48,
     borderRadius: 8,
     marginRight: 12,
+    overflow: 'hidden',
   },
   healthScoreCard: {
     marginHorizontal: 24,

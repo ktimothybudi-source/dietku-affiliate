@@ -20,21 +20,30 @@ Use this to complete iOS subscription wiring.
 4. Add both packages to current offering.
 5. Copy Apple public SDK key and set:
    - local `.env`: `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY=<key>`
-   - EAS env `preview` and `production`: same key
+   - EAS env **`preview`** and **`production`**: same key (required for any EAS iOS build that uses those environments; local `.env` is **not** uploaded to EAS)
 
 ## 3) EAS Commands
 
-```bash
-# Set iOS RevenueCat key in EAS preview
-bunx eas-cli env:create --scope project --environment preview --name EXPO_PUBLIC_REVENUECAT_IOS_API_KEY --value "<YOUR_IOS_PUBLIC_SDK_KEY>" --non-interactive
+RevenueCat → **Project settings** → **API keys** → Apple app → **public** SDK key (`appl_…`).
 
-# Set iOS RevenueCat key in EAS production
-bunx eas-cli env:create --scope project --environment production --name EXPO_PUBLIC_REVENUECAT_IOS_API_KEY --value "<YOUR_IOS_PUBLIC_SDK_KEY>" --non-interactive
+Non-interactive create (includes `--visibility`, which EAS requires in CI/non-interactive mode):
+
+```bash
+# Preview (internal iOS builds using the preview profile)
+bunx eas-cli env:create --scope project --environment preview --name EXPO_PUBLIC_REVENUECAT_IOS_API_KEY --value "<YOUR_IOS_PUBLIC_SDK_KEY>" --non-interactive --type string --visibility sensitive
+
+# Production (App Store / TestFlight)
+bunx eas-cli env:create --scope project --environment production --name EXPO_PUBLIC_REVENUECAT_IOS_API_KEY --value "<YOUR_IOS_PUBLIC_SDK_KEY>" --non-interactive --type string --visibility sensitive
 ```
+
+If the variable already exists, update it in [Expo → Environment variables](https://expo.dev) or use `eas env:update` with the same flags your CLI version documents.
 
 ## 4) Verification
 
-- Start app on iOS build.
-- Open paywall and confirm plans render.
+**After `eas build` starts**, the log line *“Environment variables … loaded from the `production` environment”* (or `preview`) must include **`EXPO_PUBLIC_REVENUECAT_IOS_API_KEY`**. If it is missing, the IPA will show “Pembayaran belum siap” / RevenueCat not configured on iOS.
+
+Then:
+
+- Install the new iOS build, open paywall, confirm plans render.
 - Buy monthly/yearly in sandbox.
 - Confirm premium unlock + backend sync (`/api/ai/subscription-sync`).

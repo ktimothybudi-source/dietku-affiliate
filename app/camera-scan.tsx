@@ -1,4 +1,4 @@
-import { CameraView, useCameraPermissions } from 'expo-camera';
+import { CameraView, useCameraPermissions, Camera } from 'expo-camera';
 import React, { useMemo, useRef, useState, useEffect, useCallback } from 'react';
 import {
   View,
@@ -11,6 +11,7 @@ import {
   Linking,
   Animated,
   Alert,
+  Platform,
 } from 'react-native';
 import { Stack, router } from 'expo-router';
 import { X, HelpCircle, Zap, ZapOff, ImageIcon } from 'lucide-react-native';
@@ -40,7 +41,7 @@ export default function CameraScanScreen() {
 
   const cameraRef = useRef<CameraView>(null);
 
-  const [permission, requestPermission] = useCameraPermissions();
+  const [permission, , refreshPermission] = useCameraPermissions();
 
   const [flashMode, setFlashMode] = useState<FlashMode>('off');
   const [helpOpen, setHelpOpen] = useState(false);
@@ -127,31 +128,46 @@ export default function CameraScanScreen() {
     return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
   };
 
-  const ensureCameraPermission = async () => {
-    if (permission?.granted) return true;
-    const res = await requestPermission();
-    if (res?.granted) return true;
-
-    const canAskAgain = res?.canAskAgain ?? false;
-    if (!canAskAgain) {
-      Alert.alert(
-        'Izin kamera ditolak',
-        'Aktifkan izin kamera untuk DietKu di Settings iPhone.',
-        [
-          { text: 'Batal', style: 'cancel' },
-          { text: 'Buka Settings', onPress: openSettings },
-        ]
-      );
-    }
-    return false;
-  };
-
-  const openSettings = async () => {
+  const openSettings = useCallback(async () => {
     try {
       await Linking.openSettings();
     } catch {
       // no-op
     }
+  }, []);
+
+  const alertCameraDenied = useCallback(() => {
+    const msg =
+      Platform.OS === 'ios'
+        ? 'Buka Pengaturan → Privasi & Keamanan → Kamera, lalu aktifkan DietKu. Atau Pengaturan → DietKu → aktifkan Kamera.'
+        : 'Aktifkan izin kamera untuk DietKu di pengaturan aplikasi.';
+    Alert.alert('Izin kamera diperlukan', msg, [
+      { text: 'Batal', style: 'cancel' },
+      { text: 'Buka Settings', onPress: openSettings },
+    ]);
+  }, [openSettings]);
+
+  const requestCameraFromUser = useCallback(async () => {
+    try {
+      const res = await Camera.requestCameraPermissionsAsync();
+      await refreshPermission();
+      return res;
+    } catch (e) {
+      console.warn('Camera permission request failed:', e);
+      return null;
+    }
+  }, [refreshPermission]);
+
+  const ensureCameraPermission = async () => {
+    if (permission?.granted) return true;
+    const res = await requestCameraFromUser();
+    if (res?.granted) return true;
+
+    const canAskAgain = res?.canAskAgain ?? false;
+    if (!canAskAgain) {
+      alertCameraDenied();
+    }
+    return false;
   };
 
   const handleTakePhoto = async () => {
@@ -288,17 +304,20 @@ export default function CameraScanScreen() {
                   style={styles.permissionButton}
                   onPress={async () => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    const res = await requestPermission();
-                    if (!res?.granted && !(res?.canAskAgain ?? false)) {
-                      Alert.alert(
-                        'Izin kamera ditolak',
-                        'Aktifkan izin kamera untuk DietKu di Settings iPhone.',
-                        [
-                          { text: 'Batal', style: 'cancel' },
-                          { text: 'Buka Settings', onPress: openSettings },
-                        ]
-                      );
+                    const res = await requestCameraFromUser();
+                    if (res?.granted) return;
+                    if (!(res?.canAskAgain ?? false)) {
+                      alertCameraDenied();
+                      return;
                     }
+                    Alert.alert(
+                      'Izin belum aktif',
+                      'Jika popup sistem tidak muncul, buka Pengaturan → Privasi & Keamanan → Kamera dan aktifkan DietKu.',
+                      [
+                        { text: 'Batal', style: 'cancel' },
+                        { text: 'Buka Settings', onPress: openSettings },
+                      ]
+                    );
                   }}
                   activeOpacity={0.9}
                 >
@@ -317,9 +336,12 @@ export default function CameraScanScreen() {
           )}
 
           {/* Overlay */}
-          <View style={styles.overlay}>
+          <View
+            style={styles.overlay}
+            pointerEvents={granted ? 'auto' : 'box-none'}
+          >
             {/* Top header */}
-            <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
+            <View style={[styles.header, { paddingTop: insets.top + 10 }]} pointerEvents="box-none">
               <TouchableOpacity
                 style={styles.headerIconButton}
                 onPress={() => {
@@ -392,12 +414,16 @@ export default function CameraScanScreen() {
             </View>
 
             {/* Bottom controls */}
-            <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 18 }]}>
+            <View
+              style={[styles.bottomBar, { paddingBottom: insets.bottom + 18 }]}
+              pointerEvents={granted ? 'auto' : 'box-none'}
+            >
               <TouchableOpacity
                 style={styles.flashButton}
                 onPress={cycleFlash}
                 activeOpacity={0.9}
                 disabled={!granted}
+                pointerEvents={granted ? 'auto' : 'none'}
               >
                 <View style={flashMode !== 'off' ? styles.flashGlow : undefined}>
                   {flashMode === 'off' ? (
@@ -414,6 +440,7 @@ export default function CameraScanScreen() {
                   onPress={handleTakePhoto}
                   activeOpacity={0.9}
                   disabled={!granted || hasReachedLimit}
+                  pointerEvents={granted ? 'auto' : 'none'}
                 >
                   <View style={styles.shutterInner} />
                 </TouchableOpacity>
@@ -424,6 +451,7 @@ export default function CameraScanScreen() {
                 onPress={handleGalleryPick}
                 activeOpacity={0.9}
                 disabled={hasReachedLimit}
+                pointerEvents="auto"
               >
                 <ImageIcon size={22} color="rgba(255,255,255,0.75)" strokeWidth={1.5} />
               </TouchableOpacity>

@@ -71,9 +71,25 @@ export const storyShareStyles = StyleSheet.create({
   },
   previewImage: {
     ...StyleSheet.absoluteFillObject,
+    overflow: 'hidden',
   },
+  /** Explicit fill so expo-image always paints edge-to-edge for view-shot (avoids letterboxing). */
+  previewPhotoExpo: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    right: 0,
+    bottom: 0,
+    width: '100%',
+    height: '100%',
+  },
+  // Bottom band for text legibility; taller + slightly darker than before on request.
   previewGradient: {
-    ...StyleSheet.absoluteFillObject,
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: '55%',
   },
   previewContent: {
     position: 'absolute',

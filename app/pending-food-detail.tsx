@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Image,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -11,6 +10,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -519,7 +519,13 @@ export default function PendingFoodDetailScreen() {
                 : {})}
             >
               {resolvedPending.photoUri && resolvedPending.status !== 'done' ? (
-                <Image source={{ uri: resolvedPending.photoUri }} style={styles.pendingModalImage} />
+                <ExpoImage
+                  source={{ uri: resolvedPending.photoUri }}
+                  style={styles.pendingModalImage}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  transition={0}
+                />
               ) : resolvedPending.status !== 'done' ? (
                 <View style={[styles.viewEntryImageContainer, { backgroundColor: theme.background }]}>
                   <Camera size={48} color={theme.textTertiary} />
@@ -572,7 +578,13 @@ export default function PendingFoodDetailScreen() {
                       <>
                         <View style={styles.pendingHeroImageWrap}>
                           {resolvedPending.photoUri ? (
-                            <Image source={{ uri: resolvedPending.photoUri }} style={styles.pendingHeroImage} />
+                            <ExpoImage
+                              source={{ uri: resolvedPending.photoUri }}
+                              style={styles.pendingHeroImage}
+                              contentFit="cover"
+                              cachePolicy="memory-disk"
+                              transition={0}
+                            />
                           ) : (
                             <View style={[styles.pendingHeroImageFallback, { backgroundColor: theme.card }]}>
                               <Camera size={36} color={theme.textTertiary} />
