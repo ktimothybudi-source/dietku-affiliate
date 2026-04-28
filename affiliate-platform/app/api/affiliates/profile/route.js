@@ -4,7 +4,6 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 
 const schema = z.object({
   code: z.string().min(4),
-  username: z.string().min(3).max(24).optional(),
   preferredCode: z.string().min(4).max(12).regex(/^[a-zA-Z0-9]+$/).optional(),
   paymentMethod: z.string().optional(),
   paymentDetails: z.string().optional(),
@@ -50,7 +49,6 @@ export async function PATCH(request) {
     }
 
     const payload = {
-      username: body.username,
       referral_code: preferredCode || affiliate.referral_code,
       payment_method: body.paymentMethod,
       payment_details: body.paymentDetails,
@@ -62,7 +60,7 @@ export async function PATCH(request) {
       .from("affiliates")
       .update(payload)
       .eq("id", affiliate.id)
-      .select("id,name,username,email,referral_code,payment_method,social_links,notification_preferences")
+      .select("id,name,email,referral_code,payment_method,social_links,notification_preferences")
       .single();
 
     if (error) {

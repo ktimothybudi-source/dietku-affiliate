@@ -1,4 +1,14 @@
-:root {
+:root,
+[data-theme="dark"] {
+  --bg: #0b1220;
+  --card: #111827;
+  --text: #e5e7eb;
+  --muted: #9ca3af;
+  --border: #243043;
+  --primary: #22c55e;
+}
+
+[data-theme="light"] {
   --bg: #f6f4f1;
   --card: #ffffff;
   --text: #111827;
@@ -7,15 +17,6 @@
   --primary: #22c55e;
   --warning: #f59e0b;
   --danger: #ef4444;
-}
-
-[data-theme="dark"] {
-  --bg: #0b1220;
-  --card: #111827;
-  --text: #e5e7eb;
-  --muted: #9ca3af;
-  --border: #243043;
-  --primary: #22c55e;
 }
 
 * {

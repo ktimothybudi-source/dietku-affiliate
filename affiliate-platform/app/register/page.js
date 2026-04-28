@@ -6,7 +6,6 @@ import SiteHeader from "@/components/SiteHeader";
 export default function RegisterPage() {
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
-  const [username, setUsername] = useState("");
   const [customCode, setCustomCode] = useState("");
   const [codeAvailability, setCodeAvailability] = useState(null);
   const [status, setStatus] = useState("");
@@ -27,7 +26,7 @@ export default function RegisterPage() {
     const res = await fetch("/api/affiliates/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, name, username, customCode }),
+      body: JSON.stringify({ email, name, customCode }),
     });
     const payload = await res.json();
     if (!res.ok) {
@@ -57,13 +56,6 @@ export default function RegisterPage() {
               onChange={(e) => setEmail(e.target.value)}
               type="email"
               placeholder="Email"
-              style={{ padding: 12, borderRadius: 14, border: "1px solid var(--border)" }}
-              required
-            />
-            <input
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="Username"
               style={{ padding: 12, borderRadius: 14, border: "1px solid var(--border)" }}
               required
             />

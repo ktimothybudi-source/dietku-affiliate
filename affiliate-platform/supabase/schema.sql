@@ -5,7 +5,6 @@ create table if not exists affiliates (
   name text not null,
   email text not null unique,
   referral_code text not null unique,
-  username text unique,
   payment_method text,
   payment_details text,
   social_links jsonb not null default '{}'::jsonb,

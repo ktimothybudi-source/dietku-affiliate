@@ -16,7 +16,7 @@ import SiteHeader from "@/components/SiteHeader";
 import MetricCard from "@/components/MetricCard";
 
 export default function DashboardPage() {
-  const [affiliateCode, setAffiliateCode] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [leaderboardTab, setLeaderboardTab] = useState("weekly");
   const [savingProfile, setSavingProfile] = useState(false);
   const [data, setData] = useState(null);
@@ -25,7 +25,7 @@ export default function DashboardPage() {
   async function loadDashboard(e) {
     e.preventDefault();
     setError("");
-    const res = await fetch(`/api/dashboard?code=${encodeURIComponent(affiliateCode)}`);
+    const res = await fetch(`/api/dashboard?identifier=${encodeURIComponent(identifier)}`);
     const payload = await res.json();
     if (!res.ok) {
       setError(payload.error || "Unable to load dashboard.");
@@ -43,7 +43,6 @@ export default function DashboardPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         code: data.affiliate.referral_code,
-        username: data.profile.username,
         preferredCode: data.profile.preferredCode,
         paymentMethod: data.profile.paymentMethod,
       }),
@@ -71,9 +70,9 @@ export default function DashboardPage() {
           <h2 style={{ marginTop: 0 }}>Affiliate Dashboard</h2>
           <form onSubmit={loadDashboard} style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <input
-              value={affiliateCode}
-              onChange={(e) => setAffiliateCode(e.target.value.toUpperCase())}
-              placeholder="Enter your referral code"
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
+              placeholder="Login with referral code or email"
               style={{ flex: 1, minWidth: 220, padding: 12, borderRadius: 12, border: "1px solid var(--border)" }}
               required
             />
@@ -271,12 +270,6 @@ export default function DashboardPage() {
             <section className="card">
               <h3 style={{ marginTop: 0 }}>Profile Settings</h3>
               <form className="settings-grid" onSubmit={updateProfile}>
-                <input
-                  className="input"
-                  placeholder="Username"
-                  value={data.profile.username || ""}
-                  onChange={(e) => setData((prev) => ({ ...prev, profile: { ...prev.profile, username: e.target.value } }))}
-                />
                 <input
                   className="input"
                   placeholder="Preferred custom code"

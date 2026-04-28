@@ -14,16 +14,19 @@ function buildMockSeries(metric, days = 14) {
 
 export async function GET(request) {
   const supabaseAdmin = getSupabaseAdmin();
-  const code = request.nextUrl.searchParams.get("code")?.toUpperCase();
-  if (!code) {
-    return NextResponse.json({ error: "Code is required." }, { status: 400 });
+  const identifier = request.nextUrl.searchParams.get("identifier")?.trim();
+  if (!identifier) {
+    return NextResponse.json({ error: "Referral code or email is required." }, { status: 400 });
   }
 
-  const { data: affiliate, error: affiliateError } = await supabaseAdmin
+  const normalizedCode = identifier.toUpperCase();
+  const isEmail = identifier.includes("@");
+  const affiliateQuery = supabaseAdmin
     .from("affiliates")
-    .select("id,name,username,referral_code,payment_method,social_links,notification_preferences")
-    .eq("referral_code", code)
-    .single();
+    .select("id,name,referral_code,payment_method,social_links,notification_preferences");
+  const { data: affiliate, error: affiliateError } = await (isEmail
+    ? affiliateQuery.eq("email", identifier.toLowerCase()).single()
+    : affiliateQuery.eq("referral_code", normalizedCode).single());
 
   if (affiliateError || !affiliate) {
     return NextResponse.json({ error: "Affiliate not found." }, { status: 404 });
@@ -138,7 +141,6 @@ export async function GET(request) {
           { id: "a4", asset_type: "email", title: "Email Swipe Copy", description: "Launch + reminder copy", file_url: "#" },
         ],
     profile: {
-      username: affiliate.username || "",
       paymentMethod: affiliate.payment_method || "",
       socialLinks: affiliate.social_links || {},
       notificationPreferences: affiliate.notification_preferences || { email: true, product: true, milestones: true },
