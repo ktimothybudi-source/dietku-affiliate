@@ -9,7 +9,7 @@ export async function GET(request) {
 
   let query = supabaseAdmin
     .from("affiliate_metrics")
-    .select("affiliate_id,signups,conversions,points,affiliates(name)")
+    .select("affiliate_id,signups,conversions,points,affiliates(name,referral_code)")
     .order("points", { ascending: false })
     .limit(50);
 
@@ -26,6 +26,7 @@ export async function GET(request) {
   const rows = (data || []).map((item) => ({
     id: item.affiliate_id,
     name: item.affiliates?.name || "Affiliate",
+    code: item.affiliates?.referral_code || "-",
     signups: item.signups ?? 0,
     conversions: item.conversions ?? 0,
     points: item.points ?? 0,
