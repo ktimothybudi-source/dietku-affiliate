@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { Stack, router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { useCommunity } from '@/contexts/CommunityContext';
 import { useNutrition } from '@/contexts/NutritionContext';
 import { supabase } from '@/lib/supabase';
@@ -19,23 +20,32 @@ import * as Haptics from 'expo-haptics';
 
 export default function BrowseGroupsScreen() {
   const { theme } = useTheme();
+  const { l } = useLanguage();
   const { joinGroupAsync, hasProfile } = useCommunity();
   const { authState } = useNutrition();
   const [inviteCode, setInviteCode] = useState('');
   const [isJoining, setIsJoining] = useState(false);
 
+  const handleBack = useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace('/(tabs)/community');
+  }, []);
+
   const handleJoinByCode = useCallback(async () => {
     const code = inviteCode.trim().toUpperCase();
     if (!code) {
-      Alert.alert('Kode Kosong', 'Masukkan kode undangan grup.');
+      Alert.alert(l('Kode Kosong', 'Empty Code'), l('Masukkan kode undangan grup.', 'Enter the group invite code.'));
       return;
     }
     if (!authState.isSignedIn) {
-      Alert.alert('Masuk Diperlukan', 'Silakan masuk terlebih dahulu.');
+      Alert.alert(l('Masuk Diperlukan', 'Sign In Required'), l('Silakan masuk terlebih dahulu.', 'Please sign in first.'));
       return;
     }
     if (!hasProfile) {
-      Alert.alert('Profil Komunitas', 'Silakan lengkapi profil komunitas terlebih dahulu.');
+      Alert.alert(l('Profil Komunitas', 'Community Profile'), l('Silakan lengkapi profil komunitas terlebih dahulu.', 'Please complete your community profile first.'));
       router.push('/setup-community-profile');
       return;
     }
@@ -50,33 +60,38 @@ export default function BrowseGroupsScreen() {
         .maybeSingle();
       if (error) throw error;
       if (!data?.id) {
-        Alert.alert('Kode Tidak Ditemukan', 'Kode grup tidak valid. Coba cek lagi.');
+        Alert.alert(l('Kode Tidak Ditemukan', 'Code Not Found'), l('Kode grup tidak valid. Coba cek lagi.', 'Group code is invalid. Please check again.'));
         return;
       }
 
       await joinGroupAsync(data.id);
-      Alert.alert('Berhasil', 'Kamu berhasil bergabung ke grup.');
-      router.back();
+      Alert.alert(l('Berhasil', 'Success'), l('Kamu berhasil bergabung ke grup.', 'You joined the group successfully.'));
+      handleBack();
     } catch (error) {
       console.error('Join group by code error:', error);
       if (error instanceof Error) {
-        Alert.alert('Gagal Gabung Grup', error.message || 'Terjadi kesalahan saat memproses kode.');
+        Alert.alert(l('Gagal Gabung Grup', 'Failed to Join Group'), error.message || l('Terjadi kesalahan saat memproses kode.', 'An error occurred while processing the code.'));
       } else {
-        Alert.alert('Gagal Gabung Grup', 'Terjadi kesalahan saat memproses kode.');
+        Alert.alert(l('Gagal Gabung Grup', 'Failed to Join Group'), l('Terjadi kesalahan saat memproses kode.', 'An error occurred while processing the code.'));
       }
     } finally {
       setIsJoining(false);
     }
-  }, [inviteCode, authState.isSignedIn, hasProfile, joinGroupAsync]);
+  }, [inviteCode, authState.isSignedIn, hasProfile, joinGroupAsync, handleBack, l]);
 
   return (
     <>
       <Stack.Screen
         options={{
-          title: 'Cari Grup',
+          title: l('Cari Grup', 'Find Group'),
           headerStyle: { backgroundColor: theme.background },
           headerTintColor: theme.text,
           headerShadowVisible: false,
+          headerLeft: () => (
+            <TouchableOpacity onPress={handleBack} activeOpacity={0.7} style={styles.headerBackBtn}>
+              <Text style={[styles.headerBackText, { color: theme.primary }]}>Back</Text>
+            </TouchableOpacity>
+          ),
         }}
       />
 
@@ -89,16 +104,16 @@ export default function BrowseGroupsScreen() {
             <View style={[styles.codeIconWrap, { backgroundColor: theme.primary + '12' }]}>
               <Ticket size={34} color={theme.primary} />
             </View>
-            <Text style={[styles.codeTitle, { color: theme.text }]}>Gabung Dengan Kode</Text>
+            <Text style={[styles.codeTitle, { color: theme.text }]}>{l('Gabung Dengan Kode', 'Join With Code')}</Text>
             <Text style={[styles.codeDesc, { color: theme.textSecondary }]}>
-              Masukkan kode undangan dari admin grup untuk langsung bergabung ke grup privat.
+              {l('Masukkan kode undangan dari admin grup untuk langsung bergabung ke grup privat.', 'Enter the invite code from the group admin to join a private group directly.')}
             </Text>
             <View style={[styles.codeInputWrap, { borderColor: theme.border }]}>
               <TextInput
                 style={[styles.codeInput, { color: theme.text }]}
                 value={inviteCode}
                 onChangeText={(text) => setInviteCode(text.replace(/[^A-Za-z0-9]/g, '').toUpperCase())}
-                placeholder="ABC123"
+                placeholder={l('ABC123', 'ABC123')}
                 placeholderTextColor={theme.textTertiary}
                 autoCapitalize="characters"
                 autoCorrect={false}
@@ -113,7 +128,7 @@ export default function BrowseGroupsScreen() {
               disabled={isJoining}
             >
               <Text style={[styles.joinCodeBtnText, { color: '#FFFFFF' }]}>
-                {isJoining ? 'Menggabungkan...' : 'Gabung Grup'}
+                {isJoining ? l('Menggabungkan...', 'Joining...') : l('Gabung Grup', 'Join Group')}
               </Text>
               {!isJoining ? <ArrowRight size={18} color="#FFFFFF" /> : null}
             </TouchableOpacity>
@@ -290,6 +305,14 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   joinCodeBtnText: {
+    fontSize: 15,
+    fontWeight: '700' as const,
+  },
+  headerBackBtn: {
+    paddingVertical: 6,
+    paddingRight: 8,
+  },
+  headerBackText: {
     fontSize: 15,
     fontWeight: '700' as const,
   },

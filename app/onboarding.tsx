@@ -19,19 +19,17 @@ import { useNutrition } from '@/contexts/NutritionContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useNotifications } from '@/contexts/NotificationContext';
 import { Goal, ActivityLevel, Sex } from '@/types/nutrition';
-import { ArrowRight, ArrowLeft, Eye, EyeOff, Sparkles, Globe } from 'lucide-react-native';
+import { ArrowRight, ArrowLeft, Eye, EyeOff, Sparkles, Gift } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { Svg, Path, Circle, G } from 'react-native-svg';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ResizeMode, Video } from 'expo-av';
 import { ANIMATION_DURATION, SPRING_CONFIG } from '@/constants/animations';
-import * as WebBrowser from 'expo-web-browser';
-import { makeRedirectUri } from 'expo-auth-session';
-import { supabase } from '@/lib/supabase';
 import { onboardingStyles as styles } from '@/styles/onboardingStyles';
 import { calculateTDEE } from '@/utils/nutritionCalculations';
-
-WebBrowser.maybeCompleteAuthSession();
+import PaywallReferralSection, { type PaywallReferralSectionHandle } from '@/components/PaywallReferralSection';
+import { stashPendingReferralCode } from '@/lib/pendingReferralCode';
 
 const WEEKLY_DEFAULT_LOSS_KG = 0.5;
 const WEEKLY_DEFAULT_GAIN_KG = 0.3;
@@ -39,11 +37,13 @@ const MINIMUM_AGE = 13;
 
 export default function OnboardingScreen() {
   const { saveProfile, profile, signUp, authState } = useNutrition();
-  const { language, toggleLanguage, t } = useLanguage();
+  const { t, l } = useLanguage();
   const { enableNotifications } = useNotifications();
   const insets = useSafeAreaInsets();
-  const { mode } = useLocalSearchParams<{ mode?: string }>();
+  const { mode, ref: referralLinkRef } = useLocalSearchParams<{ mode?: string; ref?: string | string[] }>();
   const isCompleteMode = mode === 'complete';
+  const refFromOnboardingLink =
+    typeof referralLinkRef === 'string' ? referralLinkRef : referralLinkRef?.[0] ?? null;
 
   const [step, setStep] = useState(mode === 'complete' ? 1 : 0);
   const [isInteracting] = useState(false);
@@ -102,8 +102,9 @@ export default function OnboardingScreen() {
   const [showSignInPasswordConfirm, setShowSignInPasswordConfirm] = useState(false);
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
-  const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
-  const totalSteps = 19;
+  const totalSteps = 20;
+
+  const referralRef = useRef<PaywallReferralSectionHandle | null>(null);
 
   // Y positions for inputs
   const heightY = useRef(0);
@@ -229,6 +230,10 @@ export default function OnboardingScreen() {
       }),
     ]).start();
   }, [step, introScaleAnim, introTextAnim, introCtaAnim]);
+
+  useEffect(() => {
+    if (refFromOnboardingLink?.trim()) void stashPendingReferralCode(refFromOnboardingLink.trim());
+  }, [refFromOnboardingLink]);
 
   useEffect(() => {
     const optionCountByStep: Record<number, number> = {
@@ -432,17 +437,17 @@ export default function OnboardingScreen() {
 
   const handleSignIn = useCallback(async () => {
     if (!signInEmail.trim() || !signInPassword.trim() || !firstName.trim() || !lastName.trim()) {
-      Alert.alert('Error', 'Mohon isi semua field');
+      Alert.alert(l('Error', 'Error'), l('Mohon isi semua field', 'Please fill in all fields'));
       return;
     }
 
     if (signInPassword.length < 6) {
-      Alert.alert('Error', 'Password minimal 6 karakter');
+      Alert.alert(l('Error', 'Error'), l('Password minimal 6 karakter', 'Password must be at least 6 characters'));
       return;
     }
 
     if (signInPassword !== signInPasswordConfirm) {
-      Alert.alert('Error', 'Password tidak cocok');
+      Alert.alert(l('Error', 'Error'), l('Password tidak cocok', 'Passwords do not match'));
       return;
     }
 
@@ -479,95 +484,21 @@ export default function OnboardingScreen() {
       if (error instanceof Error) {
         console.error('Error message:', error.message);
         if (error.message.includes('already registered') || error.message.includes('already been registered')) {
-          Alert.alert('Email Sudah Terdaftar', 'Email ini sudah digunakan. Silakan gunakan email lain atau masuk dengan akun yang ada.');
+          Alert.alert(l('Email Sudah Terdaftar', 'Email Already Registered'), l('Email ini sudah digunakan. Silakan gunakan email lain atau masuk dengan akun yang ada.', 'This email is already used. Please use another email or sign in with your existing account.'));
         } else if (error.message.includes('Invalid email')) {
-          Alert.alert('Email Tidak Valid', 'Masukkan alamat email yang valid.');
+          Alert.alert(l('Email Tidak Valid', 'Invalid Email'), l('Masukkan alamat email yang valid.', 'Please enter a valid email address.'));
         } else if (error.message.includes('Password')) {
-          Alert.alert('Password Tidak Valid', error.message);
+          Alert.alert(l('Password Tidak Valid', 'Invalid Password'), error.message);
         } else {
-          Alert.alert('Error', `Gagal membuat akun: ${error.message}`);
+          Alert.alert(l('Error', 'Error'), l(`Gagal membuat akun: ${error.message}`, `Failed to create account: ${error.message}`));
         }
       } else {
-        Alert.alert('Error', 'Gagal membuat akun. Silakan coba lagi.');
+        Alert.alert(l('Error', 'Error'), l('Gagal membuat akun. Silakan coba lagi.', 'Failed to create account. Please try again.'));
       }
     } finally {
       setIsCreatingAccount(false);
     }
   }, [signInEmail, signInPassword, signInPasswordConfirm, firstName, lastName, signUp, birthDate, sex, height, weight, dreamWeight, activityLevel, weeklyWeightChange, handleNext]);
-
-  const handleGoogleSignIn = useCallback(async () => {
-    try {
-      setIsGoogleSigningIn(true);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      console.log('Starting Google OAuth flow');
-
-      const redirectUrl = makeRedirectUri({
-        scheme: 'rork-app',
-        path: 'auth/callback',
-      });
-      console.log('Redirect URL:', redirectUrl);
-
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: redirectUrl,
-          skipBrowserRedirect: false,
-        },
-      });
-
-      if (error) {
-        console.error('Google OAuth error:', error);
-        Alert.alert('Error', 'Gagal memulai login Google. Silakan coba lagi.');
-        setIsGoogleSigningIn(false);
-        return;
-      }
-
-      console.log('Opening OAuth URL:', data.url);
-      
-      if (data.url) {
-        const result = await WebBrowser.openAuthSessionAsync(
-          data.url,
-          redirectUrl
-        );
-
-        console.log('WebBrowser result:', result);
-
-        if (result.type === 'success' && result.url) {
-          const url = result.url;
-          if (url.includes('#access_token=')) {
-            const params = new URLSearchParams(url.split('#')[1]);
-            const accessToken = params.get('access_token');
-            const refreshToken = params.get('refresh_token');
-            
-            if (accessToken && refreshToken) {
-              console.log('Setting Supabase session from OAuth callback');
-              const { error: sessionError } = await supabase.auth.setSession({
-                access_token: accessToken,
-                refresh_token: refreshToken,
-              });
-              
-              if (sessionError) {
-                console.error('Error setting session:', sessionError);
-                Alert.alert('Error', 'Gagal masuk dengan Google');
-              } else {
-                console.log('Google sign in successful');
-                // HIDDEN: Skip subscription, go directly to next step
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                handleNext();
-              }
-            }
-          }
-        } else if (result.type === 'cancel') {
-          console.log('User cancelled OAuth flow');
-        }
-      }
-    } catch (error) {
-      console.error('Google sign in error:', error);
-      Alert.alert('Error', 'Gagal masuk dengan Google. Silakan coba lagi.');
-    } finally {
-      setIsGoogleSigningIn(false);
-    }
-  }, [handleNext]);
 
   // HIDDEN: Subscription features
   // const handleSkipSignIn = useCallback(() => {
@@ -577,12 +508,12 @@ export default function OnboardingScreen() {
   const handleEnableNotifications = useCallback(async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     await enableNotifications();
-    router.replace('/(tabs)');
+    router.replace('/onboarding-subscription?from=onboarding');
   }, [enableNotifications]);
 
   const handleSkipNotifications = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    router.replace('/(tabs)');
+    router.replace('/onboarding-subscription?from=onboarding');
   }, []);
 
   const progressWidth = progressAnim.interpolate({
@@ -596,17 +527,19 @@ export default function OnboardingScreen() {
 
   const renderIntro = () => (
     <View style={styles.introContainer}>
-      <TouchableOpacity
-        style={styles.languageToggle}
-        onPress={() => {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          toggleLanguage();
+      <Text
+        style={{
+          textAlign: 'center',
+          fontSize: 40,
+          fontWeight: '800',
+          color: '#111827',
+          letterSpacing: -1,
+          marginTop: 8,
+          marginBottom: 10,
         }}
-        activeOpacity={0.7}
       >
-        <Globe size={16} color="#22C55E" />
-        <Text style={styles.languageText}>{language === 'id' ? 'ID' : 'EN'}</Text>
-      </TouchableOpacity>
+        {l('DietKu', 'DietKu')}
+      </Text>
 
       <Animated.View
         style={[
@@ -617,36 +550,20 @@ export default function OnboardingScreen() {
           },
         ]}
       >
-        <Image source={require('../assets/images/intro.png')} style={styles.introImageLarge} resizeMode="cover" />
+        <Video
+          source={require('../assets/videos/subscription-preview.mp4')}
+          style={styles.introImageLarge}
+          resizeMode={ResizeMode.CONTAIN}
+          shouldPlay
+          isLooping
+          isMuted
+          useNativeControls={false}
+        />
         <View style={styles.introFloatingBadge}>
           <Sparkles size={12} color="#FFFFFF" />
-          <Text style={styles.introFloatingBadgeText}>AI-Powered</Text>
+          <Text style={styles.introFloatingBadgeText}>{l('Teknologi AI', 'Teknologi AI')}</Text>
         </View>
       </Animated.View>
-
-      <View style={styles.introHeroSection}>
-        <Animated.View
-          style={[
-            styles.introTextSection,
-            {
-              opacity: introTextAnim,
-              transform: [
-                {
-                  translateY: introTextAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [30, 0],
-                  }),
-                },
-              ],
-            },
-          ]}
-        >
-          <Text style={styles.introBrandTitle}>DietKu</Text>
-          <Text style={styles.introTagline}>
-            Pantau nutrisi dengan AI, capai tujuanmu, dan transformasi hidupmu.
-          </Text>
-        </Animated.View>
-      </View>
 
       <Animated.View
         style={[
@@ -665,7 +582,7 @@ export default function OnboardingScreen() {
         ]}
       >
         <TouchableOpacity style={styles.introPrimaryButton} onPress={handleNext} activeOpacity={0.85}>
-          <Text style={styles.introPrimaryButtonText}>Mulai Perjalananmu</Text>
+          <Text style={styles.introPrimaryButtonText}>{l('Mulai Perjalananmu', 'Start Your Journey')}</Text>
           <View style={styles.introButtonIconCircle}>
             <ArrowRight size={16} color="#22C55E" />
           </View>
@@ -679,8 +596,8 @@ export default function OnboardingScreen() {
           }}
           activeOpacity={0.7}
         >
-          <Text style={styles.introSignInText}>Sudah punya akun? </Text>
-          <Text style={styles.introSignInTextBold}>Masuk</Text>
+          <Text style={styles.introSignInText}>{l('Sudah punya akun? ', 'Already have an account? ')}</Text>
+          <Text style={styles.introSignInTextBold}>{l('Masuk', 'Sign In')}</Text>
         </TouchableOpacity>
       </Animated.View>
     </View>
@@ -706,8 +623,8 @@ export default function OnboardingScreen() {
     return (
       <View style={styles.stepContainer}>
         <View style={styles.questionContainer}>
-          <Text style={styles.questionTitle}>Kapan tanggal lahir Anda?</Text>
-          <Text style={styles.questionSubtitle}>Ini membantu kami menghitung kebutuhan kalori Anda</Text>
+          <Text style={styles.questionTitle}>{l('Kapan tanggal lahir Anda?', 'When is your date of birth?')}</Text>
+          <Text style={styles.questionSubtitle}>{l('Ini membantu kami menghitung kebutuhan kalori Anda', 'This helps us calculate your calorie needs')}</Text>
         </View>
 
         <View style={styles.inputSection}>
@@ -742,7 +659,7 @@ export default function OnboardingScreen() {
         </View>
 
         <TouchableOpacity style={styles.primaryButton} onPress={handleNext} activeOpacity={0.8}>
-          <Text style={styles.primaryButtonText}>Lanjutkan</Text>
+          <Text style={styles.primaryButtonText}>{l("Lanjutkan", "Continue")}</Text>
           <ArrowRight size={20} color="#FFFFFF" />
         </TouchableOpacity>
       </View>
@@ -752,8 +669,8 @@ export default function OnboardingScreen() {
   const renderSex = () => (
     <View style={styles.stepContainer}>
       <View style={styles.questionContainer}>
-        <Text style={styles.questionTitle}>Apa jenis kelamin Anda?</Text>
-        <Text style={styles.questionSubtitle}>Kami akan menggunakan ini untuk membuat rencana khusus Anda</Text>
+        <Text style={styles.questionTitle}>{l('Apa jenis kelamin Anda?', 'What is your sex?')}</Text>
+        <Text style={styles.questionSubtitle}>{l('Kami akan menggunakan ini untuk membuat rencana khusus Anda', 'We use this to create your personalized plan')}</Text>
       </View>
 
       <View style={styles.genderOptions}>
@@ -778,7 +695,7 @@ export default function OnboardingScreen() {
                 />
               </Svg>
             </View>
-            <Text style={[styles.genderText, sex === 'male' && styles.genderTextActive]}>Pria</Text>
+            <Text style={[styles.genderText, sex === 'male' && styles.genderTextActive]}>{l('Pria', 'Male')}</Text>
           </TouchableOpacity>
         </Animated.View>
 
@@ -803,7 +720,7 @@ export default function OnboardingScreen() {
                 />
               </Svg>
             </View>
-            <Text style={[styles.genderText, sex === 'female' && styles.genderTextActive]}>Wanita</Text>
+            <Text style={[styles.genderText, sex === 'female' && styles.genderTextActive]}>{l('Wanita', 'Female')}</Text>
           </TouchableOpacity>
         </Animated.View>
       </View>
@@ -814,7 +731,7 @@ export default function OnboardingScreen() {
         disabled={!sex}
         activeOpacity={0.8}
       >
-        <Text style={styles.primaryButtonText}>Selanjutnya</Text>
+        <Text style={styles.primaryButtonText}>{l("Selanjutnya", "Next")}</Text>
         <ArrowRight size={20} color="#FFFFFF" />
       </TouchableOpacity>
     </View>
@@ -823,7 +740,7 @@ export default function OnboardingScreen() {
   const renderHeight = () => (
     <View style={styles.stepContainer}>
       <View style={styles.questionContainer}>
-        <Text style={styles.questionTitle}>Berapa tinggi badan Anda?</Text>
+        <Text style={styles.questionTitle}>{l('Berapa tinggi badan Anda?', 'What is your height?')}</Text>
       </View>
 
       <View style={styles.inputSection}>
@@ -843,19 +760,19 @@ export default function OnboardingScreen() {
               if (!Number.isNaN(num) && num >= 120 && num <= 240) setHeight(num);
             }}
             keyboardType="number-pad"
-            placeholder="170"
+            placeholder={l('170', '170')}
             placeholderTextColor="#666"
             selectTextOnFocus
             returnKeyType="done"
             blurOnSubmit
             onSubmitEditing={() => Keyboard.dismiss()}
           />
-          <Text style={styles.inputUnit}>cm</Text>
+          <Text style={styles.inputUnit}>{l('cm', 'cm')}</Text>
         </View>
       </View>
 
       <TouchableOpacity style={styles.primaryButton} onPress={handleNext} activeOpacity={0.8}>
-        <Text style={styles.primaryButtonText}>Selanjutnya</Text>
+        <Text style={styles.primaryButtonText}>{l("Selanjutnya", "Next")}</Text>
         <ArrowRight size={20} color="#FFFFFF" />
       </TouchableOpacity>
     </View>
@@ -864,7 +781,7 @@ export default function OnboardingScreen() {
   const renderWeight = () => (
     <View style={styles.stepContainer}>
       <View style={styles.questionContainer}>
-        <Text style={styles.questionTitle}>Berapa berat badan Anda saat ini?</Text>
+        <Text style={styles.questionTitle}>{l('Berapa berat badan Anda saat ini?', 'What is your current weight?')}</Text>
       </View>
 
       <View style={styles.inputSection}>
@@ -884,19 +801,19 @@ export default function OnboardingScreen() {
               if (!Number.isNaN(num) && num >= 40 && num <= 200) setWeight(num);
             }}
             keyboardType="decimal-pad"
-            placeholder="70"
+            placeholder={l('70', '70')}
             placeholderTextColor="#666"
             selectTextOnFocus
             returnKeyType="done"
             blurOnSubmit
             onSubmitEditing={() => Keyboard.dismiss()}
           />
-          <Text style={styles.inputUnit}>kg</Text>
+          <Text style={styles.inputUnit}>{l('kg', 'kg')}</Text>
         </View>
       </View>
 
       <TouchableOpacity style={styles.primaryButton} onPress={handleNext} activeOpacity={0.8}>
-        <Text style={styles.primaryButtonText}>Selanjutnya</Text>
+        <Text style={styles.primaryButtonText}>{l("Selanjutnya", "Next")}</Text>
         <ArrowRight size={20} color="#FFFFFF" />
       </TouchableOpacity>
     </View>
@@ -905,7 +822,7 @@ export default function OnboardingScreen() {
   const renderGoalSelection = () => (
     <View style={styles.stepContainer}>
       <View style={styles.questionContainer}>
-        <Text style={[styles.questionTitle, { maxWidth: '100%' }]}>Apa yang ingin Anda capai?</Text>
+        <Text style={[styles.questionTitle, { maxWidth: '100%' }]}>{l('Apa yang ingin Anda capai?', 'What do you want to achieve?')}</Text>
       </View>
 
       <View style={styles.optionsList}>
@@ -927,7 +844,7 @@ export default function OnboardingScreen() {
               <Text style={[styles.goalCardTitle, selectedGoal === 'gain' && styles.goalCardTitleActive]}>
                 Menambah Berat Badan
               </Text>
-              <Text style={styles.goalCardDesc}>Bangun otot dan tingkatkan massa tubuh</Text>
+              <Text style={styles.goalCardDesc}>{l('Bangun otot dan tingkatkan massa tubuh', 'Build muscle and increase body mass')}</Text>
             </View>
           </TouchableOpacity>
         </Animated.View>
@@ -950,7 +867,7 @@ export default function OnboardingScreen() {
               <Text style={[styles.goalCardTitle, selectedGoal === 'maintain' && styles.goalCardTitleActive]}>
                 Mempertahankan Berat Badan
               </Text>
-              <Text style={styles.goalCardDesc}>Jaga berat badan sehat yang stabil</Text>
+              <Text style={styles.goalCardDesc}>{l('Jaga berat badan sehat yang stabil', 'Maintain a stable healthy weight')}</Text>
             </View>
           </TouchableOpacity>
         </Animated.View>
@@ -973,7 +890,7 @@ export default function OnboardingScreen() {
               <Text style={[styles.goalCardTitle, selectedGoal === 'lose' && styles.goalCardTitleActive]}>
                 Menurunkan Berat Badan
               </Text>
-              <Text style={styles.goalCardDesc}>Kurangi lemak dan capai berat sehat</Text>
+              <Text style={styles.goalCardDesc}>{l('Kurangi lemak dan capai berat sehat', 'Reduce fat and reach a healthy weight')}</Text>
             </View>
           </TouchableOpacity>
         </Animated.View>
@@ -985,7 +902,7 @@ export default function OnboardingScreen() {
         disabled={!selectedGoal}
         activeOpacity={0.8}
       >
-        <Text style={styles.primaryButtonText}>Selanjutnya</Text>
+        <Text style={styles.primaryButtonText}>{l("Selanjutnya", "Next")}</Text>
         <ArrowRight size={20} color="#FFFFFF" />
       </TouchableOpacity>
     </View>
@@ -1000,7 +917,7 @@ export default function OnboardingScreen() {
     return (
       <View style={styles.stepContainer}>
         <View style={styles.questionContainer}>
-          <Text style={styles.questionTitle}>DietKu bantu hasil jangka panjang</Text>
+          <Text style={styles.questionTitle}>{l('DietKu bantu hasil jangka panjang', 'DietKu supports long-term results')}</Text>
         </View>
 
         <View style={premiumStyles.insightPageMain}>
@@ -1021,8 +938,8 @@ export default function OnboardingScreen() {
             ]}
           >
             <View style={premiumStyles.insightCardHeaderRow}>
-              <Text style={premiumStyles.insightCardTitle}>Tren 3 bulan</Text>
-              <Text style={premiumStyles.insightCardHint}>DietKu vs cara biasa</Text>
+              <Text style={premiumStyles.insightCardTitle}>{l('Tren 3 bulan', '3-month trend')}</Text>
+              <Text style={premiumStyles.insightCardHint}>{l('DietKu vs cara biasa', 'DietKu vs usual way')}</Text>
             </View>
             <Svg width="100%" height="178" viewBox="0 0 360 178">
               <Path d="M18 30H342M18 88H342M18 146H342" stroke="#E5E7EB" strokeDasharray="5 6" strokeWidth="1" />
@@ -1048,9 +965,9 @@ export default function OnboardingScreen() {
               <Path d="M18 122a5 5 0 110 0.1M168 94a5 5 0 110 0.1M342 30a5 5 0 110 0.1" fill="#22C55E" />
             </Svg>
             <View style={premiumStyles.insightAxisRow}>
-              <Text style={premiumStyles.insightAxisLabel}>Minggu 2</Text>
-              <Text style={premiumStyles.insightAxisLabel}>Minggu 6</Text>
-              <Text style={premiumStyles.insightAxisLabel}>Minggu 12</Text>
+              <Text style={premiumStyles.insightAxisLabel}>{l('Minggu 2', 'Week 2')}</Text>
+              <Text style={premiumStyles.insightAxisLabel}>{l('Minggu 6', 'Week 6')}</Text>
+              <Text style={premiumStyles.insightAxisLabel}>{l('Minggu 12', 'Week 12')}</Text>
             </View>
           </Animated.View>
 
@@ -1060,7 +977,7 @@ export default function OnboardingScreen() {
         </View>
 
         <TouchableOpacity style={styles.primaryButton} onPress={handleNext} activeOpacity={0.8}>
-          <Text style={styles.primaryButtonText}>Lanjutkan</Text>
+          <Text style={styles.primaryButtonText}>{l("Lanjutkan", "Continue")}</Text>
           <ArrowRight size={20} color="#FFFFFF" />
         </TouchableOpacity>
       </View>
@@ -1085,24 +1002,24 @@ export default function OnboardingScreen() {
     return (
     <View style={styles.stepContainer}>
       <View style={styles.questionContainer}>
-        <Text style={styles.questionTitle}>Berapa berat badan yang Anda inginkan?</Text>
-        <Text style={styles.questionSubtitle}>Tap angka target untuk mengubah</Text>
+        <Text style={styles.questionTitle}>{l('Berapa berat badan yang Anda inginkan?', 'What is your target weight?')}</Text>
+        <Text style={styles.questionSubtitle}>{l('Tap angka target untuk mengubah', 'Tap the target number to edit')}</Text>
       </View>
 
       <View style={styles.inputSection}>
         <View style={styles.comparisonRow}>
           <View style={styles.comparisonItem}>
-            <Text style={styles.comparisonLabel}>Saat Ini</Text>
+            <Text style={styles.comparisonLabel}>{l('Saat Ini', 'Current')}</Text>
             <View style={styles.weightValueRow}>
               <Text style={styles.comparisonValueNum}>{weight}</Text>
-              <Text style={styles.comparisonUnitInline}>kg</Text>
+              <Text style={styles.comparisonUnitInline}>{l('kg', 'kg')}</Text>
             </View>
           </View>
 
           <ArrowRight size={22} color="#666" />
 
           <View style={styles.comparisonItem}>
-            <Text style={styles.comparisonLabel}>Target</Text>
+            <Text style={styles.comparisonLabel}>{l('Target', 'Target')}</Text>
             <View
               onLayout={(e) => {
                 dreamWeightY.current = e.nativeEvent.layout.y;
@@ -1119,14 +1036,14 @@ export default function OnboardingScreen() {
                   if (!Number.isNaN(num) && num >= 40 && num <= 200) setDreamWeight(num);
                 }}
                 keyboardType="decimal-pad"
-                placeholder="65"
+                placeholder={l('65', '65')}
                 placeholderTextColor="#999"
                 selectTextOnFocus
                 returnKeyType="done"
                 blurOnSubmit
                 onSubmitEditing={() => Keyboard.dismiss()}
               />
-              <Text style={styles.comparisonUnitInline}>kg</Text>
+              <Text style={styles.comparisonUnitInline}>{l('kg', 'kg')}</Text>
             </View>
             <View style={styles.inlineHintLine} />
           </View>
@@ -1145,7 +1062,7 @@ export default function OnboardingScreen() {
         disabled={isInvalidForGoal}
         activeOpacity={0.8}
       >
-        <Text style={styles.primaryButtonText}>Selanjutnya</Text>
+        <Text style={styles.primaryButtonText}>{l("Selanjutnya", "Next")}</Text>
         <ArrowRight size={20} color="#FFFFFF" />
       </TouchableOpacity>
     </View>
@@ -1155,8 +1072,8 @@ export default function OnboardingScreen() {
   const renderActivityLevel = () => (
     <View style={styles.stepContainer}>
       <View style={styles.questionContainer}>
-        <Text style={styles.questionTitle}>Pilih tingkat aktivitas</Text>
-        <Text style={styles.questionSubtitle}>Kami akan menggunakan informasi ini untuk membuat rencana khusus Anda</Text>
+        <Text style={styles.questionTitle}>{l('Pilih tingkat aktivitas', 'Choose activity level')}</Text>
+        <Text style={styles.questionSubtitle}>{l('Kami akan menggunakan informasi ini untuk membuat rencana khusus Anda', 'We use this to create your personalized plan')}</Text>
       </View>
 
       <View style={styles.optionsList}>
@@ -1172,7 +1089,7 @@ export default function OnboardingScreen() {
             <Text style={[styles.activityCardTitle, activityLevel === 'low' && styles.activityCardTitleActive]}>
               🚶 Minimal
             </Text>
-            <Text style={styles.activityCardDesc}>Sempurna untuk mereka yang memiliki gaya hidup kurang aktif.</Text>
+            <Text style={styles.activityCardDesc}>{l('Sempurna untuk mereka yang memiliki gaya hidup kurang aktif.', 'Perfect for people with a less active lifestyle.')}</Text>
           </TouchableOpacity>
         </Animated.View>
 
@@ -1188,7 +1105,7 @@ export default function OnboardingScreen() {
             <Text style={[styles.activityCardTitle, activityLevel === 'moderate' && styles.activityCardTitleActive]}>
               🏃 Sedang
             </Text>
-            <Text style={styles.activityCardDesc}>Dirancang untuk mereka yang berolahraga secara teratur.</Text>
+            <Text style={styles.activityCardDesc}>{l('Dirancang untuk mereka yang berolahraga secara teratur.', 'Designed for people who exercise regularly.')}</Text>
           </TouchableOpacity>
         </Animated.View>
 
@@ -1217,7 +1134,7 @@ export default function OnboardingScreen() {
         disabled={!activityLevel}
         activeOpacity={0.8}
       >
-        <Text style={styles.primaryButtonText}>Selanjutnya</Text>
+        <Text style={styles.primaryButtonText}>{l("Selanjutnya", "Next")}</Text>
         <ArrowRight size={20} color="#FFFFFF" />
       </TouchableOpacity>
     </View>
@@ -1288,15 +1205,15 @@ export default function OnboardingScreen() {
               blurOnSubmit
               onSubmitEditing={() => Keyboard.dismiss()}
             />
-            <Text style={[styles.inputUnit, showWarning && styles.inputUnitWarning]}>kg</Text>
+            <Text style={[styles.inputUnit, showWarning && styles.inputUnitWarning]}>{l('kg', 'kg')}</Text>
           </View>
 
           {showWarning && (
             <View style={styles.recommendationCard}>
-              <Text style={styles.recommendationTitle}>Rekomendasi</Text>
+              <Text style={styles.recommendationTitle}>{l('Rekomendasi', 'Recommendation')}</Text>
               <Text style={styles.recommendationText}>{warningText}</Text>
               <TouchableOpacity style={styles.recommendationButton} onPress={clampToRecommended} activeOpacity={0.85}>
-                <Text style={styles.recommendationButtonText}>Gunakan nilai rekomendasi</Text>
+                <Text style={styles.recommendationButtonText}>{l('Gunakan nilai rekomendasi', 'Use recommended value')}</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -1308,7 +1225,7 @@ export default function OnboardingScreen() {
           disabled={!hasNumber}
           activeOpacity={0.8}
         >
-          <Text style={styles.primaryButtonText}>Selanjutnya</Text>
+          <Text style={styles.primaryButtonText}>{l("Selanjutnya", "Next")}</Text>
           <ArrowRight size={20} color="#FFFFFF" />
         </TouchableOpacity>
       </View>
@@ -1325,7 +1242,7 @@ export default function OnboardingScreen() {
     return (
       <View style={styles.stepContainer}>
         <View style={styles.questionContainer}>
-          <Text style={styles.questionTitle}>Target kamu realistis dan bisa dicapai</Text>
+          <Text style={styles.questionTitle}>{l('Target kamu realistis dan bisa dicapai', 'Your target is realistic and achievable')}</Text>
         </View>
 
         <View style={premiumStyles.insightPageMain}>
@@ -1345,7 +1262,7 @@ export default function OnboardingScreen() {
               },
             ]}
           >
-            <Text style={premiumStyles.insightCardTitle}>Proyeksi transformasi</Text>
+            <Text style={premiumStyles.insightCardTitle}>{l('Proyeksi transformasi', 'Transformation projection')}</Text>
             <Svg width="100%" height="160" viewBox="0 0 350 160">
               <Path d="M16 28H334M16 78H334M16 128H334" stroke="#E5E7EB" strokeDasharray="5 6" strokeWidth="1" />
               <AnimatedPath
@@ -1361,9 +1278,9 @@ export default function OnboardingScreen() {
               <Path d="M16 112a5 5 0 110 0.1M96 106a5 5 0 110 0.1M174 82a5 5 0 110 0.1M334 30a6 6 0 110 0.1" fill="#111827" />
             </Svg>
             <View style={premiumStyles.insightAxisRow}>
-              <Text style={premiumStyles.insightAxisLabel}>4 hari</Text>
-              <Text style={premiumStyles.insightAxisLabel}>10 hari</Text>
-              <Text style={premiumStyles.insightAxisLabel}>5 minggu</Text>
+              <Text style={premiumStyles.insightAxisLabel}>{l('4 hari', '4 days')}</Text>
+              <Text style={premiumStyles.insightAxisLabel}>{l('10 hari', '10 days')}</Text>
+              <Text style={premiumStyles.insightAxisLabel}>{l('5 minggu', '5 weeks')}</Text>
             </View>
           </Animated.View>
 
@@ -1375,7 +1292,7 @@ export default function OnboardingScreen() {
         </View>
 
         <TouchableOpacity style={styles.primaryButton} onPress={handleNext} activeOpacity={0.8}>
-          <Text style={styles.primaryButtonText}>Lanjutkan</Text>
+          <Text style={styles.primaryButtonText}>{l("Lanjutkan", "Continue")}</Text>
           <ArrowRight size={20} color="#FFFFFF" />
         </TouchableOpacity>
       </View>
@@ -1389,7 +1306,7 @@ export default function OnboardingScreen() {
     return (
       <View style={styles.stepContainer}>
         <View style={styles.questionContainer}>
-          <Text style={styles.questionTitle}>Dengan support yang tepat, hasilnya lebih konsisten</Text>
+          <Text style={styles.questionTitle}>{l('Dengan support yang tepat, hasilnya lebih konsisten', 'With the right support, results are more consistent')}</Text>
         </View>
 
         <View style={premiumStyles.insightPageMain}>
@@ -1409,10 +1326,10 @@ export default function OnboardingScreen() {
               },
             ]}
           >
-            <Text style={premiumStyles.insightMiniCompareTitle}>Konsistensi mingguan</Text>
+            <Text style={premiumStyles.insightMiniCompareTitle}>{l('Konsistensi mingguan', 'Weekly consistency')}</Text>
             <View style={premiumStyles.dotCompareRow}>
               <View style={premiumStyles.dotCompareCol}>
-                <Text style={premiumStyles.insightBarTopLabel}>Sendiri</Text>
+                <Text style={premiumStyles.insightBarTopLabel}>{l('Sendiri', 'On your own')}</Text>
                 <View style={premiumStyles.dotGrid}>
                   {Array.from({ length: 10 }).map((_, idx) => (
                     <View
@@ -1427,7 +1344,7 @@ export default function OnboardingScreen() {
                 <Text style={premiumStyles.insightBarBottomLabel}>28%</Text>
               </View>
               <View style={premiumStyles.dotCompareCol}>
-                <Text style={premiumStyles.insightBarTopLabel}>Dengan DietKu</Text>
+                <Text style={premiumStyles.insightBarTopLabel}>{l('Dengan DietKu', 'With DietKu')}</Text>
                 <View style={premiumStyles.dotGrid}>
                   {Array.from({ length: 10 }).map((_, idx) => (
                     <View
@@ -1445,12 +1362,12 @@ export default function OnboardingScreen() {
           </Animated.View>
 
           <Text style={premiumStyles.insightSubheadline}>
-            Tracking harian + target personal membuat progres lebih stabil.
+            {l('Tracking harian + target personal membuat progres lebih stabil.', 'Daily tracking + personalized targets make progress more stable.')}
           </Text>
         </View>
 
         <TouchableOpacity style={styles.primaryButton} onPress={handleNext} activeOpacity={0.8}>
-          <Text style={styles.primaryButtonText}>Lanjutkan</Text>
+          <Text style={styles.primaryButtonText}>{l("Lanjutkan", "Continue")}</Text>
           <ArrowRight size={20} color="#FFFFFF" />
         </TouchableOpacity>
       </View>
@@ -1459,12 +1376,12 @@ export default function OnboardingScreen() {
 
   const renderMotivations = () => {
     const motivationOptions = [
-      { id: 'energy', label: '⚡ Energi lebih baik' },
-      { id: 'consistency', label: '🎯 Konsistensi' },
-      { id: 'health', label: '❤️ Perbaikan kesehatan' },
-      { id: 'feeling', label: '😊 Merasa lebih baik setiap hari' },
-      { id: 'confidence', label: '✨ Meningkatkan kepercayaan diri' },
-      { id: 'lifestyle', label: '🌱 Gaya hidup lebih sehat' },
+      { id: 'energy', label: l('⚡ Energi lebih baik', '⚡ Better energy') },
+      { id: 'consistency', label: l('🎯 Konsistensi', '🎯 Consistency') },
+      { id: 'health', label: l('❤️ Perbaikan kesehatan', '❤️ Health improvement') },
+      { id: 'feeling', label: l('😊 Merasa lebih baik setiap hari', '😊 Feeling better every day') },
+      { id: 'confidence', label: l('✨ Meningkatkan kepercayaan diri', '✨ Better confidence') },
+      { id: 'lifestyle', label: l('🌱 Gaya hidup lebih sehat', '🌱 Healthier lifestyle') },
     ];
 
     const toggleMotivation = (id: string) => {
@@ -1475,8 +1392,8 @@ export default function OnboardingScreen() {
     return (
       <View style={styles.stepContainer}>
         <View style={styles.questionContainer}>
-          <Text style={styles.questionTitle}>Apa yang ingin Anda capai?</Text>
-          <Text style={styles.questionSubtitle}>Pilih semua yang sesuai</Text>
+          <Text style={styles.questionTitle}>{l('Apa yang ingin Anda capai?', 'What do you want to achieve?')}</Text>
+          <Text style={styles.questionSubtitle}>{l('Pilih semua yang sesuai', 'Select all that apply')}</Text>
         </View>
 
         <View style={styles.optionsList}>
@@ -1501,7 +1418,7 @@ export default function OnboardingScreen() {
           disabled={motivations.length === 0}
           activeOpacity={0.8}
         >
-          <Text style={styles.primaryButtonText}>Lanjutkan</Text>
+          <Text style={styles.primaryButtonText}>{l("Lanjutkan", "Continue")}</Text>
           <ArrowRight size={20} color="#FFFFFF" />
         </TouchableOpacity>
       </View>
@@ -1510,18 +1427,18 @@ export default function OnboardingScreen() {
 
   const renderMainObstacle = () => {
     const obstacleOptions = [
-      { id: 'consistency', label: '🎯 Sulit konsisten setiap hari' },
-      { id: 'eating_pattern', label: '🍽️ Pola makan belum teratur' },
-      { id: 'support', label: '🤝 Kurang dukungan lingkungan' },
-      { id: 'time', label: '⏰ Waktu sangat terbatas' },
-      { id: 'planning', label: '🧩 Bingung menyusun menu' },
+      { id: 'consistency', label: l('🎯 Sulit konsisten setiap hari', '🎯 Hard to stay consistent every day') },
+      { id: 'eating_pattern', label: l('🍽️ Pola makan belum teratur', '🍽️ Eating pattern is still irregular') },
+      { id: 'support', label: l('🤝 Kurang dukungan lingkungan', '🤝 Lack of support from environment') },
+      { id: 'time', label: l('⏰ Waktu sangat terbatas', '⏰ Very limited time') },
+      { id: 'planning', label: l('🧩 Bingung menyusun menu', '🧩 Confused about meal planning') },
     ];
 
     return (
       <View style={styles.stepContainer}>
         <View style={styles.questionContainer}>
-          <Text style={styles.questionTitle}>Apa hambatan terbesar Anda saat ini?</Text>
-          <Text style={styles.questionSubtitle}>Pilih satu yang paling sering membuat Anda mundur</Text>
+          <Text style={styles.questionTitle}>{l('Apa hambatan terbesar Anda saat ini?', 'What is your biggest obstacle right now?')}</Text>
+          <Text style={styles.questionSubtitle}>{l('Pilih satu yang paling sering membuat Anda mundur', 'Choose the one that holds you back most often')}</Text>
         </View>
 
         <View style={styles.optionsList}>
@@ -1549,7 +1466,7 @@ export default function OnboardingScreen() {
           disabled={!mainObstacle}
           activeOpacity={0.8}
         >
-          <Text style={styles.primaryButtonText}>Lanjutkan</Text>
+          <Text style={styles.primaryButtonText}>{l("Lanjutkan", "Continue")}</Text>
           <ArrowRight size={20} color="#FFFFFF" />
         </TouchableOpacity>
       </View>
@@ -1559,13 +1476,13 @@ export default function OnboardingScreen() {
   const renderCoachStatus = () => (
     <View style={styles.stepContainer}>
       <View style={styles.questionContainer}>
-        <Text style={styles.questionTitle}>Saat ini Anda didampingi coach atau nutritionist?</Text>
+        <Text style={styles.questionTitle}>{l('Saat ini Anda didampingi coach atau nutritionist?', 'Are you currently guided by a coach or nutritionist?')}</Text>
       </View>
 
       <View style={styles.optionsList}>
         {[
-          { id: 'yes' as const, label: '✅ Ya, saat ini didampingi' },
-          { id: 'no' as const, label: '👤 Belum, saya jalan sendiri' },
+          { id: 'yes' as const, label: l('✅ Ya, saat ini didampingi', '✅ Yes, currently guided') },
+          { id: 'no' as const, label: l('👤 Belum, saya jalan sendiri', '👤 Not yet, I am on my own') },
         ].map((option, index) => (
           <Animated.View key={option.id} style={getOptionEnterStyle(index)}>
             <TouchableOpacity
@@ -1590,7 +1507,7 @@ export default function OnboardingScreen() {
         disabled={!hasCoach}
         activeOpacity={0.8}
       >
-        <Text style={styles.primaryButtonText}>Lanjutkan</Text>
+        <Text style={styles.primaryButtonText}>{l("Lanjutkan", "Continue")}</Text>
         <ArrowRight size={20} color="#FFFFFF" />
       </TouchableOpacity>
     </View>
@@ -1599,13 +1516,13 @@ export default function OnboardingScreen() {
   const renderTrackingAppExperience = () => (
     <View style={styles.stepContainer}>
       <View style={styles.questionContainer}>
-        <Text style={styles.questionTitle}>Pernah mencoba aplikasi hitung kalori lain sebelumnya?</Text>
+        <Text style={styles.questionTitle}>{l('Pernah mencoba aplikasi hitung kalori lain sebelumnya?', 'Have you used other calorie tracking apps before?')}</Text>
       </View>
 
       <View style={styles.optionsList}>
         {[
-          { id: 'yes' as const, label: '📱 Pernah, sudah coba beberapa' },
-          { id: 'no' as const, label: '🌱 Belum pernah, ini yang pertama' },
+          { id: 'yes' as const, label: l('📱 Pernah, sudah coba beberapa', '📱 Yes, I have tried several') },
+          { id: 'no' as const, label: l('🌱 Belum pernah, ini yang pertama', '🌱 Never, this is my first') },
         ].map((option, index) => (
           <Animated.View key={option.id} style={getOptionEnterStyle(index)}>
             <TouchableOpacity
@@ -1630,7 +1547,7 @@ export default function OnboardingScreen() {
         disabled={!usedTrackingApp}
         activeOpacity={0.8}
       >
-        <Text style={styles.primaryButtonText}>Lanjutkan</Text>
+        <Text style={styles.primaryButtonText}>{l("Lanjutkan", "Continue")}</Text>
         <ArrowRight size={20} color="#FFFFFF" />
       </TouchableOpacity>
     </View>
@@ -1638,7 +1555,7 @@ export default function OnboardingScreen() {
 
   const renderDietType = () => {
     const dietOptions = [
-      { id: 'none', label: '🍽️ Tidak ada diet khusus' },
+      { id: 'none', label: l('🍽️ Tidak ada diet khusus', '🍽️ No special diet') },
       { id: 'vegetarian', label: '🥗 Vegetarian' },
       { id: 'vegan', label: '🌱 Vegan' },
       { id: 'keto', label: '🥑 Keto' },
@@ -1649,7 +1566,7 @@ export default function OnboardingScreen() {
     return (
       <View style={styles.stepContainer}>
         <View style={styles.questionContainer}>
-          <Text style={styles.questionTitle}>Apakah Anda menjalani{'\n'}diet khusus?</Text>
+          <Text style={styles.questionTitle}>{l('Apakah Anda menjalani\ndiet khusus?', 'Do you follow a specific diet?')}</Text>
         </View>
 
         <View style={styles.optionsList}>
@@ -1677,7 +1594,7 @@ export default function OnboardingScreen() {
           disabled={!dietType}
           activeOpacity={0.8}
         >
-          <Text style={styles.primaryButtonText}>Lanjutkan</Text>
+          <Text style={styles.primaryButtonText}>{l("Lanjutkan", "Continue")}</Text>
           <ArrowRight size={20} color="#FFFFFF" />
         </TouchableOpacity>
       </View>
@@ -1704,12 +1621,56 @@ export default function OnboardingScreen() {
       </View>
 
       <TouchableOpacity style={styles.primaryButton} onPress={handleNext} activeOpacity={0.8}>
-        <Text style={styles.primaryButtonText}>Lanjutkan</Text>
+        <Text style={styles.primaryButtonText}>{l("Lanjutkan", "Continue")}</Text>
         <ArrowRight size={20} color="#FFFFFF" />
       </TouchableOpacity>
     </View>
   );
   */
+
+  const renderReferralOptional = () => (
+    <View style={styles.stepContainer}>
+      <View style={styles.questionContainer}>
+        <Text style={[styles.questionTitle, { textAlign: 'center' }]}>
+          {l('Kode undangan', 'Referral code')}
+        </Text>
+        <View style={[styles.reassuranceIconCircle, { alignSelf: 'center', marginTop: 14, marginBottom: 10 }]}>
+          <Gift size={36} color="#22C55E" strokeWidth={2.2} />
+        </View>
+        <Text style={[styles.questionSubtitle, { textAlign: 'center' }]}>
+          {l('Opsional. Masukkan kode untuk dapat trial tambahan.', 'Optional. Enter a code to get bonus trial time.')}
+        </Text>
+      </View>
+
+      <PaywallReferralSection
+        ref={referralRef}
+        variant="light"
+        forModal
+        modalIntro=""
+        hideRedeemButton
+        consumePendingOnMount
+        deepLinkRef={refFromOnboardingLink}
+        textPrimary="#1A1A2E"
+        textSecondary="#6E6E82"
+        borderColor="#E5E5EA"
+        inputBg="#F5F5F7"
+        accentColor="#22C55E"
+      />
+
+      <TouchableOpacity
+        style={styles.primaryButton}
+        onPress={async () => {
+          const ok = await referralRef.current?.redeemIfFilled('onboarding_continue');
+          if (ok === false) return;
+          handleNext();
+        }}
+        activeOpacity={0.8}
+      >
+        <Text style={styles.primaryButtonText}>{l('Lanjutkan', 'Continue')}</Text>
+        <ArrowRight size={20} color="#FFFFFF" />
+      </TouchableOpacity>
+    </View>
+  );
 
   const renderNotificationPermission = () => (
     <View style={styles.stepContainer}>
@@ -1717,19 +1678,19 @@ export default function OnboardingScreen() {
         <View style={styles.reassuranceIconCircle}>
           <Text style={{ fontSize: 64 }}>🔔</Text>
         </View>
-        <Text style={styles.reassuranceTitle}>Tetap konsisten{'\n'}dengan reminder</Text>
+        <Text style={styles.reassuranceTitle}>{l('Tetap konsisten\ndengan reminder', 'Stay consistent\nwith reminders')}</Text>
         <Text style={styles.reassuranceSubtitle}>
-          Izinkan notifikasi untuk pengingat harian yang membantu Anda tetap on track.
+          {l('Izinkan notifikasi untuk pengingat harian yang membantu Anda tetap on track.', 'Enable notifications for daily reminders that keep you on track.')}
         </Text>
       </View>
 
       <View style={styles.notificationButtons}>
         <TouchableOpacity style={styles.primaryButton} onPress={handleEnableNotifications} activeOpacity={0.8}>
-          <Text style={styles.primaryButtonText}>Aktifkan Notifikasi</Text>
+          <Text style={styles.primaryButtonText}>{l('Aktifkan Notifikasi', 'Enable Notifications')}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.skipButton} onPress={handleSkipNotifications} activeOpacity={0.7}>
-          <Text style={styles.skipButtonText}>Lewati untuk sekarang</Text>
+          <Text style={styles.skipButtonText}>{l('Lewati untuk sekarang', 'Skip for now')}</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -1765,7 +1726,7 @@ export default function OnboardingScreen() {
             <Sparkles size={32} color="#22C55E" />
           </View>
         </View>
-        <Text style={styles.loadingTitle}>Membuat rencana{'\n'}khusus Anda</Text>
+        <Text style={styles.loadingTitle}>{l('Membuat rencana\nkhusus Anda', 'Creating your\npersonalized plan')}</Text>
         <Text style={styles.loadingSubtext}>{loadingMessage}...</Text>
       </View>
     );
@@ -1809,10 +1770,10 @@ export default function OnboardingScreen() {
     return (
       <View style={[styles.finalScrollContent, { paddingBottom: 40 + insets.bottom }]}> 
         <View style={styles.finalPlanContainer}>
-          <Text style={styles.finalPlanTitle}>Selamat! Rencana Anda Siap! 🎉</Text>
+          <Text style={styles.finalPlanTitle}>{l('Selamat! Rencana Anda Siap! 🎉', 'Congrats! Your Plan Is Ready! 🎉')}</Text>
 
           <View style={styles.projectionBanner}>
-            <Text style={styles.projectionLabel}>Anda akan mencapai</Text>
+            <Text style={styles.projectionLabel}>{l('Anda akan mencapai', 'You will reach')}</Text>
             <Text style={styles.projectionWeight}>{dreamWeight} kg</Text>
             <Text style={styles.projectionDate}>pada {formattedDate}</Text>
           </View>
@@ -1853,7 +1814,7 @@ export default function OnboardingScreen() {
             </Svg>
             <View style={styles.donutCenter}>
               <Text style={styles.donutCenterValue}>{Math.round(goalCalories)}</Text>
-              <Text style={styles.donutCenterLabel}>kkal/hari</Text>
+              <Text style={styles.donutCenterLabel}>{l('kkal/hari', 'kcal/day')}</Text>
             </View>
           </View>
 
@@ -1873,15 +1834,15 @@ export default function OnboardingScreen() {
           </View>
 
           <View style={styles.tipsSection}>
-            <Text style={styles.tipsSectionTitle}>Cara mencapai target 🎯</Text>
+            <Text style={styles.tipsSectionTitle}>{l('Cara mencapai target 🎯', 'How to reach your target 🎯')}</Text>
 
             <View style={styles.tipCard}>
               <View style={styles.tipIconCircle}>
                 <Text style={styles.tipIcon}>📸</Text>
               </View>
               <View style={styles.tipContent}>
-                <Text style={styles.tipTitle}>Lacak makanan Anda</Text>
-                <Text style={styles.tipDesc}>Foto setiap makanan untuk hasil terbaik</Text>
+                <Text style={styles.tipTitle}>{l('Lacak makanan Anda', 'Track your meals')}</Text>
+                <Text style={styles.tipDesc}>{l('Foto setiap makanan untuk hasil terbaik', 'Photo every meal for best results')}</Text>
               </View>
             </View>
 
@@ -1890,8 +1851,8 @@ export default function OnboardingScreen() {
                 <Text style={styles.tipIcon}>🔥</Text>
               </View>
               <View style={styles.tipContent}>
-                <Text style={styles.tipTitle}>Ikuti kalori harian</Text>
-                <Text style={styles.tipDesc}>Konsistensi adalah kunci kesuksesan</Text>
+                <Text style={styles.tipTitle}>{l('Ikuti kalori harian', 'Follow daily calories')}</Text>
+                <Text style={styles.tipDesc}>{l('Konsistensi adalah kunci kesuksesan', 'Consistency is the key to success')}</Text>
               </View>
             </View>
 
@@ -1900,15 +1861,15 @@ export default function OnboardingScreen() {
                 <Text style={styles.tipIcon}>⚖️</Text>
               </View>
               <View style={styles.tipContent}>
-                <Text style={styles.tipTitle}>Seimbangkan makro Anda</Text>
-                <Text style={styles.tipDesc}>Perhatikan protein, karbo, dan lemak</Text>
+                <Text style={styles.tipTitle}>{l('Seimbangkan makro Anda', 'Balance your macros')}</Text>
+                <Text style={styles.tipDesc}>{l('Perhatikan protein, karbo, dan lemak', 'Pay attention to protein, carbs, and fat')}</Text>
               </View>
             </View>
           </View>
         </View>
 
         <TouchableOpacity style={styles.primaryButton} onPress={handleComplete} activeOpacity={0.8}>
-          <Text style={styles.primaryButtonText}>Lanjutkan</Text>
+          <Text style={styles.primaryButtonText}>{l("Lanjutkan", "Continue")}</Text>
           <ArrowRight size={20} color="#FFFFFF" />
         </TouchableOpacity>
       </View>
@@ -1976,7 +1937,7 @@ export default function OnboardingScreen() {
           >
             <View style={styles.subscriptionPriceRow}>
               <View>
-                <Text style={styles.subscriptionPlanLabel}>Tahunan</Text>
+                <Text style={styles.subscriptionPlanLabel}>{l('Tahunan', 'Yearly')}</Text>
                 <Text style={styles.subscriptionPlanPrice}>{yearlyPrice}</Text>
                 <Text style={styles.subscriptionMonthlyEquiv}>{yearlyEquiv}</Text>
               </View>
@@ -1996,7 +1957,7 @@ export default function OnboardingScreen() {
           >
             <View style={styles.subscriptionPriceRow}>
               <View>
-                <Text style={styles.subscriptionPlanLabel}>Bulanan</Text>
+                <Text style={styles.subscriptionPlanLabel}>{l('Bulanan', 'Monthly')}</Text>
                 <Text style={styles.subscriptionPlanPrice}>{monthlyPrice}</Text>
               </View>
             </View>
@@ -2007,7 +1968,7 @@ export default function OnboardingScreen() {
             onPress={() => {
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
               setShowSubscription(false);
-              setStep(19);
+              setStep(20);
             }}
             activeOpacity={0.8}
           >
@@ -2016,11 +1977,11 @@ export default function OnboardingScreen() {
           </TouchableOpacity>
 
           <View style={styles.subscriptionFooter}>
-            <Text style={styles.subscriptionFooterLink}>Ketentuan Layanan</Text>
+            <Text style={styles.subscriptionFooterLink}>{l('Ketentuan Layanan', 'Terms of Service')}</Text>
             <Text style={styles.subscriptionFooterDivider}>|</Text>
-            <Text style={styles.subscriptionFooterLink}>Kebijakan Privasi</Text>
+            <Text style={styles.subscriptionFooterLink}>{l('Kebijakan Privasi', 'Privacy Policy')}</Text>
             <Text style={styles.subscriptionFooterDivider}>|</Text>
-            <Text style={styles.subscriptionFooterLink}>Pulihkan Pembelian</Text>
+            <Text style={styles.subscriptionFooterLink}>{l('Pulihkan Pembelian', 'Restore Purchases')}</Text>
           </View>
         </Animated.View>
       </View>
@@ -2039,18 +2000,18 @@ export default function OnboardingScreen() {
             />
           </Svg>
         </View>
-        <Text style={styles.signInTitle}>Simpan Progress Anda</Text>
-        <Text style={styles.signInSubtitle}>Masuk untuk menyinkronkan data di semua perangkat</Text>
+        <Text style={styles.signInTitle}>{l('Simpan Progress Anda', 'Save Your Progress')}</Text>
+        <Text style={styles.signInSubtitle}>{l('Masuk untuk menyinkronkan data di semua perangkat', 'Sign in to sync data across all devices')}</Text>
       </View>
 
       <View style={[styles.signInForm, styles.signInFormNatural]}>
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Nama Depan</Text>
+          <Text style={styles.inputLabel}>{l('Nama Depan', 'First Name')}</Text>
           <TextInput
             style={styles.signInInput}
             value={firstName}
             onChangeText={setFirstName}
-            placeholder="Nama depan"
+            placeholder={l('Nama depan', 'First name')}
             placeholderTextColor="#999999"
             autoCapitalize="words"
             autoCorrect={false}
@@ -2059,12 +2020,12 @@ export default function OnboardingScreen() {
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Nama Belakang</Text>
+          <Text style={styles.inputLabel}>{l('Nama Belakang', 'Last Name')}</Text>
           <TextInput
             style={styles.signInInput}
             value={lastName}
             onChangeText={setLastName}
-            placeholder="Nama belakang"
+            placeholder={l('Nama belakang', 'Last name')}
             placeholderTextColor="#999999"
             autoCapitalize="words"
             autoCorrect={false}
@@ -2073,12 +2034,12 @@ export default function OnboardingScreen() {
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Email</Text>
+          <Text style={styles.inputLabel}>{l('Email', 'Email')}</Text>
           <TextInput
             style={styles.signInInput}
             value={signInEmail}
             onChangeText={setSignInEmail}
-            placeholder="nama@email.com"
+            placeholder={l('nama@email.com', 'name@email.com')}
             placeholderTextColor="#999999"
             keyboardType="email-address"
             autoCapitalize="none"
@@ -2088,13 +2049,13 @@ export default function OnboardingScreen() {
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Password</Text>
+          <Text style={styles.inputLabel}>{l('Password', 'Password')}</Text>
           <View style={styles.signInPasswordRow}>
             <TextInput
               style={styles.signInPasswordInput}
               value={signInPassword}
               onChangeText={setSignInPassword}
-              placeholder="••••••••"
+              placeholder={l('••••••••', '••••••••')}
               placeholderTextColor="#999999"
               secureTextEntry={!showSignInPassword}
               autoCapitalize="none"
@@ -2122,13 +2083,13 @@ export default function OnboardingScreen() {
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Ketik Ulang Password</Text>
+          <Text style={styles.inputLabel}>{l('Ketik Ulang Password', 'Re-enter Password')}</Text>
           <View style={styles.signInPasswordRow}>
             <TextInput
               style={styles.signInPasswordInput}
               value={signInPasswordConfirm}
               onChangeText={setSignInPasswordConfirm}
-              placeholder="••••••••"
+              placeholder={l('••••••••', '••••••••')}
               placeholderTextColor="#999999"
               secureTextEntry={!showSignInPasswordConfirm}
               autoCapitalize="none"
@@ -2162,39 +2123,16 @@ export default function OnboardingScreen() {
           activeOpacity={0.8}
           disabled={isCreatingAccount}
         >
-          <Text style={styles.primaryButtonText}>{isCreatingAccount ? 'Membuat akun...' : 'Daftar'}</Text>
+          <Text style={styles.primaryButtonText}>{isCreatingAccount ? l('Membuat akun...', 'Creating account...') : l('Daftar', 'Sign Up')}</Text>
           {!isCreatingAccount && <ArrowRight size={20} color="#FFFFFF" />}
         </TouchableOpacity>
 
         <View style={styles.divider}>
           <View style={styles.dividerLine} />
-          <Text style={styles.dividerText}>atau</Text>
+          <Text style={styles.dividerText}>{l('atau', 'or')}</Text>
           <View style={styles.dividerLine} />
         </View>
 
-        {false && (
-        <TouchableOpacity style={styles.googleButton} onPress={handleGoogleSignIn} activeOpacity={0.7} disabled={isGoogleSigningIn}>
-          <Svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-            <Path
-              d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-              fill="#4285F4"
-            />
-            <Path
-              d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-              fill="#34A853"
-            />
-            <Path
-              d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-              fill="#FBBC05"
-            />
-            <Path
-              d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-              fill="#EA4335"
-            />
-          </Svg>
-          <Text style={styles.googleButtonText}>{isGoogleSigningIn ? 'Memproses...' : 'Lanjutkan dengan Google'}</Text>
-        </TouchableOpacity>
-        )}
       </View>
     </View>
   );
@@ -2242,6 +2180,8 @@ export default function OnboardingScreen() {
       case 18:
         return renderSignIn();
       case 19:
+        return renderReferralOptional();
+      case 20:
         return renderNotificationPermission();
       default:
         return renderIntro();
@@ -2249,12 +2189,17 @@ export default function OnboardingScreen() {
   };
 
   const isSignUpStep = step === 18;
+  const isIntroStep = step === 0;
   const contentPaddingBottom = isSignUpStep
-    ? Math.max(28, insets.bottom) + 28
-    : Platform.OS === 'android'
-      ? Math.max(24, insets.bottom) + 16
-      : Math.max(20, insets.bottom);
-  const contentPaddingTop = Platform.OS === 'android' ? 24 : insets.top + 8;
+    ? Math.max(28, insets.bottom) + 36
+    : isIntroStep
+      ? Platform.OS === 'android'
+        ? Math.max(12, insets.bottom) + 10
+        : Math.max(14, insets.bottom) + 6
+      : Platform.OS === 'android'
+        ? Math.max(24, insets.bottom) + 24
+        : Math.max(20, insets.bottom) + 8;
+  const contentPaddingTop = Platform.OS === 'android' ? 52 : insets.top + 34;
   const ScreenWrapper =
     Platform.OS === 'ios' && !isSignUpStep ? KeyboardAvoidingView : View;
 
@@ -2288,18 +2233,20 @@ export default function OnboardingScreen() {
 
   return (
     <ScreenWrapper
-      style={styles.container}
+      style={[styles.container, step === 0 && { backgroundColor: '#EEEDEB' }]}
       {...(Platform.OS === 'ios' && !isSignUpStep
         ? { behavior: 'height' as const, keyboardVerticalOffset: insets.top + 12 }
         : {})}
     >
       <ScrollView
         ref={scrollRef}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: contentPaddingBottom, paddingTop: contentPaddingTop }]}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: contentPaddingBottom, paddingTop: contentPaddingTop },
+          step === 0 && { backgroundColor: '#EEEDEB' },
+        ]}
         showsVerticalScrollIndicator={false}
-        scrollEnabled={
-          (step === 17 || step === 18 || step === 19) && !showLoading
-        }
+        scrollEnabled={!showLoading}
         nestedScrollEnabled
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}

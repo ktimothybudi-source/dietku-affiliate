@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { useNutrition } from '@/contexts/NutritionContext';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { supabase } from '@/lib/supabase';
 import {
   createMyAffiliateCode,
@@ -28,7 +29,8 @@ import { Users, Gift } from 'lucide-react-native';
 export default function ReferralShareScreen() {
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
-  const { authState, referralTrialEndsAt, isAppCreator, isAppAdmin } = useNutrition();
+  const { l } = useLanguage();
+  const { authState, referralTrialEndsAt } = useNutrition();
   const queryClient = useQueryClient();
   const { refreshSubscription } = useSubscription();
   const uid = authState.userId;
@@ -65,17 +67,13 @@ export default function ReferralShareScreen() {
       if (error) throw error;
       return count ?? 0;
     },
-    enabled: !!myCodeQuery.data?.id && (isAppCreator || isAppAdmin),
+    enabled: !!myCodeQuery.data?.id,
   });
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       if (!uid || !myCodeQuery.isSuccess || bootstrapDone) return;
-      if (!isAppCreator && !isAppAdmin) {
-        setBootstrapDone(true);
-        return;
-      }
       if (myCodeQuery.data !== null) {
         setBootstrapDone(true);
         return;
@@ -88,14 +86,14 @@ export default function ReferralShareScreen() {
         if (res.ok) {
           await queryClient.invalidateQueries({ queryKey: ['my_referral_code', uid] });
         } else {
-          Alert.alert('Kode undangan', 'Tidak dapat membuat kode otomatis. Coba lagi nanti.');
+          Alert.alert(l('Kode undangan', 'Invite code'), l('Tidak dapat membuat kode otomatis. Coba lagi nanti.', 'Could not create code automatically. Please try again later.'));
         }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [uid, myCodeQuery.isSuccess, myCodeQuery.data, bootstrapDone, queryClient, isAppCreator, isAppAdmin]);
+  }, [uid, myCodeQuery.isSuccess, myCodeQuery.data, bootstrapDone, queryClient]);
 
   const code = myCodeQuery.data?.code_normalized;
 
@@ -104,7 +102,7 @@ export default function ReferralShareScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
       await Share.share({
-        message: `Gabung DietKu pakai kode undanganku: ${code}`,
+        message: l(`Gabung DietKu pakai kode undanganku: ${code}`, `Join DietKu using my invite code: ${code}`),
       });
     } catch {
       // no-op
@@ -114,9 +112,9 @@ export default function ReferralShareScreen() {
   if (!authState.isSignedIn) {
     return (
       <>
-        <Stack.Screen options={{ title: 'Undangan', headerShown: true }} />
+        <Stack.Screen options={{ title: l('Undangan', 'Invites'), headerShown: true }} />
         <View style={[styles.center, { paddingTop: insets.top }]}>
-          <Text style={{ color: theme.textSecondary }}>Masuk untuk melihat kode undangan.</Text>
+          <Text style={{ color: theme.textSecondary }}>{l('Masuk untuk melihat kode undangan.', 'Sign in to view your invite code.')}</Text>
         </View>
       </>
     );
@@ -124,53 +122,47 @@ export default function ReferralShareScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: 'Undangan', headerShown: true }} />
+      <Stack.Screen options={{ title: l('Undangan', 'Invites'), headerShown: true }} />
       <View style={[styles.container, { paddingTop: insets.top + 16, backgroundColor: theme.background }]}>
         <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
           <View style={styles.rowTitle}>
             <Gift size={22} color={theme.primary} />
-            <Text style={[styles.title, { color: theme.text }]}>Kode undangan Anda</Text>
+            <Text style={[styles.title, { color: theme.text }]}>{l('Kode undangan Anda', 'Your invite code')}</Text>
           </View>
           <Text style={[styles.sub, { color: theme.textSecondary }]}>
-            {isAppCreator || isAppAdmin
-              ? 'Bagikan kode creator Anda. Pengguna yang memakai kode ini masuk ke flow trial 7 hari.'
-              : 'Kode undangan personal hanya tersedia untuk akun Creator/Admin.'}
+            {l('Bagikan kode undangan Anda. Pengguna yang memakai kode ini masuk ke flow trial 7 hari.', 'Share your invite code. Users who use this code enter a 7-day trial flow.')}
           </Text>
           {creating || myCodeQuery.isLoading ? (
             <ActivityIndicator style={{ marginVertical: 24 }} color={theme.primary} />
           ) : (
             <>
               <Text style={[styles.code, { color: theme.primary }]} selectable>
-                {isAppCreator || isAppAdmin ? code ?? '—' : 'Creator only'}
+                {code ?? '—'}
               </Text>
               <TouchableOpacity
                 style={[styles.btn, { backgroundColor: theme.primary }]}
                 onPress={onShare}
-                disabled={!code || (!isAppCreator && !isAppAdmin)}
+                disabled={!code}
                 activeOpacity={0.85}
               >
                 <Users size={18} color="#FFFFFF" />
-                <Text style={styles.btnLabel}>Bagikan</Text>
+                <Text style={styles.btnLabel}>{l('Bagikan', 'Share')}</Text>
               </TouchableOpacity>
             </>
           )}
         </View>
 
         <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <Text style={[styles.statLabel, { color: theme.textSecondary }]}>Orang yang menggunakan kode Anda</Text>
+          <Text style={[styles.statLabel, { color: theme.textSecondary }]}>{l('Orang yang menggunakan kode Anda', 'People who used your code')}</Text>
           <Text style={[styles.statVal, { color: theme.text }]}>
-            {isAppCreator || isAppAdmin
-              ? redemptionCountQuery.isLoading
-                ? '…'
-                : redemptionCountQuery.data ?? 0
-              : '—'}
+            {redemptionCountQuery.isLoading ? '…' : redemptionCountQuery.data ?? 0}
           </Text>
         </View>
 
         <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <Text style={[styles.title, { color: theme.text, marginBottom: 8 }]}>Pakai kode teman</Text>
+          <Text style={[styles.title, { color: theme.text, marginBottom: 8 }]}>{l('Pakai kode teman', "Use a friend's code")}</Text>
           <Text style={[styles.sub, { color: theme.textSecondary, marginBottom: 12 }]}>
-            Hanya berlaku sekali per akun. Tidak bisa digabung dengan langganan aktif.
+            {l('Hanya berlaku sekali per akun. Tidak bisa digabung dengan langganan aktif.', 'Can only be used once per account. Cannot be combined with an active subscription.')}
           </Text>
           <TextInput
             style={[
@@ -179,7 +171,7 @@ export default function ReferralShareScreen() {
             ]}
             value={friendCode}
             onChangeText={(t) => setFriendCode(t.toUpperCase())}
-            placeholder="Kode"
+            placeholder={l('Kode', 'Code')}
             placeholderTextColor={theme.textTertiary}
             autoCapitalize="characters"
             editable={!redeeming}
@@ -190,7 +182,7 @@ export default function ReferralShareScreen() {
             onPress={async () => {
               const raw = friendCode.trim();
               if (!raw) {
-                Alert.alert('Kode kosong', 'Masukkan kode undangan.');
+                Alert.alert(l('Kode kosong', 'Code is empty'), l('Masukkan kode undangan.', 'Enter an invite code.'));
                 return;
               }
               setRedeeming(true);
@@ -199,10 +191,10 @@ export default function ReferralShareScreen() {
                 if (res.ok) {
                   invalidateReferralProfile(queryClient);
                   await refreshSubscription();
-                  Alert.alert('Berhasil', `Anda mendapat ${res.trial_days} hari percobaan gratis.`);
+                  Alert.alert(l('Berhasil', 'Success'), l(`Anda mendapat ${res.trial_days} hari percobaan gratis.`, `You got ${res.trial_days} days of free trial.`));
                   setFriendCode('');
                 } else {
-                  Alert.alert('Gagal', redeemErrorMessageForUi(res.error, res.message));
+                  Alert.alert(l('Gagal', 'Failed'), redeemErrorMessageForUi(res.error, res.message));
                 }
               } finally {
                 setRedeeming(false);
@@ -213,7 +205,7 @@ export default function ReferralShareScreen() {
             {redeeming ? (
               <ActivityIndicator color="#FFFFFF" />
             ) : (
-              <Text style={styles.btnLabel}>Terapkan kode</Text>
+              <Text style={styles.btnLabel}>{l('Terapkan kode', 'Apply code')}</Text>
             )}
           </TouchableOpacity>
         </View>

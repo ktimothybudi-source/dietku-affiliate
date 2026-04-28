@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { useCommunity } from '@/contexts/CommunityContext';
 import { GroupMember } from '@/types/community';
 import {
@@ -42,8 +43,16 @@ const copyToClipboard = async (text: string): Promise<boolean> => {
 
 export default function GroupSettingsScreen() {
   const { theme } = useTheme();
+  const { l } = useLanguage();
   const { groupId } = useLocalSearchParams<{ groupId: string }>();
   const { allGroups, leaveGroup, communityProfile } = useCommunity();
+  const handleBack = useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace('/(tabs)/community');
+  }, []);
 
   const group = useMemo(() => {
     return allGroups.find(g => g.id === groupId) || null;
@@ -60,9 +69,9 @@ export default function GroupSettingsScreen() {
     const copied = await copyToClipboard(group.inviteCode);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     if (copied) {
-      Alert.alert('Kode Disalin!', `Kode undangan "${group.inviteCode}" sudah disalin. Bagikan ke teman untuk mengundang mereka.`);
+      Alert.alert(l('Kode Disalin!', 'Code Copied!'), l(`Kode undangan "${group.inviteCode}" sudah disalin. Bagikan ke teman untuk mengundang mereka.`, `Invite code "${group.inviteCode}" copied. Share it with your friends.`));
     } else {
-      Alert.alert('Kode Undangan', `Kode: ${group.inviteCode}\n\nBagikan kode ini ke teman untuk mengundang mereka ke grup.`);
+      Alert.alert(l('Kode Undangan', 'Invite Code'), l(`Kode: ${group.inviteCode}\n\nBagikan kode ini ke teman untuk mengundang mereka ke grup.`, `Code: ${group.inviteCode}\n\nShare this code with your friends to invite them.`));
     }
   }, [group]);
 
@@ -80,9 +89,9 @@ export default function GroupSettingsScreen() {
     } else {
       const copied = await copyToClipboard(message);
       if (copied) {
-        Alert.alert('Link Disalin!', 'Pesan undangan sudah disalin ke clipboard.');
+        Alert.alert(l('Link Disalin!', 'Invite Copied!'), l('Pesan undangan sudah disalin ke clipboard.', 'Invite message copied to clipboard.'));
       } else {
-        Alert.alert('Undangan', message);
+        Alert.alert(l('Undangan', 'Invite'), message);
       }
     }
   }, [group]);
@@ -91,37 +100,42 @@ export default function GroupSettingsScreen() {
     if (!group) return;
     console.log('group-settings:leave', group.id);
     Alert.alert(
-      'Keluar dari Grup?',
-      `Kamu yakin ingin keluar dari "${group.name}"? Kamu bisa bergabung kembali nanti.`,
+      l('Keluar dari Grup?', 'Leave Group?'),
+      l(`Kamu yakin ingin keluar dari "${group.name}"? Kamu bisa bergabung kembali nanti.`, `Are you sure you want to leave "${group.name}"? You can rejoin later.`),
       [
-        { text: 'Batal', style: 'cancel' },
+        { text: l('Batal', 'Cancel'), style: 'cancel' },
         {
-          text: 'Keluar',
+          text: l('Keluar', 'Leave'),
           style: 'destructive',
           onPress: () => {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
             leaveGroup(group.id);
-            router.back();
+            handleBack();
           },
         },
       ]
     );
-  }, [group, leaveGroup]);
+  }, [group, leaveGroup, handleBack, l]);
 
   if (!group) {
     return (
       <>
         <Stack.Screen
           options={{
-            title: 'Pengaturan Grup',
+            title: l('Pengaturan Grup', 'Group Settings'),
             headerStyle: { backgroundColor: theme.background },
             headerTintColor: theme.text,
             headerShadowVisible: false,
+            headerLeft: () => (
+              <TouchableOpacity onPress={handleBack} activeOpacity={0.7} style={styles.headerBackBtn}>
+                <Text style={[styles.headerBackText, { color: theme.primary }]}>Back</Text>
+              </TouchableOpacity>
+            ),
           }}
         />
         <View style={[styles.container, { backgroundColor: theme.background }]}>
           <View style={styles.errorState}>
-            <Text style={[styles.errorText, { color: theme.textSecondary }]}>Grup tidak ditemukan</Text>
+            <Text style={[styles.errorText, { color: theme.textSecondary }]}>{l('Grup tidak ditemukan', 'Group not found')}</Text>
           </View>
         </View>
       </>
@@ -159,10 +173,15 @@ export default function GroupSettingsScreen() {
     <>
       <Stack.Screen
         options={{
-          title: 'Pengaturan Grup',
+          title: l('Pengaturan Grup', 'Group Settings'),
           headerStyle: { backgroundColor: theme.background },
           headerTintColor: theme.text,
           headerShadowVisible: false,
+          headerLeft: () => (
+            <TouchableOpacity onPress={handleBack} activeOpacity={0.7} style={styles.headerBackBtn}>
+              <Text style={[styles.headerBackText, { color: theme.primary }]}>Back</Text>
+            </TouchableOpacity>
+          ),
         }}
       />
 
@@ -186,21 +205,21 @@ export default function GroupSettingsScreen() {
           <View style={styles.groupStats}>
             <View style={styles.statItem}>
               <Users size={14} color={theme.textTertiary} />
-              <Text style={[styles.statText, { color: theme.textTertiary }]}>{group.members.length} anggota</Text>
+              <Text style={[styles.statText, { color: theme.textTertiary }]}>{group.members.length} {l('anggota', 'members')}</Text>
             </View>
             <View style={styles.statItem}>
               <Shield size={14} color={theme.textTertiary} />
               <Text style={[styles.statText, { color: theme.textTertiary }]}>
-                {group.privacy === 'public' ? 'Publik' : 'Privat'}
+                {group.privacy === 'public' ? l('Publik', 'Public') : l('Privat', 'Private')}
               </Text>
             </View>
           </View>
         </View>
 
         <View style={[styles.inviteCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Kode Undangan</Text>
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>{l('Kode Undangan', 'Invite Code')}</Text>
           <Text style={[styles.inviteHint, { color: theme.textSecondary }]}>
-            Bagikan kode ini untuk mengundang teman ke grup
+            {l('Bagikan kode ini untuk mengundang teman ke grup', 'Share this code to invite friends to the group')}
           </Text>
 
           <View style={[styles.codeDisplay, { backgroundColor: theme.surfaceElevated, borderColor: theme.border }]}>
@@ -215,7 +234,7 @@ export default function GroupSettingsScreen() {
               testID="group-copy-code"
             >
               <Copy size={16} color="#FFFFFF" />
-              <Text style={styles.inviteBtnText}>Salin Kode</Text>
+              <Text style={styles.inviteBtnText}>{l('Salin Kode', 'Copy Code')}</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -225,14 +244,14 @@ export default function GroupSettingsScreen() {
               testID="group-share-invite"
             >
               <Share2 size={16} color="#FFFFFF" />
-              <Text style={styles.inviteBtnText}>Bagikan</Text>
+              <Text style={styles.inviteBtnText}>{l('Bagikan', 'Share')}</Text>
             </TouchableOpacity>
           </View>
         </View>
 
         <View style={[styles.membersCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
           <Text style={[styles.sectionTitle, { color: theme.text }]}>
-            Anggota ({group.members.length})
+            {l('Anggota', 'Members')} ({group.members.length})
           </Text>
           {group.members.map(renderMember)}
         </View>
@@ -244,7 +263,7 @@ export default function GroupSettingsScreen() {
           testID="group-leave"
         >
           <LogOut size={18} color={theme.destructive} />
-          <Text style={[styles.leaveBtnText, { color: theme.destructive }]}>Keluar dari Grup</Text>
+          <Text style={[styles.leaveBtnText, { color: theme.destructive }]}>{l('Keluar dari Grup', 'Leave Group')}</Text>
         </TouchableOpacity>
 
         <View style={{ height: 60 }} />
@@ -415,5 +434,13 @@ const styles = StyleSheet.create({
   },
   errorText: {
     fontSize: 15,
+  },
+  headerBackBtn: {
+    paddingVertical: 6,
+    paddingRight: 8,
+  },
+  headerBackText: {
+    fontSize: 15,
+    fontWeight: '700' as const,
   },
 });

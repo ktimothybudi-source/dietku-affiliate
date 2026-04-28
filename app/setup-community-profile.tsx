@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { Stack, router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { useCommunity } from '@/contexts/CommunityContext';
 import { useNutrition } from '@/contexts/NutritionContext';
 import { AVATAR_COLORS, CommunityProfile } from '@/types/community';
@@ -20,15 +21,15 @@ import * as Haptics from 'expo-haptics';
 
 export default function SetupCommunityProfileScreen() {
   const { theme } = useTheme();
+  const { l } = useLanguage();
   const { saveCommunityProfile, communityProfile } = useCommunity();
-  const { authState, profile } = useNutrition();
+  const { authState } = useNutrition();
 
   const [username, setUsername] = useState(communityProfile?.username || '');
-  const [displayName, setDisplayName] = useState(communityProfile?.displayName || profile?.name || '');
-  const [bio, setBio] = useState(communityProfile?.bio || '');
   const [selectedColor, setSelectedColor] = useState(communityProfile?.avatarColor || AVATAR_COLORS[0]);
 
-  const initials = displayName
+  const initials = username
+    .trim()
     .split(' ')
     .map(n => n[0])
     .join('')
@@ -38,33 +39,29 @@ export default function SetupCommunityProfileScreen() {
   const handleSave = () => {
     const trimmedUsername = username.trim().toLowerCase().replace(/[^a-z0-9._]/g, '');
     if (!trimmedUsername || trimmedUsername.length < 3) {
-      Alert.alert('Username Invalid', 'Username harus minimal 3 karakter (huruf, angka, titik, underscore).');
-      return;
-    }
-    if (!displayName.trim()) {
-      Alert.alert('Nama Diperlukan', 'Masukkan nama tampilan Anda.');
+      Alert.alert(l('Username Invalid', 'Invalid Username'), l('Username harus minimal 3 karakter (huruf, angka, titik, underscore).', 'Username must be at least 3 characters (letters, numbers, dots, underscore).'));
       return;
     }
 
     const newProfile: CommunityProfile = {
       userId: authState.userId || `local_${Date.now()}`,
       username: trimmedUsername,
-      displayName: displayName.trim(),
+      displayName: trimmedUsername,
       avatarColor: selectedColor,
-      bio: bio.trim() || undefined,
+      bio: undefined,
       joinedAt: communityProfile?.joinedAt || Date.now(),
     };
 
     saveCommunityProfile(newProfile);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    router.back();
+    router.replace('/(tabs)/community');
   };
 
   return (
     <>
       <Stack.Screen
         options={{
-          title: communityProfile ? 'Edit Profil Komunitas' : 'Setup Profil',
+          title: communityProfile ? l('Edit Profil Komunitas', 'Edit Community Profile') : l('Setup Profil', 'Setup Profile'),
           headerStyle: { backgroundColor: theme.background },
           headerTintColor: theme.text,
           headerShadowVisible: false,
@@ -80,11 +77,16 @@ export default function SetupCommunityProfileScreen() {
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
         >
+          {!communityProfile ? (
+            <Text style={[styles.stepText, { color: theme.primary }]}>
+              {l('Langkah 1 dari 2', 'Step 1 of 2')}
+            </Text>
+          ) : null}
           <View style={styles.avatarSection}>
             <View style={[styles.bigAvatar, { backgroundColor: selectedColor }]}>
               <Text style={styles.bigAvatarText}>{initials}</Text>
             </View>
-            <Text style={[styles.avatarHint, { color: theme.textSecondary }]}>Pilih warna avatar</Text>
+            <Text style={[styles.avatarHint, { color: theme.textSecondary }]}>{l('Pilih warna avatar', 'Choose avatar color')}</Text>
             <View style={styles.colorGrid}>
               {AVATAR_COLORS.map(color => (
                 <TouchableOpacity
@@ -115,40 +117,13 @@ export default function SetupCommunityProfileScreen() {
                   style={[styles.inputWithPrefix, { color: theme.text }]}
                   value={username}
                   onChangeText={(t) => setUsername(t.toLowerCase().replace(/[^a-z0-9._]/g, ''))}
-                  placeholder="username"
+                  placeholder={l('username', 'username')}
                   placeholderTextColor={theme.textTertiary}
                   autoCapitalize="none"
                   autoCorrect={false}
                   maxLength={20}
                 />
               </View>
-            </View>
-
-            <View style={styles.field}>
-              <Text style={[styles.label, { color: theme.text }]}>Nama Tampilan</Text>
-              <TextInput
-                style={[styles.input, { backgroundColor: theme.surfaceElevated, borderColor: theme.border, color: theme.text }]}
-                value={displayName}
-                onChangeText={setDisplayName}
-                placeholder="Nama Anda"
-                placeholderTextColor={theme.textTertiary}
-                maxLength={30}
-              />
-            </View>
-
-            <View style={styles.field}>
-              <Text style={[styles.label, { color: theme.text }]}>Bio</Text>
-              <TextInput
-                style={[styles.bioInput, { backgroundColor: theme.surfaceElevated, borderColor: theme.border, color: theme.text }]}
-                value={bio}
-                onChangeText={setBio}
-                placeholder="Ceritakan sedikit tentang diri Anda..."
-                placeholderTextColor={theme.textTertiary}
-                multiline
-                maxLength={100}
-                textAlignVertical="top"
-              />
-              <Text style={[styles.charCount, { color: theme.textTertiary }]}>{bio.length}/100</Text>
             </View>
           </View>
 
@@ -158,7 +133,7 @@ export default function SetupCommunityProfileScreen() {
             activeOpacity={0.8}
           >
             <Text style={styles.saveBtnText}>
-              {communityProfile ? 'Simpan Perubahan' : 'Buat Profil'}
+              {communityProfile ? l('Simpan Perubahan', 'Save Changes') : l('Buat Profil', 'Create Profile')}
             </Text>
           </TouchableOpacity>
 
@@ -175,6 +150,14 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 20,
+  },
+  stepText: {
+    fontSize: 12,
+    fontWeight: '700' as const,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 12,
+    textAlign: 'center',
   },
   avatarSection: {
     alignItems: 'center',
@@ -228,13 +211,6 @@ const styles = StyleSheet.create({
     fontWeight: '600' as const,
     marginBottom: 8,
   },
-  input: {
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 15,
-  },
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -251,19 +227,6 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 15,
     paddingVertical: 12,
-  },
-  bioInput: {
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 15,
-    height: 80,
-  },
-  charCount: {
-    fontSize: 12,
-    textAlign: 'right',
-    marginTop: 4,
   },
   saveBtn: {
     borderRadius: 10,

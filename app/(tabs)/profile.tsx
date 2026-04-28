@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -7,22 +7,50 @@ import {
   TouchableOpacity,
   Switch,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { Stack, router } from 'expo-router';
-import { User, Settings as SettingsIcon, LogIn, LogOut, Globe, Moon, Sun, ChevronRight, UserCircle, Target, Flame, FileText, Shield, RefreshCw, Gift } from 'lucide-react-native';
+import { User, Settings as SettingsIcon, LogIn, LogOut, Globe, Moon, Sun, ChevronRight, UserCircle, Target, Flame, FileText, Shield, RefreshCw, Gift, UserX } from 'lucide-react-native';
 import { useNutrition } from '@/contexts/NutritionContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useCommunity } from '@/contexts/CommunityContext';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { deleteAccountViaBackend } from '@/utils/accountDeletion';
 
 export default function ProfileScreen() {
-  const { profile, dailyTargets, authState, signOut } = useNutrition();
+  const { profile, dailyTargets, authState, signOut, signOutAfterAccountDeleted } = useNutrition();
   const { theme, themeMode, toggleTheme } = useTheme();
-  const { language } = useLanguage();
+  const { language, t, l } = useLanguage();
   const { communityProfile, hasProfile } = useCommunity();
   const insets = useSafeAreaInsets();
+  const [deletingAccount, setDeletingAccount] = useState(false);
+
+  const mapDeleteAccountError = (result: { error: string; status?: number; code?: string }) => {
+    if (result.code === 'not_signed_in') {
+      return l('Sesi login sudah berakhir. Silakan login ulang lalu coba lagi.', 'Your session has ended. Please sign in again and try again.');
+    }
+    if (result.code === 'account_deletion_disabled' || result.status === 503) {
+      return l(
+        'Fitur hapus akun belum aktif di server. Pastikan backend memiliki SUPABASE_SERVICE_ROLE_KEY.',
+        'Account deletion is not enabled on the server yet. Ensure backend has SUPABASE_SERVICE_ROLE_KEY.'
+      );
+    }
+    if (result.code === 'backend_route_not_found' || result.status === 404) {
+      return l(
+        'Endpoint hapus akun belum tersedia di server. Deploy backend terbaru dan pastikan route /api/account/delete aktif.',
+        'Account deletion endpoint is not available on the server yet. Deploy the latest backend and ensure /api/account/delete is active.'
+      );
+    }
+    if (result.code === 'timeout' || result.code === 'network_error') {
+      return l('Koneksi ke server gagal. Coba lagi saat internet stabil.', 'Could not reach the server. Please try again with a stable connection.');
+    }
+    if (result.code === 'invalid_or_expired_session' || result.status === 401) {
+      return l('Sesi login tidak valid. Login ulang lalu coba hapus akun lagi.', 'Your login session is invalid. Sign in again and retry account deletion.');
+    }
+    return result.error || l('Terjadi kesalahan. Coba lagi.', 'Something went wrong. Please try again.');
+  };
 
   if (!profile || !dailyTargets) {
     return null;
@@ -53,12 +81,12 @@ export default function ProfileScreen() {
   const handleSignOut = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     Alert.alert(
-      'Keluar',
-      'Apakah Anda yakin ingin keluar?',
+      t.profile.signOutTitle,
+      t.profile.signOutMessage,
       [
-        { text: 'Batal', style: 'cancel' },
+        { text: t.profile.cancel, style: 'cancel' },
         {
-          text: 'Keluar',
+          text: t.profile.signOut,
           style: 'destructive',
           onPress: () => signOut(),
         },
@@ -86,6 +114,58 @@ export default function ProfileScreen() {
     router.push('/referral-share');
   };
 
+  const handleDeleteAccount = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    Alert.alert(
+      l('Hapus akun', 'Delete account'),
+      l(
+        'Akun dan data Anda akan dihapus permanen dari DietKu. Ini tidak bisa dibatalkan. Lanjutkan?',
+        'Your account and data will be permanently removed from DietKu. This cannot be undone. Continue?'
+      ),
+      [
+        { text: l('Batal', 'Cancel'), style: 'cancel' },
+        {
+          text: l('Hapus', 'Delete'),
+          style: 'destructive',
+          onPress: () => {
+            Alert.alert(
+              l('Konfirmasi terakhir', 'Final confirmation'),
+              l(
+                'Ketuk Hapus permanen untuk menghapus akun Anda sekarang.',
+                'Tap Permanently delete to remove your account now.'
+              ),
+              [
+                { text: l('Batal', 'Cancel'), style: 'cancel' },
+                {
+                  text: l('Hapus permanen', 'Permanently delete'),
+                  style: 'destructive',
+                  onPress: async () => {
+                    if (deletingAccount) return;
+                    setDeletingAccount(true);
+                    try {
+                      const result = await deleteAccountViaBackend();
+                      if (!result.ok) {
+                        Alert.alert(
+                          l('Gagal menghapus akun', 'Could not delete account'),
+                          mapDeleteAccountError(result),
+                          [{ text: 'OK' }]
+                        );
+                        return;
+                      }
+                      await signOutAfterAccountDeleted();
+                    } finally {
+                      setDeletingAccount(false);
+                    }
+                  },
+                },
+              ]
+            );
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <>
       <Stack.Screen
@@ -96,7 +176,7 @@ export default function ProfileScreen() {
       
       <View style={[styles.container, { backgroundColor: theme.background }]}>
         <View style={[styles.headerSection, { paddingTop: insets.top + 16 }]}>
-          <Text style={[styles.greeting, { color: theme.text }]}>Profil</Text>
+          <Text style={[styles.greeting, { color: theme.text }]}>{t.profile.title}</Text>
         </View>
 
         <ScrollView style={styles.scrollContent} contentContainerStyle={styles.content}>
@@ -104,14 +184,14 @@ export default function ProfileScreen() {
             <View style={styles.cardHeader}>
               <View style={styles.cardTitleRow}>
                 <UserCircle size={20} color={theme.primary} />
-                <Text style={[styles.cardTitle, { color: theme.text }]}>Akun</Text>
+                <Text style={[styles.cardTitle, { color: theme.text }]}>{t.profile.account}</Text>
               </View>
             </View>
 
             {authState.isSignedIn ? (
               <>
                 <View style={[styles.statusRow, { backgroundColor: theme.background }]}>
-                  <Text style={[styles.statusText, { color: theme.textSecondary }]}>Terhubung sebagai: {authState.email}</Text>
+                  <Text style={[styles.statusText, { color: theme.textSecondary }]}>{t.profile.connectedAs}: {authState.email}</Text>
                 </View>
                 <TouchableOpacity
                   style={[styles.row, { borderTopColor: theme.border }]}
@@ -120,7 +200,7 @@ export default function ProfileScreen() {
                 >
                   <View style={styles.rowLeft}>
                     <Gift size={20} color={theme.primary} />
-                    <Text style={[styles.rowLabel, { color: theme.text }]}>Undangan & kode</Text>
+                    <Text style={[styles.rowLabel, { color: theme.text }]}>{t.profile.invites}</Text>
                   </View>
                   <ChevronRight size={20} color={theme.textSecondary} />
                 </TouchableOpacity>
@@ -131,7 +211,25 @@ export default function ProfileScreen() {
                 >
                   <View style={styles.rowLeft}>
                     <LogOut size={20} color={theme.textSecondary} />
-                    <Text style={[styles.rowLabel, { color: theme.text }]}>Keluar</Text>
+                    <Text style={[styles.rowLabel, { color: theme.text }]}>{t.profile.signOut}</Text>
+                  </View>
+                  <ChevronRight size={20} color={theme.textSecondary} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.row, { borderTopColor: theme.border }]}
+                  onPress={handleDeleteAccount}
+                  activeOpacity={0.7}
+                  disabled={deletingAccount}
+                >
+                  <View style={styles.rowLeft}>
+                    {deletingAccount ? (
+                      <ActivityIndicator size="small" color="#C53030" />
+                    ) : (
+                      <UserX size={20} color="#C53030" />
+                    )}
+                    <Text style={[styles.rowLabel, { color: '#C53030' }]}>
+                      {l('Hapus akun', 'Delete account')}
+                    </Text>
                   </View>
                   <ChevronRight size={20} color={theme.textSecondary} />
                 </TouchableOpacity>
@@ -139,7 +237,7 @@ export default function ProfileScreen() {
             ) : (
               <>
                 <View style={[styles.statusRow, { backgroundColor: theme.background }]}>
-                  <Text style={[styles.statusText, { color: theme.textSecondary }]}>Belum masuk</Text>
+                  <Text style={[styles.statusText, { color: theme.textSecondary }]}>{t.profile.notSignedIn}</Text>
                 </View>
                 <TouchableOpacity
                   style={[styles.row, { borderTopColor: theme.border }]}
@@ -148,7 +246,7 @@ export default function ProfileScreen() {
                 >
                   <View style={styles.rowLeft}>
                     <LogIn size={20} color={theme.primary} />
-                    <Text style={[styles.rowLabel, { color: theme.text }]}>Masuk</Text>
+                    <Text style={[styles.rowLabel, { color: theme.text }]}>{t.profile.signIn}</Text>
                   </View>
                   <ChevronRight size={20} color={theme.textSecondary} />
                 </TouchableOpacity>
@@ -160,7 +258,7 @@ export default function ProfileScreen() {
             <View style={styles.cardHeader}>
               <View style={styles.cardTitleRow}>
                 <SettingsIcon size={20} color={theme.primary} />
-                <Text style={[styles.cardTitle, { color: theme.text }]}>Pengaturan</Text>
+                <Text style={[styles.cardTitle, { color: theme.text }]}>{t.profile.settings}</Text>
               </View>
             </View>
 
@@ -171,7 +269,7 @@ export default function ProfileScreen() {
             >
               <View style={styles.rowLeft}>
                 <Globe size={20} color={theme.textSecondary} />
-                <Text style={[styles.rowLabel, { color: theme.text }]}>Bahasa</Text>
+                <Text style={[styles.rowLabel, { color: theme.text }]}>{t.profile.language}</Text>
               </View>
               <View style={styles.rowRight}>
                 <Text style={[styles.rowValue, { color: theme.textSecondary }]}>
@@ -184,10 +282,10 @@ export default function ProfileScreen() {
             <View style={[styles.row, { borderTopColor: theme.border }]}>
               <View style={styles.rowLeft}>
                 {themeMode === 'dark' ? <Moon size={20} color={theme.textSecondary} /> : <Sun size={20} color={theme.textSecondary} />}
-                <Text style={[styles.rowLabel, { color: theme.text }]}>Tema</Text>
+                <Text style={[styles.rowLabel, { color: theme.text }]}>{t.profile.theme}</Text>
               </View>
               <View style={styles.rowRight}>
-                <Text style={[styles.themeModeText, { color: theme.textSecondary }]}>Gelap</Text>
+                <Text style={[styles.themeModeText, { color: theme.textSecondary }]}>{t.profile.darkMode}</Text>
                 <Switch
                   value={themeMode === 'dark'}
                   onValueChange={handleToggleTheme}
@@ -202,20 +300,20 @@ export default function ProfileScreen() {
             <View style={styles.cardHeader}>
               <View style={styles.cardTitleRow}>
                 <User size={20} color={theme.primary} />
-                <Text style={[styles.cardTitle, { color: theme.text }]}>Informasi Pribadi</Text>
+                <Text style={[styles.cardTitle, { color: theme.text }]}>{t.profile.personalInfo}</Text>
               </View>
             </View>
 
             <View style={styles.profileStats}>
               {profile.name && (
                 <View style={[styles.statRow, { borderBottomColor: theme.border }]}>
-                  <Text style={[styles.statLabel, { color: theme.textSecondary }]}>Nama</Text>
+                  <Text style={[styles.statLabel, { color: theme.textSecondary }]}>{t.profile.name}</Text>
                   <Text style={[styles.statValue, { color: theme.text }]}>{profile.name}</Text>
                 </View>
               )}
               <View style={[styles.statRow, { borderBottomColor: theme.border }]}>
-                <Text style={[styles.statLabel, { color: theme.textSecondary }]}>Usia</Text>
-                <Text style={[styles.statValue, { color: theme.text }]}>{profile.age} tahun</Text>
+                <Text style={[styles.statLabel, { color: theme.textSecondary }]}>{t.profile.age}</Text>
+                <Text style={[styles.statValue, { color: theme.text }]}>{profile.age} {t.profile.yearsSuffix}</Text>
               </View>
               <View style={[styles.statRow, { borderBottomColor: theme.border }]}>
                 <Text style={[styles.statLabel, { color: theme.textSecondary }]}>Jenis Kelamin</Text>
@@ -317,17 +415,9 @@ export default function ProfileScreen() {
 
             {hasProfile && communityProfile ? (
               <View style={styles.profileStats}>
-                <View style={[styles.statRow, { borderBottomColor: theme.border }]}>
+                <View style={[styles.statRow, { borderBottomWidth: 0 }]}>
                   <Text style={[styles.statLabel, { color: theme.textSecondary }]}>Username</Text>
                   <Text style={[styles.statValue, { color: theme.text }]}>@{communityProfile.username}</Text>
-                </View>
-                <View style={[styles.statRow, { borderBottomColor: theme.border }]}>
-                  <Text style={[styles.statLabel, { color: theme.textSecondary }]}>Nama Tampilan</Text>
-                  <Text style={[styles.statValue, { color: theme.text }]}>{communityProfile.displayName}</Text>
-                </View>
-                <View style={[styles.statRow, { borderBottomWidth: 0 }]}>
-                  <Text style={[styles.statLabel, { color: theme.textSecondary }]}>Bio</Text>
-                  <Text style={[styles.statValue, { color: theme.text }]}>{communityProfile.bio || '-'}</Text>
                 </View>
               </View>
             ) : (

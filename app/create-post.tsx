@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { Stack, router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { useCommunity } from '@/contexts/CommunityContext';
 import { useNutrition } from '@/contexts/NutritionContext';
 import { MEAL_TYPE_LABELS } from '@/types/community';
@@ -22,6 +23,7 @@ const MEAL_TYPES = ['breakfast', 'lunch', 'dinner', 'snack'] as const;
 
 export default function CreatePostScreen() {
   const { theme } = useTheme();
+  const { l } = useLanguage();
   const { communityProfile, createPost } = useCommunity();
   const { todayEntries } = useNutrition();
 
@@ -34,6 +36,14 @@ export default function CreatePostScreen() {
   const [mealType, setMealType] = useState<typeof MEAL_TYPES[number]>('lunch');
   const [selectedEntry, setSelectedEntry] = useState<string | null>(null);
   const [selectedEntryPhotoUri, setSelectedEntryPhotoUri] = useState<string | undefined>(undefined);
+
+  const handleBack = useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace('/(tabs)/community');
+  }, []);
 
   const handleSelectEntry = useCallback((entry: typeof todayEntries[0]) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -58,11 +68,11 @@ export default function CreatePostScreen() {
 
   const handlePost = useCallback(() => {
     if (!communityProfile) {
-      Alert.alert('Error', 'Profil komunitas belum dibuat.');
+      Alert.alert(l('Error', 'Error'), l('Profil komunitas belum dibuat.', 'Community profile has not been created.'));
       return;
     }
     if (!foodName.trim()) {
-      Alert.alert('Error', 'Masukkan nama makanan.');
+      Alert.alert(l('Error', 'Error'), l('Masukkan nama makanan.', 'Enter food name.'));
       return;
     }
     const cal = parseInt(calories) || 0;
@@ -71,7 +81,7 @@ export default function CreatePostScreen() {
     const f = parseInt(fat) || 0;
 
     if (cal <= 0) {
-      Alert.alert('Error', 'Kalori harus lebih dari 0.');
+      Alert.alert(l('Error', 'Error'), l('Kalori harus lebih dari 0.', 'Calories must be greater than 0.'));
       return;
     }
 
@@ -91,21 +101,26 @@ export default function CreatePostScreen() {
     });
 
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    router.back();
-  }, [communityProfile, caption, foodName, calories, protein, carbs, fat, selectedEntryPhotoUri, mealType, createPost]);
+    handleBack();
+  }, [communityProfile, caption, foodName, calories, protein, carbs, fat, selectedEntryPhotoUri, mealType, createPost, handleBack, l]);
 
   return (
     <>
       <Stack.Screen
         options={{
-          title: 'Buat Post',
+          title: l('Buat Post', 'Create Post'),
           headerStyle: { backgroundColor: theme.background },
           headerTintColor: theme.text,
           headerShadowVisible: false,
+          headerLeft: () => (
+            <TouchableOpacity onPress={handleBack} activeOpacity={0.7} style={styles.headerBackBtn}>
+              <Text style={[styles.headerBackText, { color: theme.primary }]}>Back</Text>
+            </TouchableOpacity>
+          ),
           headerRight: () => (
             <TouchableOpacity onPress={handlePost} style={styles.headerBtn} activeOpacity={0.7}>
               <Send size={18} color={theme.primary} />
-              <Text style={[styles.headerBtnText, { color: theme.primary }]}>Post</Text>
+              <Text style={[styles.headerBtnText, { color: theme.primary }]}>{l('Post', 'Post')}</Text>
             </TouchableOpacity>
           ),
         }}
@@ -121,12 +136,12 @@ export default function CreatePostScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <Text style={[styles.sectionTitle, { color: theme.text }]}>Caption</Text>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>{l('Caption', 'Caption')}</Text>
             <TextInput
               style={[styles.captionInput, { backgroundColor: theme.surfaceElevated, borderColor: theme.border, color: theme.text }]}
               value={caption}
               onChangeText={setCaption}
-              placeholder="Ceritakan tentang makanan Anda..."
+              placeholder={l('Ceritakan tentang makanan Anda...', 'Tell us about your meal...')}
               placeholderTextColor={theme.textTertiary}
               multiline
               maxLength={300}
@@ -137,7 +152,7 @@ export default function CreatePostScreen() {
 
           {todayEntries.length > 0 && (
             <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-              <Text style={[styles.sectionTitle, { color: theme.text }]}>Pilih dari Log Hari Ini</Text>
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>{l('Pilih dari Log Hari Ini', "Pick from Today's Log")}</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.entriesScroll}>
                 {todayEntries.map(entry => (
                   <TouchableOpacity
@@ -172,7 +187,7 @@ export default function CreatePostScreen() {
           <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <View style={styles.sectionHeader}>
               <Utensils size={16} color={theme.primary} />
-              <Text style={[styles.sectionTitle, { color: theme.text }]}>Detail Makanan</Text>
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>{l('Detail Makanan', 'Food Details')}</Text>
             </View>
 
             <View style={styles.mealTypeRow}>
@@ -204,19 +219,19 @@ export default function CreatePostScreen() {
             </View>
 
             <View style={styles.field}>
-              <Text style={[styles.label, { color: theme.textSecondary }]}>Nama Makanan</Text>
+              <Text style={[styles.label, { color: theme.textSecondary }]}>{l('Nama Makanan', 'Food Name')}</Text>
               <TextInput
                 style={[styles.input, { backgroundColor: theme.surfaceElevated, borderColor: theme.border, color: theme.text }]}
                 value={foodName}
                 onChangeText={setFoodName}
-                placeholder="Contoh: Nasi Goreng"
+                placeholder={l('Contoh: Nasi Goreng', 'Example: Fried rice')}
                 placeholderTextColor={theme.textTertiary}
               />
             </View>
 
             <View style={styles.macroGrid}>
               <View style={styles.macroField}>
-                <Text style={[styles.label, { color: theme.textSecondary }]}>Kalori</Text>
+                <Text style={[styles.label, { color: theme.textSecondary }]}>{l('Kalori', 'Calories')}</Text>
                 <TextInput
                   style={[styles.input, { backgroundColor: theme.surfaceElevated, borderColor: theme.border, color: theme.text }]}
                   value={calories}
@@ -227,7 +242,7 @@ export default function CreatePostScreen() {
                 />
               </View>
               <View style={styles.macroField}>
-                <Text style={[styles.label, { color: theme.textSecondary }]}>Protein (g)</Text>
+                <Text style={[styles.label, { color: theme.textSecondary }]}>{l('Protein (g)', 'Protein (g)')}</Text>
                 <TextInput
                   style={[styles.input, { backgroundColor: theme.surfaceElevated, borderColor: theme.border, color: theme.text }]}
                   value={protein}
@@ -241,7 +256,7 @@ export default function CreatePostScreen() {
 
             <View style={styles.macroGrid}>
               <View style={styles.macroField}>
-                <Text style={[styles.label, { color: theme.textSecondary }]}>Karbo (g)</Text>
+                <Text style={[styles.label, { color: theme.textSecondary }]}>{l('Karbo (g)', 'Carbs (g)')}</Text>
                 <TextInput
                   style={[styles.input, { backgroundColor: theme.surfaceElevated, borderColor: theme.border, color: theme.text }]}
                   value={carbs}
@@ -252,7 +267,7 @@ export default function CreatePostScreen() {
                 />
               </View>
               <View style={styles.macroField}>
-                <Text style={[styles.label, { color: theme.textSecondary }]}>Lemak (g)</Text>
+                <Text style={[styles.label, { color: theme.textSecondary }]}>{l('Lemak (g)', 'Fat (g)')}</Text>
                 <TextInput
                   style={[styles.input, { backgroundColor: theme.surfaceElevated, borderColor: theme.border, color: theme.text }]}
                   value={fat}
@@ -287,6 +302,14 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   headerBtnText: {
+    fontSize: 15,
+    fontWeight: '700' as const,
+  },
+  headerBackBtn: {
+    paddingVertical: 6,
+    paddingRight: 8,
+  },
+  headerBackText: {
     fontSize: 15,
     fontWeight: '700' as const,
   },

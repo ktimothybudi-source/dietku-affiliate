@@ -6,13 +6,32 @@ import { UserProfile, FoodEntry, DailyTargets, MealAnalysis, FavoriteMeal, Recen
 import { calculateDailyTargets, getTodayKey, sumMidpointMicrosFromItems } from '@/utils/nutritionCalculations';
 import { analyzeMealPhoto } from '@/utils/photoAnalysis';
 import { saveImagePermanently } from '@/utils/imageStorage';
-import { supabase, SupabaseProfile, SupabaseFoodEntry, SupabaseWeightHistory, SupabaseStreak } from '@/lib/supabase';
+import {
+  supabase,
+  SUPABASE_URL,
+  SupabaseProfile,
+  SupabaseFoodEntry,
+  SupabaseWeightHistory,
+  SupabaseStreak,
+} from '@/lib/supabase';
+import {
+  clearExpectUserInitiatedSignOut,
+  consumeExpectUserInitiatedSignOut,
+  setExpectUserInitiatedSignOut,
+} from '@/lib/authSignOutFlag';
+import {
+  MEAL_PHOTOS_BUCKET,
+  resolveMealPhotoForDatabase,
+  getMealPhotoStoragePathFromValue,
+} from '@/utils/supabaseStorage';
+import { cleanupExpiredMealPhotoCache, getCachedMealPhotoUri } from '@/utils/mealPhotoCache';
 import type { DbMealType } from '@/lib/mealDefaults';
 import { getPremiumWriteGate } from '@/lib/premiumWriteGate';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { Session } from '@supabase/supabase-js';
 import { eventEmitter } from '@/utils/eventEmitter';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface FoodLog {
   [date: string]: FoodEntry[];
@@ -106,6 +125,7 @@ const mapFavoriteRow = (f: Record<string, unknown>): FavoriteMeal => ({
 });
 
 export const [NutritionProvider, useNutrition] = createContextHook(() => {
+  const { language } = useLanguage();
   const queryClient = useQueryClient();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [foodLog, setFoodLog] = useState<FoodLog>({});
@@ -122,18 +142,122 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
   const [recentMeals, setRecentMeals] = useState<RecentMeal[]>([]);
   const [authState, setAuthState] = useState<AuthState>({ isSignedIn: false, email: null, userId: null });
   const [, setSession] = useState<Session | null>(null);
+  const [authInitialized, setAuthInitialized] = useState(false);
   const [waterCups, setWaterCups] = useState<{ [date: string]: number }>({});
   const [sugarUnits, setSugarUnits] = useState<{ [date: string]: number }>({});
   const [fiberUnits, setFiberUnits] = useState<{ [date: string]: number }>({});
   const [sodiumUnits, setSodiumUnits] = useState<{ [date: string]: number }>({});
 
-  // React Native: refresh tokens while foregrounded; pausing in background avoids stuck timers and missed refresh.
+  // React Native: keep GoTrue’s auto-refresh running whenever possible. Pausing on Android caused more
+  // “logged out after background” reports than any timer issue.
+  //
+  // On resume: restore UI from getSession() only. Call refreshSession() if the access JWT is *already*
+  // expired — not “about to expire”. Pre‑refresh on a flaky cell connection often triggers _removeSession
+  // client-side and feels like random sign-out.
   useEffect(() => {
+    const isInvalidRefreshTokenError = (err: unknown): boolean => {
+      const msg = err instanceof Error ? err.message : String(err ?? '');
+      return /invalid refresh token|refresh token not found/i.test(msg);
+    };
+    const isLikelyOfflineError = (err: unknown): boolean => {
+      const msg = err instanceof Error ? err.message : String(err ?? '');
+      return /network request failed|failed to fetch|networkerror|network error|request timed out|timeout/i.test(
+        msg
+      );
+    };
+    const hasAuthBackendConnectivity = async (): Promise<boolean> => {
+      if (!SUPABASE_URL) return true;
+      try {
+        const healthUrl = `${SUPABASE_URL}/auth/v1/health`;
+        const res = await fetch(healthUrl, { method: 'GET' });
+        return res.ok;
+      } catch {
+        return false;
+      }
+    };
+
+    const clearBrokenLocalSession = async () => {
+      try {
+        // Local scope avoids failing when server-side token/session is already gone.
+        await (supabase.auth as any).signOut?.({ scope: 'local' });
+      } catch {
+        // ignore
+      }
+      clearExpectUserInitiatedSignOut();
+      setSession(null);
+      setAuthState({ isSignedIn: false, email: null, userId: null });
+    };
+
+    const recoverFromInvalidRefreshToken = async (): Promise<boolean> => {
+      const waits = [250, 750, 1500];
+      for (const waitMs of waits) {
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session?.user) continue;
+          setSession(session);
+          setAuthState({
+            isSignedIn: true,
+            email: session.user.email || null,
+            userId: session.user.id,
+          });
+          return true;
+        } catch {
+          // keep retrying
+        }
+      }
+      return false;
+    };
+
     const onAppState = (state: AppStateStatus) => {
       if (state === 'active') {
         supabase.auth.startAutoRefresh();
-      } else {
-        supabase.auth.stopAutoRefresh();
+        void (async () => {
+          let session: Session | null = null;
+          try {
+            const res = await supabase.auth.getSession();
+            session = res.data.session;
+          } catch (e) {
+            if (isInvalidRefreshTokenError(e)) {
+              const recovered = await recoverFromInvalidRefreshToken();
+              if (recovered) return;
+              console.warn('Invalid refresh token on resume; clearing local session.');
+              await clearBrokenLocalSession();
+              return;
+            }
+            throw e;
+          }
+          if (!session?.user) return;
+          setSession(session);
+          setAuthState({
+            isSignedIn: true,
+            email: session.user.email || null,
+            userId: session.user.id,
+          });
+          const nowSec = Math.floor(Date.now() / 1000);
+          const exp = session.expires_at ?? 0;
+          const alreadyExpired = exp > 0 && exp < nowSec;
+          if (!alreadyExpired) return;
+          const { data: refreshed, error } = await supabase.auth.refreshSession();
+          if (error) {
+            if (isInvalidRefreshTokenError(error)) {
+              const recovered = await recoverFromInvalidRefreshToken();
+              if (recovered) return;
+              console.warn('Invalid refresh token while refreshing on resume; clearing local session.');
+              await clearBrokenLocalSession();
+              return;
+            }
+            console.warn('Auth refresh on resume (expired JWT) failed:', error.message);
+            return;
+          }
+          if (!refreshed.session?.user) return;
+          setSession(refreshed.session);
+          setAuthState({
+            isSignedIn: true,
+            email: refreshed.session.user.email || null,
+            userId: refreshed.session.user.id,
+          });
+        })();
       }
     };
     const sub = AppState.addEventListener('change', onAppState);
@@ -142,50 +266,119 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
   }, []);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      console.log('Initial session:', session?.user?.email);
-      setSession(session);
-      if (session?.user) {
-        setAuthState({
-          isSignedIn: true,
-          email: session.user.email || null,
-          userId: session.user.id,
-        });
+    const isInvalidRefreshTokenError = (err: unknown): boolean => {
+      const msg = err instanceof Error ? err.message : String(err ?? '');
+      return /invalid refresh token|refresh token not found/i.test(msg);
+    };
+
+    const clearBrokenLocalSession = async () => {
+      try {
+        await (supabase.auth as any).signOut?.({ scope: 'local' });
+      } catch {
+        // ignore
       }
-    });
+      clearExpectUserInitiatedSignOut();
+      setSession(null);
+      setAuthState({ isSignedIn: false, email: null, userId: null });
+    };
+
+    const applyAuthSession = (session: Session | null) => {
+      setSession(session);
+      if (!session?.user) return false;
+      setAuthState({
+        isSignedIn: true,
+        email: session.user.email || null,
+        userId: session.user.id,
+      });
+      return true;
+    };
+
+    void (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        console.log('Initial session:', session?.user?.email);
+        void applyAuthSession(session);
+      } catch (e) {
+        if (isInvalidRefreshTokenError(e)) {
+          console.warn('Invalid refresh token at startup; clearing local session.');
+          await clearBrokenLocalSession();
+          return;
+        }
+        console.warn('Initial getSession failed:', e);
+      } finally {
+        setAuthInitialized(true);
+      }
+    })();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      console.log('Auth state changed:', event, session?.user?.email);
-      setSession(session);
+      console.log('Auth state changed:', event, session?.user?.email ?? '(no user)');
+      if (applyAuthSession(session)) return;
 
-      if (session?.user) {
-        setAuthState({
-          isSignedIn: true,
-          email: session.user.email || null,
-          userId: session.user.id,
-        });
-        return;
-      }
-
-      // Only treat explicit sign-out / cold start as logged out. Other events can briefly
-      // report null; clearing here caused random logouts after backgrounding or refresh.
       if (event === 'SIGNED_OUT') {
-        setAuthState({ isSignedIn: false, email: null, userId: null });
+        if (consumeExpectUserInitiatedSignOut()) {
+          setSession(null);
+          setAuthState({ isSignedIn: false, email: null, userId: null });
+          return;
+        }
+        // GoTrue can emit SIGNED_OUT while storage is briefly inconsistent or refresh races. Don’t clear
+        // the app immediately — confirm session is really gone after several reads.
+        void (async () => {
+          const delaysMs = [100, 250, 500, 1000, 2000, 4000];
+          for (const waitMs of delaysMs) {
+            await new Promise((resolve) => setTimeout(resolve, waitMs));
+            let recovered: Session | null = null;
+            try {
+              const res = await supabase.auth.getSession();
+              recovered = res.data.session;
+            } catch (e) {
+              if (isInvalidRefreshTokenError(e)) {
+                await clearBrokenLocalSession();
+                return;
+              }
+              continue;
+            }
+            if (applyAuthSession(recovered)) {
+              console.log('Auth recovered after SIGNED_OUT event; keeping user signed in.');
+              return;
+            }
+          }
+          const authBackendReachable = await hasAuthBackendConnectivity();
+          if (!authBackendReachable) {
+            console.warn(
+              'Auth SIGNED_OUT happened while offline/unreachable; preserving signed-in UI state.'
+            );
+            return;
+          }
+          console.warn('Auth SIGNED_OUT confirmed after retries (online) — clearing local auth state.');
+          clearExpectUserInitiatedSignOut();
+          setSession(null);
+          setAuthState({ isSignedIn: false, email: null, userId: null });
+        })();
         return;
       }
 
-      void supabase.auth.getSession().then(({ data: { session: recovered } }) => {
-        if (recovered?.user) {
-          setSession(recovered);
-          setAuthState({
-            isSignedIn: true,
-            email: recovered.user.email || null,
-            userId: recovered.user.id,
-          });
-        } else if (event === 'INITIAL_SESSION') {
-          setAuthState({ isSignedIn: false, email: null, userId: null });
+      // Transient null session (refresh in flight, etc.)
+      void (async () => {
+        const waits = [150, 500, 1200, 2500];
+        for (const waitMs of waits) {
+          await new Promise((resolve) => setTimeout(resolve, waitMs));
+          let recovered: Session | null = null;
+          try {
+            const res = await supabase.auth.getSession();
+            recovered = res.data.session;
+          } catch (e) {
+            if (isInvalidRefreshTokenError(e)) {
+              await clearBrokenLocalSession();
+              return;
+            }
+            if (isLikelyOfflineError(e)) {
+              return;
+            }
+            continue;
+          }
+          if (applyAuthSession(recovered)) return;
         }
-      });
+      })();
     });
 
     return () => subscription.unsubscribe();
@@ -217,6 +410,7 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
     queryFn: async () => {
       if (!authState.userId) return [];
       console.log('Fetching food entries from Supabase');
+      await cleanupExpiredMealPhotoCache();
       const { data, error } = await supabase
         .from('food_entries')
         .select('*')
@@ -227,7 +421,39 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
         console.error('Error fetching food entries:', error);
         return [];
       }
-      return data as SupabaseFoodEntry[];
+      const rows = (data || []) as SupabaseFoodEntry[];
+      const signedTtlSec = 60 * 60 * 24 * 30;
+      const withPhotoUrls = await Promise.all(
+        rows.map(async (row) => {
+          const raw = row.photo_uri;
+          if (!raw) return row;
+          const path = getMealPhotoStoragePathFromValue(raw);
+          if (!path) return row;
+          const { data: signedData, error: signedError } = await supabase.storage
+            .from(MEAL_PHOTOS_BUCKET)
+            .createSignedUrl(path, signedTtlSec);
+          const remoteUrl = (!signedError && signedData?.signedUrl)
+            ? signedData.signedUrl
+            : supabase.storage.from(MEAL_PHOTOS_BUCKET).getPublicUrl(path).data.publicUrl;
+          if (!remoteUrl) return row;
+          try {
+            const cachedLocalUri = await getCachedMealPhotoUri(path, remoteUrl);
+            return { ...row, photo_uri: cachedLocalUri };
+          } catch (cacheError) {
+            console.warn('Food entry photo local cache failed:', path, cacheError);
+          }
+          if (!signedError && signedData?.signedUrl) {
+            return { ...row, photo_uri: signedData.signedUrl };
+          }
+          console.warn('Food entry photo signed URL failed:', path, signedError?.message);
+          const { data: publicData } = supabase.storage.from(MEAL_PHOTOS_BUCKET).getPublicUrl(path);
+          if (publicData?.publicUrl) {
+            return { ...row, photo_uri: publicData.publicUrl };
+          }
+          return row;
+        })
+      );
+      return withPhotoUrls;
     },
     enabled: authState.isSignedIn && !!authState.userId,
   });
@@ -547,19 +773,21 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
         date: dateKey,
         entry: entry,
       });
+
+      const photo_uri = await resolveMealPhotoForDatabase(entry.photoUri, authState.userId);
       
       const insertData = {
         user_id: authState.userId,
         date: dateKey,
         food_name: entry.name,
-        calories: Math.round(entry.calories || 0),
-        protein: Math.round(entry.protein || 0),
-        carbs: Math.round(entry.carbs || 0),
-        fat: Math.round(entry.fat || 0),
+        calories: Math.round((entry.calories || 0) * 10) / 10,
+        protein: Math.round((entry.protein || 0) * 10) / 10,
+        carbs: Math.round((entry.carbs || 0) * 10) / 10,
+        fat: Math.round((entry.fat || 0) * 10) / 10,
         sugar: Math.round((entry.sugar || 0) * 10) / 10,
         fiber: Math.round((entry.fiber || 0) * 10) / 10,
-        sodium: Math.round(entry.sodium || 0),
-        photo_uri: entry.photoUri || null,
+        sodium: Math.round((entry.sodium || 0) * 10) / 10,
+        photo_uri,
       };
       
       console.log('Insert data:', insertData);
@@ -665,10 +893,10 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
         date: dateKey,
         meal_type: mealType,
         food_name: displayName,
-        calories: Math.round(totals.cal),
-        protein: Math.round(totals.p),
-        carbs: Math.round(totals.c),
-        fat: Math.round(totals.f),
+        calories: Math.round(totals.cal * 10) / 10,
+        protein: Math.round(totals.p * 10) / 10,
+        carbs: Math.round(totals.c * 10) / 10,
+        fat: Math.round(totals.f * 10) / 10,
         sugar: 0,
         fiber: 0,
         sodium: 0,
@@ -715,16 +943,26 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
       if (!authState.userId) throw new Error('Not authenticated');
       
       console.log('Updating food entry:', entryId, updates);
+      const patch: {
+        food_name: string;
+        calories: number;
+        protein: number;
+        carbs: number;
+        fat: number;
+        photo_uri?: string | null;
+      } = {
+        food_name: updates.name,
+        calories: updates.calories,
+        protein: updates.protein,
+        carbs: updates.carbs,
+        fat: updates.fat,
+      };
+      if ('photoUri' in updates) {
+        patch.photo_uri = await resolveMealPhotoForDatabase(updates.photoUri, authState.userId);
+      }
       const { error } = await supabase
         .from('food_entries')
-        .update({
-          food_name: updates.name,
-          calories: updates.calories,
-          protein: updates.protein,
-          carbs: updates.carbs,
-          fat: updates.fat,
-          photo_uri: updates.photoUri || null,
-        })
+        .update(patch)
         .eq('id', entryId)
         .eq('user_id', authState.userId);
       
@@ -1282,13 +1520,13 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
     saveRecentMealsMutation.mutate(updatedRecent);
   }, [recentMeals, saveRecentMealsMutation]);
 
-  const addFoodEntry = useCallback((entry: Omit<FoodEntry, 'id' | 'timestamp'>, autoPostToCommunity: boolean = true) => {
+  const addFoodEntry = useCallback(async (entry: Omit<FoodEntry, 'id' | 'timestamp'>, autoPostToCommunity: boolean = true) => {
     console.log('[addFoodEntry] Adding entry:', entry);
     console.log('[addFoodEntry] Auth state:', authState);
     
     if (!authState.isSignedIn || !authState.userId) {
       console.error('[addFoodEntry] Cannot add food: User not authenticated');
-      return;
+      return false;
     }
 
     const premium = getPremiumWriteGate();
@@ -1297,23 +1535,68 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
       : { ...entry, sugar: 0, fiber: 0, sodium: 0 };
     
     const logDateKey = selectedDate || getTodayKey();
-    saveFoodEntryMutation.mutate(
-      { entry: entryForStore, dateKey: logDateKey },
-      {
-        onSuccess: () => {
-          updateStreak(logDateKey);
-          updateRecentMeals(entryForStore);
+    const optimisticId = `local-${Date.now()}`;
+    const optimisticEntry: FoodEntry = {
+      id: optimisticId,
+      timestamp: Date.now(),
+      ...entryForStore,
+    };
 
-          if (autoPostToCommunity) {
-            const eventData = {
-              foodEntry: entryForStore,
-              timestamp: Date.now(),
-            };
-            eventEmitter.emit('foodEntryAdded', eventData);
-          }
-        },
-      }
-    );
+    // Optimistic UI: show saved entry immediately in dashboard/log.
+    setFoodLog((prev) => {
+      const current = prev[logDateKey] || [];
+      return {
+        ...prev,
+        [logDateKey]: [optimisticEntry, ...current],
+      };
+    });
+
+    const savedOk = await new Promise<boolean>((resolve) => {
+      saveFoodEntryMutation.mutate(
+        { entry: entryForStore, dateKey: logDateKey },
+        {
+          onSuccess: (saved) => {
+            const savedEntry = mapSupabaseFoodEntryToFoodEntry(saved);
+            setFoodLog((prev) => {
+              const current = prev[logDateKey] || [];
+              const withoutOptimistic = current.filter((item) => item.id !== optimisticId);
+              return {
+                ...prev,
+                [logDateKey]: [savedEntry, ...withoutOptimistic],
+              };
+            });
+            updateStreak(logDateKey);
+            updateRecentMeals(entryForStore);
+
+            if (autoPostToCommunity) {
+              const foodEntryForCommunity: Omit<FoodEntry, 'id' | 'timestamp'> = {
+                ...entryForStore,
+                photoUri: saved.photo_uri || undefined,
+              };
+              eventEmitter.emit('foodEntryAdded', {
+                foodEntry: foodEntryForCommunity,
+                timestamp: Date.now(),
+              });
+            }
+            resolve(true);
+          },
+          onError: (error) => {
+            console.error('[addFoodEntry] Save failed:', error);
+            // Rollback optimistic item when remote save fails.
+            setFoodLog((prev) => {
+              const current = prev[logDateKey] || [];
+              return {
+                ...prev,
+                [logDateKey]: current.filter((item) => item.id !== optimisticId),
+              };
+            });
+            resolve(false);
+          },
+        }
+      );
+    });
+
+    return savedOk;
   }, [saveFoodEntryMutation, authState, selectedDate, updateRecentMeals]);
 
   const addComposedMeal = useCallback(
@@ -1595,7 +1878,14 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
 
   const signOut = useCallback(async () => {
     console.log('Signing out user');
-    await supabase.auth.signOut();
+    setExpectUserInitiatedSignOut(true);
+    try {
+      await supabase.auth.signOut();
+    } catch (e) {
+      setExpectUserInitiatedSignOut(false);
+      console.error('signOut failed:', e);
+      return;
+    }
     setProfile(null);
     setFoodLog({});
     setWeightHistory([]);
@@ -1609,6 +1899,33 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
     setRecentMeals([]);
     queryClient.clear();
     setTimeout(() => {
+      clearExpectUserInitiatedSignOut();
+      router.replace('/onboarding');
+    }, 100);
+  }, [queryClient]);
+
+  /** After server-side account deletion, Supabase signOut may fail — still clear local session. */
+  const signOutAfterAccountDeleted = useCallback(async () => {
+    setExpectUserInitiatedSignOut(true);
+    try {
+      await supabase.auth.signOut();
+    } catch {
+      // User may already be removed server-side
+    }
+    setProfile(null);
+    setFoodLog({});
+    setWeightHistory([]);
+    setStreakData({
+      currentStreak: 0,
+      bestStreak: 0,
+      lastLoggedDate: '',
+      graceUsedThisWeek: false,
+    });
+    setFavorites([]);
+    setRecentMeals([]);
+    queryClient.clear();
+    setTimeout(() => {
+      clearExpectUserInitiatedSignOut();
       router.replace('/onboarding');
     }, 100);
   }, [queryClient]);
@@ -1789,7 +2106,7 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
         console.error('Error saving image:', error);
       });
 
-    analyzeMealPhoto(base64, { userId: authState.userId })
+    analyzeMealPhoto(base64, { userId: authState.userId, language })
       .then((analysis) => {
         setPendingEntries(prev =>
           prev.map(entry =>
@@ -1815,7 +2132,7 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
       });
 
     return newPending.id;
-  }, [authState.userId]);
+  }, [authState.userId, language]);
 
   const confirmPendingEntry = useCallback((pendingId: string, servings: number = 1) => {
     const pending = pendingEntries.find(p => p.id === pendingId);
@@ -1861,7 +2178,7 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
       )
     );
 
-    analyzeMealPhoto(pending.base64, { userId: authState.userId })
+    analyzeMealPhoto(pending.base64, { userId: authState.userId, language })
       .then((analysis) => {
         setPendingEntries(prev =>
           prev.map(entry =>
@@ -1884,21 +2201,41 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
           )
         );
       });
-  }, [pendingEntries, authState.userId]);
+  }, [pendingEntries, authState.userId, language]);
 
   const deleteFoodEntry = useCallback((entryId: string) => {
-    deleteFoodEntryMutation.mutate(entryId);
-  }, [deleteFoodEntryMutation]);
+    const dateKey = selectedDate || getTodayKey();
+    const previousEntries = foodLog[dateKey] || [];
+    const target = previousEntries.find((entry) => entry.id === entryId);
+    if (!target) return;
+
+    // Optimistic UI: remove immediately from dashboard/log.
+    setFoodLog((prev) => ({
+      ...prev,
+      [dateKey]: (prev[dateKey] || []).filter((entry) => entry.id !== entryId),
+    }));
+
+    // Local-only optimistic item, no remote delete required.
+    if (entryId.startsWith('local-')) {
+      return;
+    }
+
+    deleteFoodEntryMutation.mutate(entryId, {
+      onError: (error) => {
+        console.error('[deleteFoodEntry] Delete failed, restoring local entry:', error);
+        setFoodLog((prev) => ({
+          ...prev,
+          [dateKey]: [target, ...(prev[dateKey] || [])],
+        }));
+      },
+    });
+  }, [deleteFoodEntryMutation, selectedDate, foodLog]);
 
   const updateFoodEntry = useCallback((entryId: string, updates: Omit<FoodEntry, 'id' | 'timestamp'>) => {
     updateFoodEntryMutation.mutate({ entryId, updates });
   }, [updateFoodEntryMutation]);
 
   const referralTrialEndsAt = profileQuery.data?.referral_trial_ends_at ?? null;
-  const forceNoPrivilegedRole = (authState.email ?? '').trim().toLowerCase() === 'testers@dietku.com';
-  const isAppAdmin = !forceNoPrivilegedRole && profileQuery.data?.app_role === 'admin';
-  const isAppCreator =
-    !forceNoPrivilegedRole && (profileQuery.data?.app_role === 'creator' || isAppAdmin);
 
   const dailyTargets: DailyTargets | null = useMemo(() => {
     if (!profile) {
@@ -1928,7 +2265,13 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
 
   const clearAllData = useCallback(async () => {
     try {
-      await supabase.auth.signOut();
+      setExpectUserInitiatedSignOut(true);
+      try {
+        await supabase.auth.signOut();
+      } catch {
+        setExpectUserInitiatedSignOut(false);
+        throw new Error('signOut failed');
+      }
       setProfile(null);
       setFoodLog({});
       setWeightHistory([]);
@@ -1941,6 +2284,7 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
       setFavorites([]);
       setRecentMeals([]);
       queryClient.clear();
+      clearExpectUserInitiatedSignOut();
       console.log('All data cleared');
     } catch (error) {
       console.error('Error clearing data:', error);
@@ -1950,8 +2294,6 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
   return {
     profile,
     referralTrialEndsAt,
-    isAppAdmin,
-    isAppCreator,
     saveProfile,
     dailyTargets,
     todayEntries,
@@ -1999,9 +2341,11 @@ export const [NutritionProvider, useNutrition] = createContextHook(() => {
     sodiumUnits,
     addWeightEntry,
     authState,
+    authInitialized,
     signIn,
     signUp,
     signOut,
+    signOutAfterAccountDeleted,
     updateWeightEntry,
     deleteWeightEntry,
     clearAllData,

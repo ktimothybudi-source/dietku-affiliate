@@ -12,7 +12,6 @@ import { ThemeProvider } from "@/contexts/ThemeContext";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { NotificationProvider } from "@/contexts/NotificationContext";
 import { SubscriptionProvider } from "@/contexts/SubscriptionContext";
-import PremiumPaywallModal from "@/components/PremiumPaywallModal";
 import { trpc, trpcClient } from "@/lib/trpc";
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
@@ -25,7 +24,6 @@ function RootLayoutNav() {
     <Stack screenOptions={{ headerBackTitle: "Back" }}>
       <Stack.Screen name="onboarding" options={{ headerShown: false }} />
       <Stack.Screen name="sign-in" options={{ headerShown: false }} />
-      <Stack.Screen name="subscribe" options={{ headerShown: false }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="food-search" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="meal-builder" options={{ headerShown: false, presentation: 'card' }} />
@@ -47,6 +45,7 @@ function RootLayoutNav() {
       <Stack.Screen name="legal-privacy" options={{ presentation: 'card' }} />
       <Stack.Screen name="legal-restore-purchase" options={{ presentation: 'card' }} />
       <Stack.Screen name="playstore-checklist" options={{ presentation: 'card' }} />
+      <Stack.Screen name="onboarding-subscription" options={{ headerShown: false }} />
     </Stack>
   );
 }
@@ -69,7 +68,6 @@ export default function RootLayout() {
                       <CommunityProvider>
                         <GestureHandlerRootView>
                           <RootLayoutNav />
-                          <PremiumPaywallModal />
                         </GestureHandlerRootView>
                       </CommunityProvider>
                     </ExerciseProvider>

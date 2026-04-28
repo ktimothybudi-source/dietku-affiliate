@@ -1,7 +1,7 @@
 import createContextHook from '@nkzw/create-context-hook';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 const LANGUAGE_KEY = 'app_language';
 
@@ -73,6 +73,40 @@ export const translations = {
       annualTrialDetail: 'Penagihan dimulai setelah percobaan',
       annualCtaSubline: 'Paket tahunan',
     },
+    tabs: {
+      dashboard: 'Dashboard',
+      progress: 'Kemajuan',
+      community: 'Komunitas',
+      profile: 'Profil',
+    },
+    languagePicker: {
+      title: 'Bahasa',
+      subtitle: 'Pilih bahasa yang ingin Anda gunakan',
+      indonesiaName: 'Indonesia',
+      indonesiaNative: 'Bahasa Indonesia',
+      englishName: 'English',
+      englishNative: 'English (US)',
+    },
+    profile: {
+      title: 'Profil',
+      account: 'Akun',
+      settings: 'Pengaturan',
+      connectedAs: 'Terhubung sebagai',
+      notSignedIn: 'Belum masuk',
+      signIn: 'Masuk',
+      signOut: 'Keluar',
+      signOutTitle: 'Keluar',
+      signOutMessage: 'Apakah Anda yakin ingin keluar?',
+      cancel: 'Batal',
+      language: 'Bahasa',
+      theme: 'Tema',
+      darkMode: 'Gelap',
+      invites: 'Undangan & kode',
+      personalInfo: 'Informasi Pribadi',
+      name: 'Nama',
+      age: 'Usia',
+      yearsSuffix: 'tahun',
+    },
   },
   en: {
     intro: {
@@ -139,6 +173,40 @@ export const translations = {
       annualTrialDetail: 'Billing starts after trial',
       annualCtaSubline: 'Yearly plan',
     },
+    tabs: {
+      dashboard: 'Dashboard',
+      progress: 'Progress',
+      community: 'Community',
+      profile: 'Profile',
+    },
+    languagePicker: {
+      title: 'Language',
+      subtitle: 'Choose the language you want to use',
+      indonesiaName: 'Indonesian',
+      indonesiaNative: 'Bahasa Indonesia',
+      englishName: 'English',
+      englishNative: 'English (US)',
+    },
+    profile: {
+      title: 'Profile',
+      account: 'Account',
+      settings: 'Settings',
+      connectedAs: 'Connected as',
+      notSignedIn: 'Not signed in',
+      signIn: 'Sign In',
+      signOut: 'Sign Out',
+      signOutTitle: 'Sign Out',
+      signOutMessage: 'Are you sure you want to sign out?',
+      cancel: 'Cancel',
+      language: 'Language',
+      theme: 'Theme',
+      darkMode: 'Dark',
+      invites: 'Invites & code',
+      personalInfo: 'Personal Information',
+      name: 'Name',
+      age: 'Age',
+      yearsSuffix: 'years',
+    },
   },
 };
 
@@ -175,12 +243,17 @@ export const [LanguageProvider, useLanguage] = createContextHook(() => {
   };
 
   const t = translations[language];
+  const l = useCallback(
+    (idText: string, enText: string) => (language === 'id' ? idText : enText),
+    [language]
+  );
 
   return {
     language,
     setLanguage: (lang: Language) => saveLanguageMutation.mutate(lang),
     toggleLanguage,
     t,
+    l,
     isLoading: languageQuery.isLoading,
   };
 });

@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { Stack, useLocalSearchParams, router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { useCommunity } from '@/contexts/CommunityContext';
 import { useNutrition } from '@/contexts/NutritionContext';
 import { MEAL_TYPE_LABELS } from '@/types/community';
@@ -30,6 +31,17 @@ function timeAgo(timestamp: number): string {
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days} hari lalu`;
   return `${Math.floor(days / 7)} minggu lalu`;
+}
+function timeAgoLocalized(timestamp: number, l: (id: string, en: string) => string): string {
+  const diff = Date.now() - timestamp;
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return l('Baru saja', 'Just now');
+  if (minutes < 60) return l(`${minutes} menit lalu`, `${minutes}m ago`);
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return l(`${hours} jam lalu`, `${hours}h ago`);
+  const days = Math.floor(hours / 24);
+  if (days < 7) return l(`${days} hari lalu`, `${days}d ago`);
+  return l(`${Math.floor(days / 7)} minggu lalu`, `${Math.floor(days / 7)}w ago`);
 }
 
 function Avatar({ name, color, size = 36 }: { name: string; color: string; size?: number }) {
@@ -50,6 +62,7 @@ function Avatar({ name, color, size = 36 }: { name: string; color: string; size?
 export default function PostDetailScreen() {
   const { postId } = useLocalSearchParams<{ postId: string }>();
   const { theme } = useTheme();
+  const { l } = useLanguage();
   const { posts, toggleLike, addComment, getPostComments, deletePost, communityProfile } = useCommunity();
   const { authState } = useNutrition();
   const [commentText, setCommentText] = useState('');
@@ -66,7 +79,7 @@ export default function PostDetailScreen() {
   const handleLike = useCallback(() => {
     if (!postId) return;
     if (!authState.isSignedIn) {
-      Alert.alert('Masuk Diperlukan', 'Silakan masuk untuk menyukai post.');
+      Alert.alert(l('Masuk Diperlukan', 'Sign In Required'), l('Silakan masuk untuk menyukai post.', 'Please sign in to like this post.'));
       return;
     }
     if (!communityProfile) {
@@ -84,7 +97,7 @@ export default function PostDetailScreen() {
   const handleSendComment = useCallback(() => {
     if (!commentText.trim() || !postId) return;
     if (!authState.isSignedIn) {
-      Alert.alert('Masuk Diperlukan', 'Silakan masuk untuk berkomentar.');
+      Alert.alert(l('Masuk Diperlukan', 'Sign In Required'), l('Silakan masuk untuk berkomentar.', 'Please sign in to comment.'));
       return;
     }
     if (!communityProfile) {
@@ -100,10 +113,10 @@ export default function PostDetailScreen() {
   const handleDelete = useCallback(() => {
     if (!postId) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    Alert.alert('Hapus Post', 'Yakin ingin menghapus post ini?', [
-      { text: 'Batal', style: 'cancel' },
+    Alert.alert(l('Hapus Post', 'Delete Post'), l('Yakin ingin menghapus post ini?', 'Are you sure you want to delete this post?'), [
+      { text: l('Batal', 'Cancel'), style: 'cancel' },
       {
-        text: 'Hapus',
+        text: l('Hapus', 'Delete'),
         style: 'destructive',
         onPress: () => {
           deletePost(postId);
@@ -118,7 +131,7 @@ export default function PostDetailScreen() {
       <>
         <Stack.Screen
           options={{
-            title: 'Post',
+            title: l('Post', 'Post'),
             headerStyle: { backgroundColor: theme.background },
             headerTintColor: theme.text,
             headerShadowVisible: false,
@@ -126,7 +139,7 @@ export default function PostDetailScreen() {
         />
         <View style={[styles.container, { backgroundColor: theme.background }]}>
           <View style={styles.notFound}>
-            <Text style={[styles.notFoundText, { color: theme.textSecondary }]}>Post tidak ditemukan</Text>
+            <Text style={[styles.notFoundText, { color: theme.textSecondary }]}>{l('Post tidak ditemukan', 'Post not found')}</Text>
           </View>
         </View>
       </>
@@ -137,7 +150,7 @@ export default function PostDetailScreen() {
     <>
       <Stack.Screen
         options={{
-          title: 'Post',
+          title: l('Post', 'Post'),
           headerStyle: { backgroundColor: theme.background },
           headerTintColor: theme.text,
           headerShadowVisible: false,
@@ -178,7 +191,7 @@ export default function PostDetailScreen() {
                     <Text style={[styles.postUsername, { color: theme.textTertiary }]}>@{post.username}</Text>
                     <Text style={[styles.postDot, { color: theme.textTertiary }]}>·</Text>
                     <Clock size={12} color={theme.textTertiary} />
-                    <Text style={[styles.postTime, { color: theme.textTertiary }]}>{timeAgo(post.createdAt)}</Text>
+                    <Text style={[styles.postTime, { color: theme.textTertiary }]}>{timeAgoLocalized(post.createdAt, l)}</Text>
                   </View>
                 </View>
               </View>
@@ -212,12 +225,12 @@ export default function PostDetailScreen() {
                   <View style={[styles.macroDivider, { backgroundColor: theme.border }]} />
                   <View style={styles.macroItem}>
                     <Text style={[styles.macroValue, { color: theme.accent }]}>{post.carbs}g</Text>
-                    <Text style={[styles.macroLabel, { color: theme.textTertiary }]}>Karbo</Text>
+                    <Text style={[styles.macroLabel, { color: theme.textTertiary }]}>{l('Karbo', 'Carbs')}</Text>
                   </View>
                   <View style={[styles.macroDivider, { backgroundColor: theme.border }]} />
                   <View style={styles.macroItem}>
                     <Text style={[styles.macroValue, { color: theme.warning }]}>{post.fat}g</Text>
-                    <Text style={[styles.macroLabel, { color: theme.textTertiary }]}>Lemak</Text>
+                    <Text style={[styles.macroLabel, { color: theme.textTertiary }]}>{l('Lemak', 'Fat')}</Text>
                   </View>
                 </View>
               </View>
@@ -232,7 +245,7 @@ export default function PostDetailScreen() {
                     />
                   </Animated.View>
                   <Text style={[styles.actionLabel, { color: isLiked ? '#E53E3E' : theme.textTertiary }]}>
-                    {post.likes.length} {post.likes.length === 1 ? 'suka' : 'suka'}
+                    {post.likes.length} {l('suka', 'likes')}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -240,13 +253,13 @@ export default function PostDetailScreen() {
 
             <View style={styles.commentsSection}>
               <Text style={[styles.commentsTitle, { color: theme.text }]}>
-                Komentar ({postComments.length})
+                {l('Komentar', 'Comments')} ({postComments.length})
               </Text>
 
               {postComments.length === 0 ? (
                 <View style={styles.noComments}>
                   <Text style={[styles.noCommentsText, { color: theme.textTertiary }]}>
-                    Belum ada komentar. Jadilah yang pertama!
+                    {l('Belum ada komentar. Jadilah yang pertama!', 'No comments yet. Be the first!')}
                   </Text>
                 </View>
               ) : (
@@ -287,7 +300,7 @@ export default function PostDetailScreen() {
               style={[styles.commentInput, { backgroundColor: theme.surfaceElevated, borderColor: theme.border, color: theme.text }]}
               value={commentText}
               onChangeText={setCommentText}
-              placeholder="Tulis komentar..."
+              placeholder={l('Tulis komentar...', 'Write a comment...')}
               placeholderTextColor={theme.textTertiary}
               maxLength={200}
               returnKeyType="send"

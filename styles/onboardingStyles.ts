@@ -53,27 +53,21 @@ export const onboardingStyles = StyleSheet.create({
 
   introContainer: {
     flex: 1,
-    backgroundColor: '#F6F4F1',
+    backgroundColor: '#EEEDEB',
+    justifyContent: 'space-between',
   },
   introImageHero: {
+    flex: 1,
     alignSelf: 'center',
-    width: '85%',
-    aspectRatio: 0.75,
-    maxHeight: '55%',
+    width: '100%',
     position: 'relative' as const,
-    marginTop: 56,
-    borderRadius: 24,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15,
-    shadowRadius: 16,
-    elevation: 10,
+    marginTop: 0,
+    marginBottom: 8,
+    backgroundColor: '#EEEDEB',
   },
   introImageLarge: {
     width: '100%',
     height: '100%',
-    borderRadius: 24,
   },
   introFloatingBadge: {
     position: 'absolute' as const,
@@ -107,6 +101,7 @@ export const onboardingStyles = StyleSheet.create({
   introTextSection: {
     alignItems: 'center',
     paddingHorizontal: 8,
+    marginTop: 18,
   },
   introBrandTitle: {
     fontSize: 42,
@@ -123,8 +118,9 @@ export const onboardingStyles = StyleSheet.create({
     maxWidth: 320,
   },
   introCtaSection: {
+    marginTop: 'auto',
     paddingHorizontal: 24,
-    paddingBottom: 16,
+    paddingBottom: 10,
   },
   introPrimaryButton: {
     backgroundColor: '#22C55E',
@@ -189,7 +185,11 @@ export const onboardingStyles = StyleSheet.create({
     borderRadius: 24,
     padding: 20,
   },
-  activityCardActive: { borderColor: '#22C55E', backgroundColor: 'rgba(34, 197, 94, 0.06)' },
+  activityCardActive: {
+    borderColor: '#22C55E',
+    borderWidth: 2,
+    backgroundColor: 'rgba(34, 197, 94, 0.06)',
+  },
   activityCardTitle: { fontSize: 18, fontWeight: '600', color: '#666666', marginBottom: 6 },
   activityCardTitleActive: { color: '#000000' },
   activityCardDesc: { fontSize: 14, color: '#666666', lineHeight: 20 },
@@ -204,7 +204,11 @@ export const onboardingStyles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
-  goalCardActive: { borderColor: '#22C55E', backgroundColor: 'rgba(34, 197, 94, 0.06)' },
+  goalCardActive: {
+    borderColor: '#22C55E',
+    borderWidth: 2,
+    backgroundColor: 'rgba(34, 197, 94, 0.06)',
+  },
   goalIconContainer: {
     width: 42,
     height: 42,
@@ -244,7 +248,11 @@ export const onboardingStyles = StyleSheet.create({
     alignItems: 'center',
     gap: 16,
   },
-  genderCardActive: { borderColor: '#22C55E', backgroundColor: 'rgba(34, 197, 94, 0.06)' },
+  genderCardActive: {
+    borderColor: '#22C55E',
+    borderWidth: 2,
+    backgroundColor: 'rgba(34, 197, 94, 0.06)',
+  },
   genderIconCircle: {
     width: 120,
     height: 120,

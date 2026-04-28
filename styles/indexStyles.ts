@@ -1151,7 +1151,7 @@ export const indexStyles = StyleSheet.create({
     borderRadius: 18,
     paddingVertical: 16,
     paddingLeft: 18,
-    paddingRight: 70,
+    paddingRight: 18,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
@@ -1172,10 +1172,39 @@ export const indexStyles = StyleSheet.create({
   foodInfo: {
     flex: 1,
   },
-  timeDeleteColumn: {
+  foodTitleRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
+  },
+  syncBadge: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  syncBadgeText: {
+    fontSize: 11,
+    fontWeight: '700' as const,
+  },
+  timeDeleteColumn: {
+    marginLeft: 'auto',
+    minWidth: 44,
+    alignItems: 'flex-end',
     justifyContent: 'center',
     gap: 6,
+  },
+  dashboardLoadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingHorizontal: 24,
+  },
+  dashboardLoadingText: {
+    fontSize: 14,
+    fontWeight: '500' as const,
+    textAlign: 'center',
   },
   foodHeader: {
     flexDirection: 'row',

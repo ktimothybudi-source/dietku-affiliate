@@ -23,9 +23,10 @@ const CAROUSEL_CARD_WIDTH = SCREEN_WIDTH - 28;
 const CAROUSEL_GAP = 12;
 
 import { Stack, router } from 'expo-router';
-import { Flame, X, Check, Camera, ImageIcon, ChevronLeft, ChevronRight, Trash2, Plus, Bookmark, Clock, Star, Edit3, Search as SearchIcon, Droplets, Minus, Footprints, Dumbbell, ChevronRight as ChevronRightIcon, Utensils, Target, TrendingDown, TrendingUp, Zap, MessageSquare, Send } from 'lucide-react-native';
+import { Flame, X, Camera, ImageIcon, ChevronLeft, ChevronRight, Trash2, Plus, Bookmark, Clock, Star, Search as SearchIcon, Droplets, Minus, ChevronRight as ChevronRightIcon, Utensils, Target, TrendingDown, TrendingUp } from 'lucide-react-native';
 import { useNutrition, useTodayProgress, PendingFoodEntry } from '@/contexts/NutritionContext';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { FoodEntry, MealAnalysis } from '@/types/nutrition';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
@@ -44,17 +45,16 @@ import { FoodSearchResult } from '@/types/food';
 import ProgressRing from '@/components/ProgressRing';
 import { DietKuWordmark } from '@/components/DietKuWordmark';
 import { useExercise } from '@/contexts/ExerciseContext';
-import { QUICK_EXERCISES, QuickExercise, ExerciseType } from '@/types/exercise';
 import { ANIMATION_DURATION } from '@/constants/animations';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getTimeBasedMessage, getProgressMessage, getCalorieFeedback, MotivationalMessage } from '@/constants/motivationalMessages';
-import { estimateExerciseFromText } from '@/utils/exerciseAi';
 
 export default function HomeScreen() {
   const { profile, dailyTargets, todayEntries, todayTotals, addFoodEntry, deleteFoodEntry, isLoading, streakData, selectedDate, setSelectedDate, pendingEntries, favorites, recentMeals, addToFavorites, removeFromFavorites, isFavorite, logFromFavorite, logFromRecent, removeFromRecent, shouldSuggestFavorite, addWaterCup, removeWaterCup, getTodayWaterCups, authState } = useNutrition();
-  const { todaySteps, stepsCaloriesBurned, exerciseCaloriesBurned, totalCaloriesBurned, todayExercises, addExercise } = useExercise();
+  const { todaySteps, totalCaloriesBurned } = useExercise();
   const { theme } = useTheme();
+  const { language, l } = useLanguage();
   const insets = useSafeAreaInsets();
   const bottomTabBarHeight = useBottomTabBarHeight();
   const progress = useTodayProgress();
@@ -89,15 +89,6 @@ export default function HomeScreen() {
   const isShowingToast = useRef(false);
   const [carouselPage, setCarouselPage] = useState(0);
   const [carouselPageHeight, setCarouselPageHeight] = useState<number>(0);
-  const [exerciseMode, setExerciseMode] = useState<'quick' | 'describe' | 'manual'>('quick');
-  const [selectedQuickExercise, setSelectedQuickExercise] = useState<QuickExercise | null>(null);
-  const [quickDuration, setQuickDuration] = useState('');
-  const [exerciseDescription, setExerciseDescription] = useState('');
-  const [isAnalyzingExercise, setIsAnalyzingExercise] = useState(false);
-  const [manualExName, setManualExName] = useState('');
-  const [manualExCalories, setManualExCalories] = useState('');
-  const [manualExDuration, setManualExDuration] = useState('');
-  const [quickExerciseModalVisible, setQuickExerciseModalVisible] = useState(false);
 
   const caloriesAnimValue = useRef(new Animated.Value(0)).current;
   const proteinAnimValue = useRef(new Animated.Value(0)).current;
@@ -404,29 +395,49 @@ export default function HomeScreen() {
   );
 
   React.useEffect(() => {
-    if (!isLoading && !profile) {
-      const timer = setTimeout(() => {
-        try {
+    if (isLoading) return;
+    if (profile) return;
+    // Guard against transient profile/auth fetch gaps so signed-in users are not bounced to onboarding.
+    if (authState.isSignedIn) return;
+    const timer = setTimeout(() => {
+      try {
+        router.replace('/onboarding');
+      } catch (e) {
+        console.log('Navigation not ready yet, retrying...', e);
+        setTimeout(() => {
           router.replace('/onboarding');
-        } catch (e) {
-          console.log('Navigation not ready yet, retrying...', e);
-          setTimeout(() => {
-            router.replace('/onboarding');
-          }, 500);
-        }
-      }, 100);
-      return () => clearTimeout(timer);
-    }
-  }, [profile, isLoading]);
+        }, 500);
+      }
+    }, 1200);
+    return () => clearTimeout(timer);
+  }, [profile, isLoading, authState.isSignedIn]);
 
   if (isLoading) {
-    return null;
+    return (
+      <View style={[styles.container, { backgroundColor: theme.background }]}>
+        <View style={styles.dashboardLoadingContainer}>
+          <ActivityIndicator size="small" color={theme.primary} />
+          <Text style={[styles.dashboardLoadingText, { color: theme.textSecondary }]}>
+            {l('Memuat dashboard...', 'Loading dashboard...')}
+          </Text>
+        </View>
+      </View>
+    );
   }
 
 
 
   if (!profile || !dailyTargets) {
-    return null;
+    return (
+      <View style={[styles.container, { backgroundColor: theme.background }]}>
+        <View style={styles.dashboardLoadingContainer}>
+          <ActivityIndicator size="small" color={theme.primary} />
+          <Text style={[styles.dashboardLoadingText, { color: theme.textSecondary }]}>
+            {l('Menyiapkan data...', 'Preparing data...')}
+          </Text>
+        </View>
+      </View>
+    );
   }
 
   const handleAddFood = () => {
@@ -544,12 +555,12 @@ export default function HomeScreen() {
   const analyzePhoto = async (base64: string) => {
     setAnalyzing(true);
     try {
-      const result = await analyzeMealPhoto(base64, { userId: authState.userId });
+      const result = await analyzeMealPhoto(base64, { userId: authState.userId, language });
       setAnalysis(result);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
       console.warn('Photo analysis error:', error);
-      Alert.alert('Analysis failed', 'Could not analyze the photo. Please try again.');
+      Alert.alert(l('Analisis gagal', 'Analysis failed'), l('Foto tidak dapat dianalisis. Silakan coba lagi.', 'Could not analyze the photo. Please try again.'));
     } finally {
       setAnalyzing(false);
     }
@@ -558,12 +569,12 @@ export default function HomeScreen() {
   const handleAddFromAnalysis = () => {
     if (!analysis) return;
 
-    const avgCalories = Math.round((analysis.totalCaloriesMin + analysis.totalCaloriesMax) / 2);
-    const avgProtein = Math.round((analysis.totalProteinMin + analysis.totalProteinMax) / 2);
+    const avgCalories = Math.round(((analysis.totalCaloriesMin + analysis.totalCaloriesMax) / 2) * 10) / 10;
+    const avgProtein = Math.round(((analysis.totalProteinMin + analysis.totalProteinMax) / 2) * 10) / 10;
     const foodNames = analysis.items.map(item => item.name).join(', ');
 
-    const estimatedCarbs = Math.round((avgCalories - (avgProtein * 4)) / 4 * 0.6);
-    const estimatedFat = Math.round((avgCalories - (avgProtein * 4)) / 9 * 0.4);
+    const estimatedCarbs = Math.round((((avgCalories - (avgProtein * 4)) / 4) * 0.6) * 10) / 10;
+    const estimatedFat = Math.round((((avgCalories - (avgProtein * 4)) / 9) * 0.4) * 10) / 10;
     const micros = sumMidpointMicrosFromItems(analysis.items);
 
     addFoodEntry({
@@ -584,7 +595,7 @@ export default function HomeScreen() {
   const getMealTimeLabel = (timestamp: number) => {
     const date = new Date(timestamp);
     const hours = date.getHours();
-    const timeStr = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    const timeStr = date.toLocaleTimeString(language === 'en' ? 'en-US' : 'id-ID', { hour: 'numeric', minute: '2-digit' });
     
     if (hours >= 5 && hours < 11) return { label: 'Sarapan', time: timeStr };
     if (hours >= 11 && hours < 16) return { label: 'Makan Siang', time: timeStr };
@@ -753,13 +764,6 @@ export default function HomeScreen() {
                           <Text style={[styles.heroSimpleSeparator, { color: theme.textTertiary }]}> · </Text>
                           <Text style={[styles.heroSimpleValue, { color: theme.text }]}>{todayTotals.calories.toLocaleString()}</Text>
                         </View>
-                        {false && (
-                          <View style={styles.heroSimpleRow}>
-                            <Text style={[styles.heroSimpleLabel, { color: theme.textSecondary }]}>Olahraga</Text>
-                            <Text style={[styles.heroSimpleSeparator, { color: theme.textTertiary }]}> · </Text>
-                            <Text style={[styles.heroSimpleValue, { color: theme.text }]}>{totalCaloriesBurned}</Text>
-                          </View>
-                        )}
                       </View>
                     </View>
                     </View>
@@ -980,199 +984,6 @@ export default function HomeScreen() {
                 </View>
               </View>
 
-              {false && (
-              <View style={[styles.carouselPageContainer, carouselPageHeight > 0 && { height: carouselPageHeight }]}>
-                <View style={styles.activitySeparateRow}>
-                  <TouchableOpacity
-                    style={[styles.activitySeparateCard, styles.separatedCard, { backgroundColor: theme.card }]}
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      router.push('/log-exercise');
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <View style={[styles.activitySeparateIconWrap, { backgroundColor: '#EFF6FF' }]}>
-                      <Footprints size={16} color="#3B82F6" />
-                    </View>
-                    <Text style={[styles.activitySeparateVal, { color: theme.text }]}>{todaySteps.toLocaleString()}</Text>
-                    <Text style={[styles.activitySeparateLabel, { color: theme.textSecondary }]}>Langkah</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.activitySeparateCard, styles.separatedCard, { backgroundColor: theme.card }]}
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      router.push('/log-exercise');
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <View style={[styles.activitySeparateIconWrap, { backgroundColor: '#FEF2F2' }]}>
-                      <Flame size={16} color="#EF4444" />
-                    </View>
-                    <Text style={[styles.activitySeparateVal, { color: theme.text }]}>{totalCaloriesBurned}</Text>
-                    <Text style={[styles.activitySeparateLabel, { color: theme.textSecondary }]}>kcal</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.activitySeparateCard, styles.separatedCard, { backgroundColor: theme.card }]}
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      router.push('/log-exercise');
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <View style={[styles.activitySeparateIconWrap, { backgroundColor: '#FFFBEB' }]}>
-                      <Dumbbell size={16} color="#F59E0B" />
-                    </View>
-                    <Text style={[styles.activitySeparateVal, { color: theme.text }]}>{todayExercises.length}</Text>
-                    <Text style={[styles.activitySeparateLabel, { color: theme.textSecondary }]}>Aktivitas</Text>
-                  </TouchableOpacity>
-                </View>
-
-                {false && (
-                <View style={[styles.separatedCard, { backgroundColor: theme.card, flex: 1 }]}>
-                  <View style={styles.exCardHeaderRow}>
-                    <Text style={[styles.exCardTitle, { color: theme.text }]}>Catat Aktivitas</Text>
-                  </View>
-                  <View style={styles.exModeTabsCompact}>
-                    {([{ key: 'quick' as const, label: 'Cepat', Icon: Zap }, { key: 'describe' as const, label: 'Jelaskan', Icon: MessageSquare }, { key: 'manual' as const, label: 'Manual', Icon: Edit3 }]).map(({ key, label, Icon }) => (
-                      <TouchableOpacity
-                        key={key}
-                        style={[styles.exModeTabCompact, exerciseMode === key && { backgroundColor: theme.background }]}
-                        onPress={() => {
-                          setExerciseMode(key);
-                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        }}
-                        activeOpacity={0.7}
-                      >
-                        <Icon size={11} color={exerciseMode === key ? theme.primary : theme.textSecondary} />
-                        <Text style={{ fontSize: 10, fontWeight: '600' as const, color: exerciseMode === key ? theme.primary : theme.textSecondary }}>{label}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-
-                  <View style={styles.exFixedContent}>
-                    {exerciseMode === 'quick' && (
-                      <View style={styles.exQuickContentCompact}>
-                        <ScrollView 
-                          horizontal 
-                          showsHorizontalScrollIndicator={false}
-                          contentContainerStyle={styles.exQuickScrollContent}
-                        >
-                          {QUICK_EXERCISES.map((ex) => (
-                            <TouchableOpacity
-                              key={ex.type}
-                              style={[
-                                styles.exQuickGridChip,
-                                { backgroundColor: theme.background, borderColor: theme.border },
-                              ]}
-                              onPress={() => {
-                                setSelectedQuickExercise(ex);
-                                setQuickExerciseModalVisible(true);
-                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                              }}
-                              activeOpacity={0.7}
-                            >
-                              <Text style={{ fontSize: 32 }}>{ex.emoji}</Text>
-                              <Text style={[{ fontSize: 11, fontWeight: '600' as const }, { color: theme.text }]} numberOfLines={1}>{ex.label}</Text>
-                            </TouchableOpacity>
-                          ))}
-                        </ScrollView>
-
-                      </View>
-                    )}
-
-                    {exerciseMode === 'describe' && (
-                      <View style={styles.exDescribeContentCompact}>
-                        <View style={styles.exDescribeInputRowCompact}>
-                          <TextInput
-                            style={[styles.exDescribeInputFixed, { backgroundColor: theme.background, borderColor: theme.border, color: theme.text }]}
-                            placeholder="Contoh: Lari 30 menit di taman..."
-                            placeholderTextColor={theme.textTertiary}
-                            value={exerciseDescription}
-                            onChangeText={setExerciseDescription}
-                            multiline
-                            numberOfLines={2}
-                            textAlignVertical="top"
-                          />
-                          <TouchableOpacity
-                            style={[styles.exLogBtnCompact, (!exerciseDescription.trim() || isAnalyzingExercise) && { opacity: 0.5 }]}
-                            disabled={!exerciseDescription.trim() || isAnalyzingExercise}
-                            onPress={async () => {
-                              if (!exerciseDescription.trim()) return;
-                              setIsAnalyzingExercise(true);
-                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                              try {
-                                const parsed = await estimateExerciseFromText(exerciseDescription.trim());
-                                addExercise({ type: 'describe' as ExerciseType, name: parsed.name || exerciseDescription.trim().slice(0, 30), caloriesBurned: parsed.calories || 150, description: exerciseDescription.trim() });
-                                setExerciseDescription('');
-                              } catch (error) {
-                                console.error('Exercise describe error:', error);
-                                addExercise({ type: 'describe' as ExerciseType, name: exerciseDescription.trim().slice(0, 30), caloriesBurned: 150, description: exerciseDescription.trim() });
-                                setExerciseDescription('');
-                              } finally {
-                                setIsAnalyzingExercise(false);
-                                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                              }
-                            }}
-                            activeOpacity={0.8}
-                          >
-                            {isAnalyzingExercise ? <ActivityIndicator size="small" color="#FFF" /> : <Send size={14} color="#FFF" />}
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                    )}
-
-                    {exerciseMode === 'manual' && (
-                      <View style={styles.exManualContentTight}>
-                        <View style={styles.exManualRowTight}>
-                          <TextInput
-                            style={[styles.exManualInputTight, { flex: 1, backgroundColor: theme.background, borderColor: theme.border, color: theme.text }]}
-                            placeholder="Nama aktivitas"
-                            placeholderTextColor={theme.textTertiary}
-                            value={manualExName}
-                            onChangeText={setManualExName}
-                          />
-                        </View>
-                        <View style={styles.exManualRowTight}>
-                          <TextInput
-                            style={[styles.exManualInputTight, { flex: 1, backgroundColor: theme.background, borderColor: theme.border, color: theme.text }]}
-                            placeholder="Kalori"
-                            placeholderTextColor={theme.textTertiary}
-                            keyboardType="numeric"
-                            value={manualExCalories}
-                            onChangeText={setManualExCalories}
-                          />
-                          <TextInput
-                            style={[styles.exManualInputTight, { flex: 1, backgroundColor: theme.background, borderColor: theme.border, color: theme.text }]}
-                            placeholder="Menit"
-                            placeholderTextColor={theme.textTertiary}
-                            keyboardType="numeric"
-                            value={manualExDuration}
-                            onChangeText={setManualExDuration}
-                          />
-                          <TouchableOpacity
-                            style={[styles.exLogBtnCompact, (!manualExName.trim() || !manualExCalories) && { opacity: 0.5 }]}
-                            disabled={!manualExName.trim() || !manualExCalories}
-                            onPress={() => {
-                              const cals = parseInt(manualExCalories);
-                              if (isNaN(cals) || cals <= 0) return;
-                              addExercise({ type: 'manual' as ExerciseType, name: manualExName.trim(), caloriesBurned: cals, duration: manualExDuration ? parseInt(manualExDuration) : undefined });
-                              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                              setManualExName('');
-                              setManualExCalories('');
-                              setManualExDuration('');
-                            }}
-                            activeOpacity={0.8}
-                          >
-                            <Check size={14} color="#FFF" />
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                    )}
-                  </View>
-                </View>
-                )}
-              </View>
-              )}
             </ScrollView>
             </View>
             <View style={styles.carouselDots}>
@@ -1254,6 +1065,7 @@ export default function HomeScreen() {
                 })}
                 {todayEntries.map((entry) => {
                   const { time } = getMealTimeLabel(entry.timestamp);
+                  const isSyncing = entry.id.startsWith('local-');
                   
                   return (
                     <TouchableOpacity
@@ -1276,9 +1088,18 @@ export default function HomeScreen() {
                         )}
                       </View>
                       <View style={styles.foodInfo}>
-                        <Text style={[styles.mealTimeLabel, { color: theme.text }]} numberOfLines={1}>
-                          {entry.name.split(',')[0].replace(/\s*\/\s*/g, ' ').replace(/\s+or\s+/gi, ' ').replace(/about\s+/gi, '').trim()}
-                        </Text>
+                        <View style={styles.foodTitleRow}>
+                          <Text style={[styles.mealTimeLabel, { color: theme.text }]} numberOfLines={1}>
+                            {entry.name.split(',')[0].replace(/\s*\/\s*/g, ' ').replace(/\s+or\s+/gi, ' ').replace(/about\s+/gi, '').trim()}
+                          </Text>
+                          {isSyncing && (
+                            <View style={[styles.syncBadge, { backgroundColor: `${theme.primary}1A`, borderColor: `${theme.primary}66` }]}>
+                              <Text style={[styles.syncBadgeText, { color: theme.primary }]}>
+                                {l('Menyimpan...', 'Syncing...')}
+                              </Text>
+                            </View>
+                          )}
+                        </View>
                         <Text style={[styles.foodCalories, { color: theme.textTertiary }]}>{entry.calories} kcal</Text>
                       </View>
                       <View style={styles.timeDeleteColumn}>
@@ -1288,12 +1109,12 @@ export default function HomeScreen() {
                           onPress={(e) => {
                             e.stopPropagation();
                             Alert.alert(
-                              'Hapus Makanan',
-                              'Yakin ingin menghapus makanan ini?',
+                              l('Hapus Makanan', 'Delete Food'),
+                              l('Yakin ingin menghapus makanan ini?', 'Are you sure you want to delete this food entry?'),
                               [
-                                { text: 'Batal', style: 'cancel' },
+                                { text: l('Batal', 'Cancel'), style: 'cancel' },
                                 { 
-                                  text: 'Hapus', 
+                                  text: l('Hapus', 'Delete'), 
                                   style: 'destructive',
                                   onPress: () => {
                                     deleteFoodEntry(entry.id);
@@ -1524,7 +1345,7 @@ export default function HomeScreen() {
                       <Text style={[styles.inputLabel, { color: theme.text }]}>Apa yang Anda makan?</Text>
                       <TextInput
                         style={[styles.textInput, { backgroundColor: theme.background, borderColor: theme.border, color: theme.text }]}
-                        placeholder="mis., Dada ayam, Nasi goreng..."
+                        placeholder={l('mis., Dada ayam, Nasi goreng...', 'e.g., Chicken breast, Fried rice...')}
                         placeholderTextColor={theme.textSecondary}
                         value={foodName}
                         onChangeText={setFoodName}
@@ -1744,7 +1565,7 @@ export default function HomeScreen() {
                       <SearchIcon size={18} color={theme.textSecondary} />
                       <TextInput
                         style={[styles.searchInput, { color: theme.text }]}
-                        placeholder="Cari makanan..."
+                        placeholder={l('Cari makanan...', 'Search food...')}
                         placeholderTextColor={theme.textSecondary}
                         value={usdaSearchQuery}
                         onChangeText={handleUSDASearch}
@@ -1765,7 +1586,7 @@ export default function HomeScreen() {
                     {usdaSearching && (
                       <View style={styles.searchLoadingContainer}>
                         <ActivityIndicator size="small" color={theme.primary} />
-                        <Text style={[styles.searchLoadingText, { color: theme.textSecondary }]}>Mencari...</Text>
+                        <Text style={[styles.searchLoadingText, { color: theme.textSecondary }]}>{l('Mencari...', 'Searching...')}</Text>
                       </View>
                     )}
 
@@ -1778,8 +1599,8 @@ export default function HomeScreen() {
                     {!usdaSearching && !usdaSearchError && usdaSearchResults.length === 0 && supabaseFoodResults.length === 0 && usdaSearchQuery.length > 0 && (
                       <View style={styles.emptyMealList}>
                         <SearchIcon size={40} color={theme.textTertiary} />
-                        <Text style={[styles.emptyMealText, { color: theme.textSecondary }]}>Tidak ditemukan</Text>
-                        <Text style={[styles.emptyMealSubtext, { color: theme.textTertiary }]}>Coba kata kunci lain</Text>
+                        <Text style={[styles.emptyMealText, { color: theme.textSecondary }]}>{l('Tidak ditemukan', 'Not found')}</Text>
+                        <Text style={[styles.emptyMealSubtext, { color: theme.textTertiary }]}>{l('Coba kata kunci lain', 'Try another keyword')}</Text>
                       </View>
                     )}
 
@@ -1896,92 +1717,6 @@ export default function HomeScreen() {
                   activeOpacity={0.7}
                 >
                   <Text style={[styles.manualEntryText, { color: theme.text }]}>Masukkan Manual</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
-
-        {/* Quick Exercise Modal */}
-        <Modal
-          visible={quickExerciseModalVisible}
-          transparent={true}
-          animationType="fade"
-          onRequestClose={() => {
-            setQuickExerciseModalVisible(false);
-            setSelectedQuickExercise(null);
-            setQuickDuration('');
-          }}
-        >
-          <View style={styles.quickExerciseModalContainer}>
-            <TouchableOpacity
-              style={styles.quickExerciseModalOverlay}
-              activeOpacity={1}
-              onPress={() => {
-                setQuickExerciseModalVisible(false);
-                setSelectedQuickExercise(null);
-                setQuickDuration('');
-              }}
-            />
-            <View style={[styles.quickExerciseModalContent, { backgroundColor: theme.card, borderColor: theme.border }]}>
-              <View style={[styles.quickExerciseModalHeader, { borderBottomColor: theme.border }]}>
-                <View style={styles.quickExerciseModalTitleRow}>
-                  {selectedQuickExercise && (
-                    <>
-                      <Text style={{ fontSize: 40 }}>{selectedQuickExercise.emoji}</Text>
-                      <View style={styles.quickExerciseModalTitleText}>
-                        <Text style={[styles.quickExerciseModalTitle, { color: theme.text }]}>{selectedQuickExercise.label}</Text>
-                        <Text style={[styles.quickExerciseModalSubtitle, { color: theme.textSecondary }]}>
-                          ~{selectedQuickExercise.caloriesPerMinute} kcal/min
-                        </Text>
-                      </View>
-                    </>
-                  )}
-                </View>
-                <TouchableOpacity
-                  onPress={() => {
-                    setQuickExerciseModalVisible(false);
-                    setSelectedQuickExercise(null);
-                    setQuickDuration('');
-                  }}
-                  style={[styles.quickExerciseModalCloseBtn, { backgroundColor: theme.background }]}
-                >
-                  <X size={20} color={theme.text} />
-                </TouchableOpacity>
-              </View>
-              <View style={styles.quickExerciseModalBody}>
-                <Text style={[styles.quickExerciseModalLabel, { color: theme.textSecondary }]}>Durasi (menit)</Text>
-                <View style={styles.quickExerciseModalInputRow}>
-                  <TextInput
-                    style={[styles.quickExerciseModalInput, { backgroundColor: theme.background, borderColor: theme.border, color: theme.text }]}
-                    placeholder="Masukkan durasi"
-                    placeholderTextColor={theme.textTertiary}
-                    keyboardType="numeric"
-                    value={quickDuration}
-                    onChangeText={setQuickDuration}
-                    autoFocus
-                  />
-                </View>
-                <TouchableOpacity
-                  style={[styles.quickExerciseModalButton, !quickDuration && styles.quickExerciseModalButtonDisabled]}
-                  disabled={!quickDuration}
-                  onPress={() => {
-                    const mins = parseInt(quickDuration);
-                    if (isNaN(mins) || mins <= 0) return;
-                    addExercise({
-                      type: selectedQuickExercise!.type,
-                      name: selectedQuickExercise!.label,
-                      caloriesBurned: Math.round(selectedQuickExercise!.caloriesPerMinute * mins),
-                      duration: mins,
-                    });
-                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                    setQuickExerciseModalVisible(false);
-                    setSelectedQuickExercise(null);
-                    setQuickDuration('');
-                  }}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.quickExerciseModalButtonText}>Catat Aktivitas</Text>
                 </TouchableOpacity>
               </View>
             </View>

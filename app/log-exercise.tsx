@@ -15,6 +15,7 @@ import {
 import { Stack, router } from 'expo-router';
 import { ArrowLeft, X, Check, Flame, Clock, Zap, MessageSquare, Edit3, Footprints } from 'lucide-react-native';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { useExercise } from '@/contexts/ExerciseContext';
 import { QUICK_EXERCISES, QuickExercise, ExerciseType } from '@/types/exercise';
 import { estimateExerciseFromText } from '@/utils/exerciseAi';
@@ -23,6 +24,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function LogExerciseScreen() {
   const { theme } = useTheme();
+  const { l } = useLanguage();
   const { addExercise, todaySteps, todayExercises, deleteExercise, totalCaloriesBurned, stepsCaloriesBurned, exerciseCaloriesBurned, healthConnectEnabled, enableHealthConnect, disableHealthConnect, pedometerAvailable } = useExercise();
   const insets = useSafeAreaInsets();
 
@@ -118,20 +120,20 @@ export default function LogExerciseScreen() {
 
   const handleDeleteExercise = (id: string, date: string) => {
     Alert.alert(
-      'Hapus Olahraga',
-      'Yakin ingin menghapus aktivitas ini?',
+      l('Hapus Olahraga', 'Delete Exercise'),
+      l('Yakin ingin menghapus aktivitas ini?', 'Are you sure you want to delete this activity?'),
       [
-        { text: 'Batal', style: 'cancel' },
-        { text: 'Hapus', style: 'destructive', onPress: () => deleteExercise(id, date) },
+        { text: l('Batal', 'Cancel'), style: 'cancel' },
+        { text: l('Hapus', 'Delete'), style: 'destructive', onPress: () => deleteExercise(id, date) },
       ]
     );
   };
 
   const modes = [
-    { key: 'quick' as const, label: 'Cepat', icon: Zap },
-    { key: 'describe' as const, label: 'Jelaskan', icon: MessageSquare },
-    { key: 'manual' as const, label: 'Manual', icon: Edit3 },
-    { key: 'steps' as const, label: 'Langkah', icon: Footprints },
+    { key: 'quick' as const, label: l('Cepat', 'Quick'), icon: Zap },
+    { key: 'describe' as const, label: l('Jelaskan', 'Describe'), icon: MessageSquare },
+    { key: 'manual' as const, label: l('Manual', 'Manual'), icon: Edit3 },
+    { key: 'steps' as const, label: l('Langkah', 'Steps'), icon: Footprints },
   ];
 
   return (
@@ -146,7 +148,7 @@ export default function LogExerciseScreen() {
           >
             <ArrowLeft size={22} color={theme.text} />
           </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: theme.text }]}>Catat Olahraga</Text>
+          <Text style={[styles.headerTitle, { color: theme.text }]}>{l('Catat Olahraga', 'Log Exercise')}</Text>
           <View style={{ width: 44 }} />
         </View>
 
@@ -155,19 +157,19 @@ export default function LogExerciseScreen() {
             <View style={styles.summaryItem}>
               <Flame size={20} color="#EF4444" />
               <Text style={[styles.summaryValue, { color: theme.text }]}>{totalCaloriesBurned}</Text>
-              <Text style={[styles.summaryLabel, { color: theme.textSecondary }]}>kcal total</Text>
+              <Text style={[styles.summaryLabel, { color: theme.textSecondary }]}>{l('kcal total', 'total kcal')}</Text>
             </View>
             <View style={[styles.summaryDivider, { backgroundColor: theme.border }]} />
             <View style={styles.summaryItem}>
               <Footprints size={20} color="#3B82F6" />
               <Text style={[styles.summaryValue, { color: theme.text }]}>{todaySteps.toLocaleString()}</Text>
-              <Text style={[styles.summaryLabel, { color: theme.textSecondary }]}>langkah</Text>
+              <Text style={[styles.summaryLabel, { color: theme.textSecondary }]}>{l('langkah', 'steps')}</Text>
             </View>
             <View style={[styles.summaryDivider, { backgroundColor: theme.border }]} />
             <View style={styles.summaryItem}>
               <Zap size={20} color="#F59E0B" />
               <Text style={[styles.summaryValue, { color: theme.text }]}>{todayExercises.length}</Text>
-              <Text style={[styles.summaryLabel, { color: theme.textSecondary }]}>aktivitas</Text>
+              <Text style={[styles.summaryLabel, { color: theme.textSecondary }]}>{l('aktivitas', 'activities')}</Text>
             </View>
           </View>
         </View>
@@ -208,7 +210,7 @@ export default function LogExerciseScreen() {
           >
             {activeMode === 'quick' && (
               <View style={styles.modeContent}>
-                <Text style={[styles.sectionTitle, { color: theme.text }]}>Pilih Aktivitas</Text>
+                <Text style={[styles.sectionTitle, { color: theme.text }]}>{l('Pilih Aktivitas', 'Choose Activity')}</Text>
                 <View style={styles.exerciseGrid}>
                   {QUICK_EXERCISES.map((exercise) => {
                     const isSelected = selectedExercise?.type === exercise.type;
@@ -249,7 +251,7 @@ export default function LogExerciseScreen() {
                           onChangeText={setDuration}
                           autoFocus
                         />
-                        <Text style={[styles.durationUnit, { color: theme.textSecondary }]}>menit</Text>
+                        <Text style={[styles.durationUnit, { color: theme.textSecondary }]}>{l('menit', 'minutes')}</Text>
                       </View>
                       <TouchableOpacity
                         style={[styles.logButton, (!duration || parseInt(duration) <= 0) && styles.logButtonDisabled]}
@@ -258,14 +260,14 @@ export default function LogExerciseScreen() {
                         activeOpacity={0.8}
                       >
                         <Check size={20} color="#FFFFFF" />
-                        <Text style={styles.logButtonText}>Catat</Text>
+                        <Text style={styles.logButtonText}>{l('Catat', 'Log')}</Text>
                       </TouchableOpacity>
                     </View>
                     {duration && parseInt(duration) > 0 && (
                       <View style={styles.estimateRow}>
                         <Flame size={14} color="#EF4444" />
                         <Text style={[styles.estimateText, { color: theme.textSecondary }]}>
-                          Estimasi: ~{Math.round(selectedExercise.caloriesPerMinute * parseInt(duration))} kcal
+                          {l('Estimasi', 'Estimate')}: ~{Math.round(selectedExercise.caloriesPerMinute * parseInt(duration))} kcal
                         </Text>
                       </View>
                     )}
@@ -276,14 +278,14 @@ export default function LogExerciseScreen() {
 
             {activeMode === 'describe' && (
               <View style={styles.modeContent}>
-                <Text style={[styles.sectionTitle, { color: theme.text }]}>Jelaskan Aktivitas Anda</Text>
+                <Text style={[styles.sectionTitle, { color: theme.text }]}>{l('Jelaskan Aktivitas Anda', 'Describe Your Activity')}</Text>
                 <Text style={[styles.sectionSubtitle, { color: theme.textSecondary }]}>
-                  AI akan mengestimasi kalori yang terbakar
+                  {l('AI akan mengestimasi kalori yang terbakar', 'AI will estimate calories burned')}
                 </Text>
                 <View style={[styles.describeCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
                   <TextInput
                     style={[styles.describeInput, { color: theme.text, backgroundColor: theme.background, borderColor: theme.border }]}
-                    placeholder="contoh: Renang 5 lap di kolam 50m, lari 3km di treadmill..."
+                    placeholder={l('contoh: Renang 5 lap di kolam 50m, lari 3km di treadmill...', 'example: Swim 5 laps in a 50m pool, run 3km on a treadmill...')}
                     placeholderTextColor={theme.textTertiary}
                     value={description}
                     onChangeText={setDescription}
@@ -300,12 +302,12 @@ export default function LogExerciseScreen() {
                     {isAnalyzing ? (
                       <>
                         <ActivityIndicator size="small" color="#FFFFFF" />
-                        <Text style={styles.logButtonText}>Menganalisis...</Text>
+                        <Text style={styles.logButtonText}>{l('Menganalisis...', 'Analyzing...')}</Text>
                       </>
                     ) : (
                       <>
                         <MessageSquare size={18} color="#FFFFFF" />
-                        <Text style={styles.logButtonText}>Estimasi & Catat</Text>
+                        <Text style={styles.logButtonText}>{l('Estimasi & Catat', 'Estimate & Log')}</Text>
                       </>
                     )}
                   </TouchableOpacity>
@@ -315,13 +317,13 @@ export default function LogExerciseScreen() {
 
             {activeMode === 'manual' && (
               <View style={styles.modeContent}>
-                <Text style={[styles.sectionTitle, { color: theme.text }]}>Input Manual</Text>
+                <Text style={[styles.sectionTitle, { color: theme.text }]}>{l('Input Manual', 'Manual Input')}</Text>
                 <View style={[styles.manualCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
                   <View style={styles.manualField}>
-                    <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>Nama Aktivitas</Text>
+                    <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>{l('Nama Aktivitas', 'Activity Name')}</Text>
                     <TextInput
                       style={[styles.fieldInput, { color: theme.text, backgroundColor: theme.background, borderColor: theme.border }]}
-                      placeholder="contoh: Jogging pagi"
+                      placeholder={l('contoh: Jogging pagi', 'example: Morning jogging')}
                       placeholderTextColor={theme.textTertiary}
                       value={manualName}
                       onChangeText={setManualName}
@@ -329,7 +331,7 @@ export default function LogExerciseScreen() {
                   </View>
                   <View style={styles.manualFieldRow}>
                     <View style={[styles.manualField, styles.flex]}>
-                      <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>Kalori (kcal)</Text>
+                      <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>{l('Kalori (kcal)', 'Calories (kcal)')}</Text>
                       <TextInput
                         style={[styles.fieldInput, { color: theme.text, backgroundColor: theme.background, borderColor: theme.border }]}
                         placeholder="250"
@@ -340,7 +342,7 @@ export default function LogExerciseScreen() {
                       />
                     </View>
                     <View style={[styles.manualField, styles.flex]}>
-                      <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>Durasi (menit)</Text>
+                      <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>{l('Durasi (menit)', 'Duration (minutes)')}</Text>
                       <TextInput
                         style={[styles.fieldInput, { color: theme.text, backgroundColor: theme.background, borderColor: theme.border }]}
                         placeholder="30"
@@ -358,7 +360,7 @@ export default function LogExerciseScreen() {
                     activeOpacity={0.8}
                   >
                     <Check size={20} color="#FFFFFF" />
-                    <Text style={styles.logButtonText}>Catat Aktivitas</Text>
+                    <Text style={styles.logButtonText}>{l('Catat Aktivitas', 'Log Activity')}</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -366,14 +368,14 @@ export default function LogExerciseScreen() {
 
             {activeMode === 'steps' && (
               <View style={styles.modeContent}>
-                <Text style={[styles.sectionTitle, { color: theme.text }]}>Langkah</Text>
+                <Text style={[styles.sectionTitle, { color: theme.text }]}>{l('Langkah', 'Steps')}</Text>
                 <View style={[styles.stepsCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
                   <View style={styles.stepsDisplay}>
                     <Footprints size={32} color="#3B82F6" />
                     <Text style={[styles.stepsCount, { color: theme.text }]}>{todaySteps.toLocaleString()}</Text>
-                    <Text style={[styles.stepsLabel, { color: theme.textSecondary }]}>langkah hari ini</Text>
+                    <Text style={[styles.stepsLabel, { color: theme.textSecondary }]}>{l('langkah hari ini', 'steps today')}</Text>
                     <Text style={[styles.stepsCal, { color: theme.textTertiary }]}>
-                      ~{stepsCaloriesBurned} kcal terbakar
+                      ~{stepsCaloriesBurned} {l('kcal terbakar', 'kcal burned')}
                     </Text>
                   </View>
 
@@ -383,13 +385,13 @@ export default function LogExerciseScreen() {
                     </Text>
                     <Text style={[styles.healthConnectDesc, { color: theme.textSecondary }]}>
                       {healthConnectEnabled
-                        ? `Terhubung ke ${Platform.OS === 'ios' ? 'Apple Health' : 'Health Connect'}. Langkah diambil otomatis dari perangkat Anda.`
-                        : `Hubungkan ke ${Platform.OS === 'ios' ? 'Apple Health' : 'Health Connect'} untuk melacak langkah secara otomatis.`
+                        ? l(`Terhubung ke ${Platform.OS === 'ios' ? 'Apple Health' : 'Health Connect'}. Langkah diambil otomatis dari perangkat Anda.`, `Connected to ${Platform.OS === 'ios' ? 'Apple Health' : 'Health Connect'}. Steps are synced automatically from your device.`)
+                        : l(`Hubungkan ke ${Platform.OS === 'ios' ? 'Apple Health' : 'Health Connect'} untuk melacak langkah secara otomatis.`, `Connect to ${Platform.OS === 'ios' ? 'Apple Health' : 'Health Connect'} to track steps automatically.`)
                       }
                     </Text>
                     {!pedometerAvailable && Platform.OS !== 'web' && (
                       <Text style={[styles.healthConnectWarning, { color: '#F59E0B' }]}>
-                        Pedometer tidak tersedia di perangkat ini.
+                        {l('Pedometer tidak tersedia di perangkat ini.', 'Pedometer is not available on this device.')}
                       </Text>
                     )}
                     <TouchableOpacity
@@ -411,7 +413,7 @@ export default function LogExerciseScreen() {
                         styles.healthConnectBtnText,
                         { color: healthConnectEnabled ? '#EF4444' : '#FFFFFF' },
                       ]}>
-                        {healthConnectEnabled ? 'Putuskan Koneksi' : 'Hubungkan'}
+                        {healthConnectEnabled ? l('Putuskan Koneksi', 'Disconnect') : l('Hubungkan', 'Connect')}
                       </Text>
                     </TouchableOpacity>
                   </View>
@@ -421,7 +423,7 @@ export default function LogExerciseScreen() {
 
             {todayExercises.length > 0 && (
               <View style={styles.historySection}>
-                <Text style={[styles.sectionTitle, { color: theme.text }]}>Aktivitas Hari Ini</Text>
+                <Text style={[styles.sectionTitle, { color: theme.text }]}>{l('Aktivitas Hari Ini', 'Today Activities')}</Text>
                 {todayExercises.map((exercise) => (
                   <View
                     key={exercise.id}

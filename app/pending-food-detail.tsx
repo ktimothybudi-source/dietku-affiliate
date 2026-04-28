@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -29,6 +29,7 @@ import * as Haptics from 'expo-haptics';
 
 import { useNutrition } from '@/contexts/NutritionContext';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { supabase } from '@/lib/supabase';
 import { indexStyles as styles } from '@/styles/indexStyles';
 import {
@@ -67,6 +68,7 @@ export default function PendingFoodDetailScreen() {
     isFavorite,
   } = useNutrition();
   const { theme } = useTheme();
+  const { l } = useLanguage();
 
   const entryForView = useMemo(
     () => (entryId ? todayEntries.find(e => e.id === entryId) : undefined),
@@ -96,6 +98,8 @@ export default function PendingFoodDetailScreen() {
   const [showFavoriteToast, setShowFavoriteToast] = useState(false);
   const [favoriteToastMessage, setFavoriteToastMessage] = useState('');
   const [composedDetailItems, setComposedDetailItems] = useState<EditedFoodItem[] | null>(null);
+  const [isSavingConfirm, setIsSavingConfirm] = useState(false);
+  const saveInFlightRef = useRef(false);
 
   const goBackSafely = useCallback(() => {
     if (router.canGoBack()) {
@@ -177,10 +181,10 @@ export default function PendingFoodDetailScreen() {
 
   const handleClose = useCallback(() => {
     if (hasEdited) {
-      Alert.alert('Perubahan Belum Disimpan', 'Anda memiliki perubahan yang belum disimpan. Yakin ingin keluar?', [
-        { text: 'Batal', style: 'cancel' },
+      Alert.alert(l('Perubahan Belum Disimpan', 'Unsaved Changes'), l('Anda memiliki perubahan yang belum disimpan. Yakin ingin keluar?', 'You have unsaved changes. Are you sure you want to leave?'), [
+        { text: l('Batal', 'Cancel'), style: 'cancel' },
         {
-          text: 'Keluar',
+          text: l('Keluar', 'Leave'),
           style: 'destructive',
           onPress: () => {
             performCloseCleanup();
@@ -273,42 +277,58 @@ export default function PendingFoodDetailScreen() {
       { calories: 0, protein: 0, carbs: 0, fat: 0, sugar: 0, fiber: 0, sodium: 0 },
     );
 
-  const handleConfirmEdited = () => {
+  const handleConfirmEdited = async () => {
+    if (saveInFlightRef.current || isSavingConfirm) return;
     if (!resolvedPending || editedItems.length === 0) return;
+    saveInFlightRef.current = true;
+    setIsSavingConfirm(true);
     const totals = getEditedTotals();
     const foodNames = editedItems.map(item => item.name).join(', ');
 
-    if (entryId) {
-      deleteFoodEntry(entryId);
-      addFoodEntry({
-        name: foodNames,
-        calories: totals.calories,
-        protein: totals.protein,
-        carbs: totals.carbs,
-        fat: totals.fat,
-        sugar: Math.round(totals.sugar * 10) / 10,
-        fiber: Math.round(totals.fiber * 10) / 10,
-        sodium: Math.round(totals.sodium),
-        photoUri: resolvedPending.photoUri || undefined,
-      });
-    } else if (pendingId) {
-      addFoodEntry({
-        name: foodNames,
-        calories: totals.calories,
-        protein: totals.protein,
-        carbs: totals.carbs,
-        fat: totals.fat,
-        sugar: Math.round(totals.sugar * 10) / 10,
-        fiber: Math.round(totals.fiber * 10) / 10,
-        sodium: Math.round(totals.sodium),
-        photoUri: resolvedPending.photoUri || resolvedPending.permanentPhotoUri,
-      });
-      removePendingEntry(pendingId);
-    }
+    try {
+      if (entryId) {
+        const saved = await addFoodEntry({
+          name: foodNames,
+          calories: totals.calories,
+          protein: totals.protein,
+          carbs: totals.carbs,
+          fat: totals.fat,
+          sugar: Math.round(totals.sugar * 10) / 10,
+          fiber: Math.round(totals.fiber * 10) / 10,
+          sodium: Math.round(totals.sodium),
+          photoUri: resolvedPending.photoUri || undefined,
+        });
+        if (!saved) {
+          Alert.alert(l('Gagal simpan', 'Save failed'), l('Makanan belum tersimpan. Coba lagi.', 'Meal was not saved. Please try again.'));
+          return;
+        }
+        deleteFoodEntry(entryId);
+      } else if (pendingId) {
+        const saved = await addFoodEntry({
+          name: foodNames,
+          calories: totals.calories,
+          protein: totals.protein,
+          carbs: totals.carbs,
+          fat: totals.fat,
+          sugar: Math.round(totals.sugar * 10) / 10,
+          fiber: Math.round(totals.fiber * 10) / 10,
+          sodium: Math.round(totals.sodium),
+          photoUri: resolvedPending.photoUri || resolvedPending.permanentPhotoUri,
+        });
+        if (!saved) {
+          Alert.alert(l('Gagal simpan', 'Save failed'), l('Makanan belum tersimpan. Coba lagi.', 'Meal was not saved. Please try again.'));
+          return;
+        }
+        removePendingEntry(pendingId);
+      }
 
-    setHasEdited(false);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    goBackSafely();
+      setHasEdited(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      goBackSafely();
+    } finally {
+      saveInFlightRef.current = false;
+      setIsSavingConfirm(false);
+    }
   };
 
   const handleSaveToFavorite = () => {
@@ -535,16 +555,16 @@ export default function PendingFoodDetailScreen() {
               {resolvedPending.status === 'analyzing' && (
                 <View style={styles.pendingAnalyzingState}>
                   <ActivityIndicator size="large" color={theme.primary} />
-                  <Text style={[styles.pendingAnalyzingText, { color: theme.text }]}>Menganalisis makanan Anda...</Text>
-                  <Text style={[styles.pendingAnalyzingSubtext, { color: theme.textSecondary }]}>Mohon tunggu sebentar</Text>
+                  <Text style={[styles.pendingAnalyzingText, { color: theme.text }]}>{l('Menganalisis makanan Anda...', 'Analyzing your meal...')}</Text>
+                  <Text style={[styles.pendingAnalyzingSubtext, { color: theme.textSecondary }]}>{l('Mohon tunggu sebentar', 'Please wait a moment')}</Text>
                 </View>
               )}
 
               {resolvedPending.status === 'error' && (
                 <View style={styles.pendingErrorState}>
-                  <Text style={[styles.pendingErrorText, { color: theme.text }]}>Gagal menganalisis foto</Text>
+                  <Text style={[styles.pendingErrorText, { color: theme.text }]}>{l('Gagal menganalisis foto', 'Failed to analyze photo')}</Text>
                   <Text style={[styles.pendingErrorSubtext, { color: theme.textSecondary }]}>
-                    {resolvedPending.error || 'Terjadi kesalahan'}
+                    {resolvedPending.error || l('Terjadi kesalahan', 'An error occurred')}
                   </Text>
                   <View style={styles.pendingErrorButtons}>
                     <TouchableOpacity
@@ -553,7 +573,7 @@ export default function PendingFoodDetailScreen() {
                       activeOpacity={0.7}
                     >
                       <RefreshCw size={18} color={theme.text} />
-                      <Text style={[styles.pendingRetryText, { color: theme.text }]}>Coba Lagi</Text>
+                      <Text style={[styles.pendingRetryText, { color: theme.text }]}>{l('Coba Lagi', 'Try Again')}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={[styles.pendingDeleteButton, { backgroundColor: 'rgba(197, 48, 48, 0.08)' }]}
@@ -561,7 +581,7 @@ export default function PendingFoodDetailScreen() {
                       activeOpacity={0.7}
                     >
                       <Trash2 size={18} color="#C53030" />
-                      <Text style={styles.pendingDeleteText}>Hapus</Text>
+                      <Text style={styles.pendingDeleteText}>{l('Hapus', 'Delete')}</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -621,26 +641,26 @@ export default function PendingFoodDetailScreen() {
                                 <View style={styles.pendingMacro}>
                                   <Text style={styles.pendingMacroEmoji}>🌾</Text>
                                   <Text style={[styles.pendingMacroValue, { color: theme.text }]}>{totals.carbs}g</Text>
-                                  <Text style={[styles.pendingMacroLabel, { color: theme.textSecondary }]}>Karbo</Text>
+                                  <Text style={[styles.pendingMacroLabel, { color: theme.textSecondary }]}>{l('Karbo', 'Carbs')}</Text>
                                 </View>
                                 <View style={styles.pendingMacro}>
                                   <Text style={styles.pendingMacroEmoji}>🥑</Text>
                                   <Text style={[styles.pendingMacroValue, { color: theme.text }]}>{totals.fat}g</Text>
-                                  <Text style={[styles.pendingMacroLabel, { color: theme.textSecondary }]}>Lemak</Text>
+                                  <Text style={[styles.pendingMacroLabel, { color: theme.textSecondary }]}>{l('Lemak', 'Fat')}</Text>
                                 </View>
                               </View>
                               <View style={styles.pendingMicrosRow}>
                                 <View style={styles.pendingMicro}>
                                   <Text style={[styles.pendingMicroValue, { color: theme.text }]}>{displaySugar}g</Text>
-                                  <Text style={[styles.pendingMicroLabel, { color: theme.textSecondary }]}>Gula</Text>
+                                  <Text style={[styles.pendingMicroLabel, { color: theme.textSecondary }]}>{l('Gula', 'Sugar')}</Text>
                                 </View>
                                 <View style={styles.pendingMicro}>
                                   <Text style={[styles.pendingMicroValue, { color: theme.text }]}>{displayFiber}g</Text>
-                                  <Text style={[styles.pendingMicroLabel, { color: theme.textSecondary }]}>Serat</Text>
+                                  <Text style={[styles.pendingMicroLabel, { color: theme.textSecondary }]}>{l('Serat', 'Fiber')}</Text>
                                 </View>
                                 <View style={styles.pendingMicro}>
                                   <Text style={[styles.pendingMicroValue, { color: theme.text }]}>{displaySodium}mg</Text>
-                                  <Text style={[styles.pendingMicroLabel, { color: theme.textSecondary }]}>Natrium</Text>
+                                  <Text style={[styles.pendingMicroLabel, { color: theme.textSecondary }]}>{l('Natrium', 'Sodium')}</Text>
                                 </View>
                               </View>
                             </View>
@@ -651,26 +671,26 @@ export default function PendingFoodDetailScreen() {
                   })()}
 
                   <View style={styles.itemsTitleRow}>
-                    <Text style={[styles.pendingItemsTitle, { color: theme.text }]}>Komponen Makanan</Text>
+                    <Text style={[styles.pendingItemsTitle, { color: theme.text }]}>{l('Komponen Makanan', 'Food Components')}</Text>
                     <TouchableOpacity
                       style={[styles.addItemButton, { backgroundColor: theme.background, borderColor: theme.border }]}
                       onPress={handleAddNewItem}
                       activeOpacity={0.7}
                     >
                       <PlusCircle size={16} color={theme.primary} />
-                      <Text style={styles.addItemButtonText}>Tambah</Text>
+                      <Text style={styles.addItemButtonText}>{l('Tambah', 'Add')}</Text>
                     </TouchableOpacity>
                   </View>
 
                   {showAddItem && (
                     <View style={[styles.editItemCard, { backgroundColor: theme.background, borderColor: theme.primary }]}>
-                      <Text style={[styles.editItemTitle, { color: theme.text }]}>Tambah Item Baru</Text>
+                      <Text style={[styles.editItemTitle, { color: theme.text }]}>{l('Tambah Item Baru', 'Add New Item')}</Text>
                       <View style={styles.editItemRow}>
                         <View style={styles.editItemField}>
                           <Text style={[styles.editItemLabel, { color: theme.textSecondary }]}>Nama</Text>
                           <TextInput
                             style={[styles.editItemInput, { backgroundColor: theme.card, borderColor: theme.border, color: theme.text }]}
-                            placeholder="Nama makanan"
+                            placeholder={l('Nama makanan', 'Food name')}
                             placeholderTextColor={theme.textTertiary}
                             value={editItemName}
                             onChangeText={setEditItemName}
@@ -682,7 +702,7 @@ export default function PendingFoodDetailScreen() {
                           <Text style={[styles.editItemLabel, { color: theme.textSecondary }]}>Porsi</Text>
                           <TextInput
                             style={[styles.editItemInput, { backgroundColor: theme.card, borderColor: theme.border, color: theme.text }]}
-                            placeholder="1 porsi"
+                            placeholder={l('1 porsi', '1 serving')}
                             placeholderTextColor={theme.textTertiary}
                             value={editItemPortion}
                             onChangeText={setEditItemPortion}
@@ -743,13 +763,13 @@ export default function PendingFoodDetailScreen() {
                   {editedItems.map((item, index) =>
                     editingItemIndex === index ? (
                       <View key={index} style={[styles.editItemCard, { backgroundColor: theme.background, borderColor: theme.primary }]}>
-                        <Text style={[styles.editItemTitle, { color: theme.text }]}>Edit Item</Text>
+                        <Text style={[styles.editItemTitle, { color: theme.text }]}>{l('Edit Item', 'Edit Item')}</Text>
                         <View style={styles.editItemRow}>
                           <View style={styles.editItemField}>
                             <Text style={[styles.editItemLabel, { color: theme.textSecondary }]}>Nama</Text>
                             <TextInput
                               style={[styles.editItemInput, { backgroundColor: theme.card, borderColor: theme.border, color: theme.text }]}
-                              placeholder="Nama makanan"
+                              placeholder={l('Nama makanan', 'Food name')}
                               placeholderTextColor={theme.textTertiary}
                               value={editItemName}
                               onChangeText={setEditItemName}
@@ -761,7 +781,7 @@ export default function PendingFoodDetailScreen() {
                             <Text style={[styles.editItemLabel, { color: theme.textSecondary }]}>Porsi</Text>
                             <TextInput
                               style={[styles.editItemInput, { backgroundColor: theme.card, borderColor: theme.border, color: theme.text }]}
-                              placeholder="1 porsi"
+                              placeholder={l('1 porsi', '1 serving')}
                               placeholderTextColor={theme.textTertiary}
                               value={editItemPortion}
                               onChangeText={setEditItemPortion}
@@ -881,8 +901,9 @@ export default function PendingFoodDetailScreen() {
                   </View>
                 )}
                 <TouchableOpacity
-                  style={styles.confirmEditedButton}
+                  style={[styles.confirmEditedButton, isSavingConfirm && { opacity: 0.72 }]}
                   onPress={() => {
+                    if (isSavingConfirm) return;
                     if (showAddItem) {
                       handleSaveNewItem();
                       return;
@@ -893,10 +914,15 @@ export default function PendingFoodDetailScreen() {
                     }
                     handleConfirmEdited();
                   }}
+                  disabled={isSavingConfirm}
                   activeOpacity={0.8}
                 >
-                  <Check size={20} color="#FFFFFF" />
-                  <Text style={styles.confirmEditedText}>Simpan</Text>
+                  {isSavingConfirm ? (
+                    <ActivityIndicator color="#FFFFFF" />
+                  ) : (
+                    <Check size={20} color="#FFFFFF" />
+                  )}
+                  <Text style={styles.confirmEditedText}>{isSavingConfirm ? 'Menyimpan...' : 'Simpan'}</Text>
                 </TouchableOpacity>
               </View>
             )}

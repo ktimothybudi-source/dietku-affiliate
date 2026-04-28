@@ -15,6 +15,7 @@ import { Search, X, ChevronLeft, Flame, Drumstick, Droplets, Wheat } from 'lucid
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { useMealDraft } from '@/contexts/MealDraftContext';
 import { searchFoods } from '@/lib/foodsApi';
 import { FoodSearchResult } from '@/types/food';
@@ -23,6 +24,7 @@ const DEBOUNCE_DELAY = 300;
 
 export default function FoodSearchScreen() {
   const { theme } = useTheme();
+  const { l } = useLanguage();
   const insets = useSafeAreaInsets();
   const { sessionActive, addFromSearchResult } = useMealDraft();
 
@@ -180,7 +182,7 @@ export default function FoodSearchScreen() {
     if (error) {
       return (
         <View style={styles.emptyContainer}>
-          <Text style={[styles.emptyTitle, { color: '#EF4444' }]}>Terjadi Kesalahan</Text>
+          <Text style={[styles.emptyTitle, { color: '#EF4444' }]}>{l('Terjadi Kesalahan', 'An Error Occurred')}</Text>
           <Text style={[styles.emptySubtitle, { color: theme.textSecondary }]}>{error}</Text>
         </View>
       );
@@ -192,9 +194,9 @@ export default function FoodSearchScreen() {
           <View style={[styles.emptyIcon, { backgroundColor: theme.card }]}>
             <Search size={32} color={theme.textTertiary} />
           </View>
-          <Text style={[styles.emptyTitle, { color: theme.text }]}>Tidak Ditemukan</Text>
+          <Text style={[styles.emptyTitle, { color: theme.text }]}>{l('Tidak Ditemukan', 'Not Found')}</Text>
           <Text style={[styles.emptySubtitle, { color: theme.textSecondary }]}>
-            Tidak ada makanan yang cocok dengan &ldquo;{searchQuery}&rdquo;
+            {l('Tidak ada makanan yang cocok dengan', 'No food matches')} &ldquo;{searchQuery}&rdquo;
           </Text>
         </View>
       );
@@ -206,9 +208,9 @@ export default function FoodSearchScreen() {
           <View style={[styles.emptyIcon, { backgroundColor: theme.card }]}>
             <Search size={32} color={theme.textTertiary} />
           </View>
-          <Text style={[styles.emptyTitle, { color: theme.text }]}>Cari Makanan</Text>
+          <Text style={[styles.emptyTitle, { color: theme.text }]}>{l('Cari Makanan', 'Search Food')}</Text>
           <Text style={[styles.emptySubtitle, { color: theme.textSecondary }]}>
-            Ketik nama makanan untuk mencari
+            {l('Ketik nama makanan untuk mencari', 'Type a food name to search')}
           </Text>
         </View>
       );
@@ -245,7 +247,7 @@ export default function FoodSearchScreen() {
             <TextInput
               ref={inputRef}
               style={[styles.searchInput, { color: theme.text }]}
-              placeholder="Cari makanan..."
+              placeholder={l('Cari makanan...', 'Search food...')}
               placeholderTextColor={theme.textTertiary}
               value={searchQuery}
               onChangeText={handleSearch}

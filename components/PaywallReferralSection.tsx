@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useState } from 'react';
 import {
   ActivityIndicator,
   Text,
@@ -19,6 +19,16 @@ import {
 } from '@/lib/referral';
 import { consumePendingReferralCode } from '@/lib/pendingReferralCode';
 
+export type PaywallReferralSectionHandle = {
+  /** Current raw input value. */
+  getCode: () => string;
+  /**
+   * Redeems code if non-empty. Returns `true` if redeemed or if blank.
+   * Returns `false` if there is an error (and sets UI error).
+   */
+  redeemIfFilled: (source: string) => Promise<boolean>;
+};
+
 type Props = {
   /** Light text on white (subscribe page) vs theme (modal). */
   variant: 'light' | 'themed';
@@ -33,10 +43,15 @@ type Props = {
   deepLinkRef?: string | null;
   /** When true: copy + form only (for sheet modal); no floating promo card. */
   forModal?: boolean;
+  /** Overrides default modal intro when `forModal` (e.g. onboarding optional step). */
+  modalIntro?: string;
   onModalClose?: () => void;
+  /** Hide the explicit "Gunakan kode" button; parent can call `redeemIfFilled` via ref. */
+  hideRedeemButton?: boolean;
 };
 
-export default function PaywallReferralSection({
+const PaywallReferralSection = forwardRef<PaywallReferralSectionHandle, Props>(function PaywallReferralSection(
+  {
   variant,
   textPrimary = '#1A1A2E',
   textSecondary = '#6E6E82',
@@ -46,8 +61,12 @@ export default function PaywallReferralSection({
   consumePendingOnMount = false,
   deepLinkRef = null,
   forModal = false,
+  modalIntro,
   onModalClose,
-}: Props) {
+  hideRedeemButton = false,
+  }: Props,
+  ref,
+) {
   const queryClient = useQueryClient();
   const { authState, referralTrialEndsAt } = useNutrition();
   const { isPremium, refreshSubscription } = useSubscription();
@@ -90,6 +109,22 @@ export default function PaywallReferralSection({
     [authState.isSignedIn, queryClient, refreshSubscription],
   );
 
+  useImperativeHandle(
+    ref,
+    () => ({
+      getCode: () => code,
+      redeemIfFilled: async (source: string) => {
+        const trimmed = code.trim();
+        if (!trimmed) return true;
+        if (submitting) return false;
+        await runRedeem(trimmed, source);
+        // If code wasn't cleared, treat as failure (error shown in UI).
+        return code.trim().length === 0;
+      },
+    }),
+    [code, submitting, runRedeem],
+  );
+
   useEffect(() => {
     if (!consumePendingOnMount && !deepLinkRef?.trim()) return;
     let cancelled = false;
@@ -129,7 +164,7 @@ export default function PaywallReferralSection({
         </View>
       ) : (
         <Text style={[styles.modalIntro, { color: textSecondary }]}>
-          Punya kode undangan? Masukkan untuk dapat trial tambahan
+          {modalIntro ?? 'Punya kode undangan? Masukkan untuk dapat trial tambahan'}
         </Text>
       )}
       <Text style={[styles.label, { color: textSecondary }]}>Kode</Text>
@@ -156,17 +191,19 @@ export default function PaywallReferralSection({
           Anda mendapat {successDays} hari gratis 🎉
         </Text>
       ) : null}
-      <TouchableOpacity
-        style={[styles.btn, { backgroundColor: accentColor, opacity: submitting ? 0.7 : 1 }]}
-        disabled={submitting || !code.trim()}
-        onPress={() => runRedeem(code, 'paywall')}
-      >
-        {submitting ? (
-          <ActivityIndicator color="#FFFFFF" />
-        ) : (
-          <Text style={styles.btnText}>Gunakan kode</Text>
-        )}
-      </TouchableOpacity>
+      {!hideRedeemButton ? (
+        <TouchableOpacity
+          style={[styles.btn, { backgroundColor: accentColor, opacity: submitting ? 0.7 : 1 }]}
+          disabled={submitting || !code.trim()}
+          onPress={() => runRedeem(code, 'paywall')}
+        >
+          {submitting ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
+            <Text style={styles.btnText}>Gunakan kode</Text>
+          )}
+        </TouchableOpacity>
+      ) : null}
       {forModal && onModalClose ? (
         <TouchableOpacity onPress={onModalClose} style={styles.collapseBtn} hitSlop={{ top: 8, bottom: 8 }}>
           <Text style={[styles.collapseText, { color: textSecondary }]}>Tutup</Text>
@@ -224,7 +261,9 @@ export default function PaywallReferralSection({
       )}
     </View>
   );
-}
+});
+
+export default PaywallReferralSection;
 
 const styles = StyleSheet.create({
   wrap: { marginTop: 4, gap: 10 },

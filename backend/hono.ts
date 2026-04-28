@@ -5,11 +5,13 @@ import { cors } from "hono/cors";
 import { appRouter } from "./trpc/app-router";
 import { createContext } from "./trpc/create-context";
 import aiApp from "./hono-ai";
+import accountApp from "./hono-account";
 
 const app = new Hono();
 
 app.use("*", cors());
 app.route("/api/ai", aiApp);
+app.route("/api/account", accountApp);
 
 app.use(
   "/trpc/*",

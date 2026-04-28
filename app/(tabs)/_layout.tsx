@@ -1,12 +1,13 @@
-import { Tabs, Redirect } from "expo-router";
-import { Flame, User, BarChart3, Users, Shield, Gift } from "lucide-react-native";
-import React from "react";
+import { Tabs, router } from "expo-router";
+import { Flame, User, BarChart3, Users } from "lucide-react-native";
+import React, { useEffect } from "react";
 import { Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Theme } from "@/contexts/ThemeContext";
 import { useTheme } from "@/contexts/ThemeContext";
-import { useSubscription } from "@/contexts/SubscriptionContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { useNutrition } from "@/contexts/NutritionContext";
+import { useSubscription } from "@/contexts/SubscriptionContext";
 
 const fallbackTheme: Theme = {
   background: "#FFFFFF",
@@ -30,12 +31,16 @@ export default function TabLayout() {
   const themeContext = useTheme();
   const theme = themeContext?.theme ?? fallbackTheme;
   const insets = useSafeAreaInsets();
-  const { authState, isAppAdmin, isAppCreator } = useNutrition();
+  const { t } = useLanguage();
+  const { authState } = useNutrition();
   const { isPremium, isLoading: subscriptionLoading } = useSubscription();
 
-  if (authState.isSignedIn && !subscriptionLoading && !isPremium) {
-    return <Redirect href="/subscribe" />;
-  }
+  useEffect(() => {
+    if (!authState.isSignedIn) return;
+    if (subscriptionLoading) return;
+    if (isPremium) return;
+    router.replace('/onboarding-subscription');
+  }, [authState.isSignedIn, subscriptionLoading, isPremium]);
 
   const tabBarHeight = Platform.select({
     ios: 49 + insets.bottom,
@@ -85,7 +90,7 @@ export default function TabLayout() {
         options={{
           title: "DietKu",
           headerShown: false,
-          tabBarLabel: "Dashboard",
+          tabBarLabel: t.tabs.dashboard,
           tabBarIcon: ({ color, focused }) => (
             <Flame size={21} color={color} fill={focused ? color : 'transparent'} />
           ),
@@ -94,43 +99,25 @@ export default function TabLayout() {
       <Tabs.Screen
         name="analytics"
         options={{
-          title: "Kemajuan",
-          tabBarLabel: "Kemajuan",
+          title: t.tabs.progress,
+          tabBarLabel: t.tabs.progress,
           tabBarIcon: ({ color }) => <BarChart3 size={21} color={color} />,
         }}
       />
       <Tabs.Screen
         name="community"
         options={{
-          title: "Komunitas",
-          tabBarLabel: "Komunitas",
+          title: t.tabs.community,
+          tabBarLabel: t.tabs.community,
           tabBarIcon: ({ color }) => <Users size={21} color={color} />,
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
-          title: "Profil",
-          tabBarLabel: "Profil",
+          title: t.tabs.profile,
+          tabBarLabel: t.tabs.profile,
           tabBarIcon: ({ color }) => <User size={21} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="creator"
-        options={{
-          title: "Creator",
-          tabBarLabel: "Creator",
-          href: isAppCreator || isAppAdmin ? "/creator" : null,
-          tabBarIcon: ({ color }) => <Gift size={21} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="admin"
-        options={{
-          title: "Admin",
-          tabBarLabel: "Admin",
-          href: isAppAdmin ? "/admin" : null,
-          tabBarIcon: ({ color }) => <Shield size={21} color={color} />,
         }}
       />
     </Tabs>

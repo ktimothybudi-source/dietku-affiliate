@@ -16,6 +16,7 @@ import { ChevronLeft, Drumstick, Droplets, Flame, Wheat } from 'lucide-react-nat
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { useNutrition } from '@/contexts/NutritionContext';
 import { supabase } from '@/lib/supabase';
 
@@ -140,6 +141,7 @@ async function fetchFoodServings(foodId: number): Promise<FoodServingRow[]> {
 
 export default function ManualFoodDetailScreen() {
   const { theme } = useTheme();
+  const { l } = useLanguage();
   const insets = useSafeAreaInsets();
   const { addFoodEntry } = useNutrition();
   const params = useLocalSearchParams<{ foodId?: string | string[] }>();
@@ -236,7 +238,7 @@ export default function ManualFoodDetailScreen() {
   const onSave = async () => {
     if (!foodQuery.data || !totals) return;
     if (totals.grams <= 0) {
-      Alert.alert('Gram tidak valid', 'Masukkan gram lebih dari 0.');
+      Alert.alert(l('Gram tidak valid', 'Invalid grams'), l('Masukkan gram lebih dari 0.', 'Enter grams greater than 0.'));
       return;
     }
 

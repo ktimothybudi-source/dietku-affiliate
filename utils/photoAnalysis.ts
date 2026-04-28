@@ -4,8 +4,8 @@ import { MealAnalysis } from '@/types/nutrition';
 import { AIProxyError, callAIProxy } from '@/utils/aiProxy';
 import { enrichMealAnalysisMicros } from '@/utils/nutritionCalculations';
 
-/** Keep under backend `MAX_IMAGE_BASE64_LENGTH` (~2M) plus JSON wrapper headroom. */
-const MAX_BASE64_CHARS = 1_850_000;
+/** Target smaller payload for faster upload + inference. */
+const MAX_BASE64_CHARS = 1_000_000;
 
 function stripDataUrlPrefix(b64: string): string {
   return b64.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '');
@@ -17,8 +17,8 @@ async function ensureMealImageUnderLimit(rawBase64: string): Promise<string> {
     return sanitized;
   }
 
-  let width = 1280;
-  let quality = 0.72;
+  let width = 1120;
+  let quality = 0.68;
   let dataUri = `data:image/jpeg;base64,${sanitized}`;
 
   for (let attempt = 0; attempt < 5 && sanitized.length > MAX_BASE64_CHARS; attempt += 1) {
@@ -37,8 +37,8 @@ async function ensureMealImageUnderLimit(rawBase64: string): Promise<string> {
       console.warn('Meal image compression failed:', compressionError);
       break;
     }
-    width = Math.round(width * 0.75);
-    quality = Math.max(0.45, quality - 0.08);
+    width = Math.round(width * 0.72);
+    quality = Math.max(0.4, quality - 0.08);
   }
 
   if (sanitized.length > MAX_BASE64_CHARS) {
@@ -80,6 +80,8 @@ const mealAnalysisSchema = z.object({
 export type AnalyzeMealPhotoOptions = {
   /** Supabase user id — required for correct daily scan quota + premium bypass on the server. */
   userId?: string | null;
+  /** Preferred response language for food names/tips. */
+  language?: 'id' | 'en';
 };
 
 export async function analyzeMealPhoto(
@@ -90,6 +92,9 @@ export async function analyzeMealPhoto(
   const payload: Record<string, unknown> = { base64Image: base64ForApi };
   if (options?.userId) {
     payload.userId = options.userId;
+  }
+  if (options?.language) {
+    payload.language = options.language;
   }
   let json: any;
   try {

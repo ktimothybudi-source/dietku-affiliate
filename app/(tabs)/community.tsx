@@ -10,6 +10,8 @@ import {
   Alert,
   TextInput,
   ScrollView,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { Stack, router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -20,7 +22,6 @@ import {
   Utensils,
   Trash2,
   Clock,
-  Trophy,
   Send,
   Users,
   UserPlus,
@@ -30,6 +31,7 @@ import {
   ChevronDown,
 } from 'lucide-react-native';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { useCommunity } from '@/contexts/CommunityContext';
 import { useNutrition } from '@/contexts/NutritionContext';
 import { FoodPost, MEAL_TYPE_LABELS, CommunityGroup } from '@/types/community';
@@ -67,13 +69,14 @@ function Avatar({ name, color, size = 40 }: { name: string; color: string; size?
   );
 }
 
-const PostCard = React.memo(({ post, onLike, onComment, onDelete, currentUserId, theme }: {
+const PostCard = React.memo(({ post, onLike, onComment, onDelete, currentUserId, theme, l }: {
   post: FoodPost;
   onLike: (id: string) => void;
   onComment: (id: string) => void;
   onDelete: (id: string) => void;
   currentUserId: string | null;
   theme: ReturnType<typeof useTheme>['theme'];
+  l: (idText: string, enText: string) => string;
 }) => {
   const isLiked = currentUserId ? post.likes.includes(currentUserId) : false;
   const isOwn = currentUserId === post.userId;
@@ -92,11 +95,11 @@ const PostCard = React.memo(({ post, onLike, onComment, onDelete, currentUserId,
 
   const handleDelete = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    Alert.alert('Hapus Post', 'Yakin ingin menghapus post ini?', [
-      { text: 'Batal', style: 'cancel' },
-      { text: 'Hapus', style: 'destructive', onPress: () => onDelete(post.id) },
+    Alert.alert(l('Hapus Post', 'Delete Post'), l('Yakin ingin menghapus post ini?', 'Are you sure you want to delete this post?'), [
+      { text: l('Batal', 'Cancel'), style: 'cancel' },
+      { text: l('Hapus', 'Delete'), style: 'destructive', onPress: () => onDelete(post.id) },
     ]);
-  }, [post.id, onDelete]);
+  }, [post.id, onDelete, l]);
 
   return (
     <View style={[styles.postCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -168,12 +171,12 @@ const PostCard = React.memo(({ post, onLike, onComment, onDelete, currentUserId,
           <View style={[styles.macroDivider, { backgroundColor: theme.border }]} />
           <View style={styles.macroItem}>
             <Text style={[styles.macroValue, { color: theme.accent }]}>{post.carbs}g</Text>
-            <Text style={[styles.macroLabel, { color: theme.textTertiary }]}>Karbo</Text>
+            <Text style={[styles.macroLabel, { color: theme.textTertiary }]}>{l('Karbo', 'Carbs')}</Text>
           </View>
           <View style={[styles.macroDivider, { backgroundColor: theme.border }]} />
           <View style={styles.macroItem}>
             <Text style={[styles.macroValue, { color: theme.warning }]}>{post.fat}g</Text>
-            <Text style={[styles.macroLabel, { color: theme.textTertiary }]}>Lemak</Text>
+            <Text style={[styles.macroLabel, { color: theme.textTertiary }]}>{l('Lemak', 'Fat')}</Text>
           </View>
         </View>
       </View>
@@ -209,8 +212,6 @@ const PostCard = React.memo(({ post, onLike, onComment, onDelete, currentUserId,
 
 PostCard.displayName = 'PostCard';
 
-type GroupTab = 'feed' | 'chat' | 'leaderboard';
-
 type ChatMessage = {
   id: string;
   groupId: string;
@@ -221,17 +222,13 @@ type ChatMessage = {
   createdAt: number;
 };
 
-type LeaderEntry = {
-  id: string;
-  userId: string;
-  displayName: string;
-  avatarColor: string;
-  streakDays: number;
-  caloriesAvg: number;
-};
+type TimelineItem =
+  | { type: 'post'; id: string; createdAt: number; post: FoodPost }
+  | { type: 'chat'; id: string; createdAt: number; chat: ChatMessage };
 
 export default function CommunityScreen() {
   const { theme } = useTheme();
+  const { l } = useLanguage();
   const {
     posts, toggleLike, deletePost, hasProfile, communityProfile,
     hasJoinedGroup, activeGroup, joinedGroups,
@@ -240,7 +237,6 @@ export default function CommunityScreen() {
   const { authState } = useNutrition();
   const insets = useSafeAreaInsets();
   const [refreshing, setRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState<GroupTab>('feed');
   const [chatInput, setChatInput] = useState('');
   const [showGroupPicker, setShowGroupPicker] = useState(false);
   const queryClient = useQueryClient();
@@ -314,9 +310,9 @@ export default function CommunityScreen() {
     console.log('community:create-post');
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     if (!authState.isSignedIn) {
-      Alert.alert('Masuk Diperlukan', 'Silakan masuk terlebih dahulu untuk membuat post.', [
-        { text: 'Batal', style: 'cancel' },
-        { text: 'Masuk', onPress: () => router.replace('/sign-in') },
+      Alert.alert(l('Masuk Diperlukan', 'Sign In Required'), l('Silakan masuk terlebih dahulu untuk membuat post.', 'Please sign in first to create a post.'), [
+        { text: l('Batal', 'Cancel'), style: 'cancel' },
+        { text: l('Masuk', 'Sign In'), onPress: () => router.replace('/sign-in') },
       ]);
       return;
     }
@@ -325,7 +321,7 @@ export default function CommunityScreen() {
       return;
     }
     router.push('/create-post');
-  }, [authState.isSignedIn, hasProfile]);
+  }, [authState.isSignedIn, hasProfile, l]);
 
   const handleSettings = useCallback(() => {
     if (!activeGroup) return;
@@ -343,7 +339,7 @@ export default function CommunityScreen() {
   const handleLike = useCallback((postId: string) => {
     console.log('community:like', postId);
     if (!authState.isSignedIn) {
-      Alert.alert('Masuk Diperlukan', 'Silakan masuk untuk menyukai post.');
+      Alert.alert(l('Masuk Diperlukan', 'Sign In Required'), l('Silakan masuk untuk menyukai post.', 'Please sign in to like posts.'));
       return;
     }
     if (!hasProfile) {
@@ -351,7 +347,7 @@ export default function CommunityScreen() {
       return;
     }
     toggleLike(postId);
-  }, [authState.isSignedIn, hasProfile, toggleLike]);
+  }, [authState.isSignedIn, hasProfile, toggleLike, l]);
 
   const handleRefresh = useCallback(async () => {
     console.log('community:refresh');
@@ -378,9 +374,9 @@ export default function CommunityScreen() {
     console.log('community:create-group');
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     if (!authState.isSignedIn) {
-      Alert.alert('Masuk Diperlukan', 'Silakan masuk terlebih dahulu.', [
-        { text: 'Batal', style: 'cancel' },
-        { text: 'Masuk', onPress: () => router.replace('/sign-in') },
+      Alert.alert(l('Masuk Diperlukan', 'Sign In Required'), l('Silakan masuk terlebih dahulu.', 'Please sign in first.'), [
+        { text: l('Batal', 'Cancel'), style: 'cancel' },
+        { text: l('Masuk', 'Sign In'), onPress: () => router.replace('/sign-in') },
       ]);
       return;
     }
@@ -389,7 +385,7 @@ export default function CommunityScreen() {
       return;
     }
     router.push('/create-group');
-  }, [authState.isSignedIn, hasProfile]);
+  }, [authState.isSignedIn, hasProfile, l]);
 
   const handleGroupSettings = useCallback(() => {
     if (!activeGroup) return;
@@ -413,8 +409,9 @@ export default function CommunityScreen() {
       onDelete={deletePost}
       currentUserId={currentUserId}
       theme={theme}
+      l={l}
     />
-  ), [handleLike, handleComment, deletePost, currentUserId, theme]);
+  ), [handleLike, handleComment, deletePost, currentUserId, theme, l]);
 
   const renderChatMessage = useCallback(({ item }: { item: ChatMessage }) => {
     const isMe = currentUserId === item.userId;
@@ -436,29 +433,45 @@ export default function CommunityScreen() {
     );
   }, [currentUserId, theme]);
 
-  const renderLeader = useCallback(({ item, index }: { item: LeaderEntry; index: number }) => (
-    <View style={[styles.leaderRow, { borderColor: theme.border }]}>
-      <View style={styles.leaderRankWrap}>
-        <Text style={[styles.leaderRank, { color: theme.text }]}>{index + 1}</Text>
-      </View>
-      <Avatar name={item.displayName} color={item.avatarColor} size={36} />
-      <View style={styles.leaderInfo}>
-        <Text style={[styles.leaderName, { color: theme.text }]}>{item.displayName}</Text>
-        <Text style={[styles.leaderMeta, { color: theme.textTertiary }]}>{item.caloriesAvg} kcal rata-rata</Text>
-      </View>
-      <View style={[styles.leaderStreak, { backgroundColor: theme.primary + '18' }]}>
-        <Trophy size={14} color={theme.primary} />
-        <Text style={[styles.leaderStreakText, { color: theme.primary }]}>{item.streakDays} hari</Text>
-      </View>
-    </View>
-  ), [theme]);
-
   const keyExtractor = useCallback((item: FoodPost) => item.id, []);
 
   const activeGroupPosts = useMemo(() => {
     if (!activeGroup) return [];
     return posts.filter(post => post.groupId === activeGroup.id);
   }, [posts, activeGroup]);
+
+  const timelineItems = useMemo<TimelineItem[]>(() => {
+    const postItems: TimelineItem[] = activeGroupPosts.map((post) => ({
+      type: 'post',
+      id: `post-${post.id}`,
+      createdAt: post.createdAt,
+      post,
+    }));
+    const chatItems: TimelineItem[] = chatMessages.map((chat) => ({
+      type: 'chat',
+      id: `chat-${chat.id}`,
+      createdAt: chat.createdAt,
+      chat,
+    }));
+    return [...postItems, ...chatItems].sort((a, b) => a.createdAt - b.createdAt);
+  }, [activeGroupPosts, chatMessages]);
+
+  const renderTimelineItem = useCallback(({ item }: { item: TimelineItem }) => {
+    if (item.type === 'post') {
+      return (
+        <PostCard
+          post={item.post}
+          onLike={handleLike}
+          onComment={handleComment}
+          onDelete={deletePost}
+          currentUserId={currentUserId}
+          theme={theme}
+          l={l}
+        />
+      );
+    }
+    return renderChatMessage({ item: item.chat });
+  }, [handleLike, handleComment, deletePost, currentUserId, theme, l, renderChatMessage]);
 
   const GroupPickerDropdown = showGroupPicker ? (
     <View style={[styles.groupPickerOverlay]}>
@@ -482,11 +495,11 @@ export default function CommunityScreen() {
             <Image source={{ uri: g.coverImage }} style={styles.groupPickerThumb} />
             <View style={styles.groupPickerInfo}>
               <Text style={[styles.groupPickerName, { color: theme.text }]} numberOfLines={1}>{g.name}</Text>
-              <Text style={[styles.groupPickerMembers, { color: theme.textTertiary }]}>{g.members.length} anggota</Text>
+              <Text style={[styles.groupPickerMembers, { color: theme.textTertiary }]}>{g.members.length} {l('anggota', 'members')}</Text>
             </View>
             {g.id === activeGroup?.id && (
               <View style={[styles.groupPickerActive, { backgroundColor: theme.primary }]}>
-                <Text style={styles.groupPickerActiveText}>Aktif</Text>
+                <Text style={styles.groupPickerActiveText}>{l('Aktif', 'Active')}</Text>
               </View>
             )}
           </TouchableOpacity>
@@ -495,38 +508,13 @@ export default function CommunityScreen() {
     </View>
   ) : null;
 
-  const HeaderContent = (
-    <View style={styles.headerContent}>
-      <View style={styles.tabRow}>
-        {([
-          { key: 'feed' as const, label: 'Feed' },
-          { key: 'chat' as const, label: 'Chat' },
-        ]).map(tab => {
-          const isActive = activeTab === tab.key;
-          return (
-            <TouchableOpacity
-              key={tab.key}
-              style={[styles.tabButton, { backgroundColor: isActive ? theme.primary : 'transparent', borderColor: theme.border }]}
-              onPress={() => setActiveTab(tab.key)}
-              activeOpacity={0.8}
-              testID={`community-tab-${tab.key}`}
-            >
-              <Text style={[styles.tabLabel, { color: isActive ? '#FFFFFF' : theme.textSecondary }]}>{tab.label}</Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-      <View style={styles.tabUnderlay} />
-    </View>
-  );
-
-  if (!hasJoinedGroup) {
+  if (!authState.isSignedIn) {
     return (
       <>
         <Stack.Screen options={{ headerShown: false }} />
         <View style={[styles.container, { backgroundColor: theme.background }]}>
           <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-            <Text style={[styles.headerTitle, { color: theme.text }]}>Komunitas</Text>
+            <Text style={[styles.headerTitle, { color: theme.text }]}>{l('Komunitas', 'Community')}</Text>
           </View>
 
           <ScrollView
@@ -537,9 +525,122 @@ export default function CommunityScreen() {
             <View style={[styles.noGroupIconWrap, { backgroundColor: theme.primary + '12' }]}>
               <Users size={48} color={theme.primary} strokeWidth={1.5} />
             </View>
-            <Text style={[styles.noGroupTitle, { color: theme.text }]}>Belum Ada Grup</Text>
+            <Text style={[styles.onboardingStepText, { color: theme.primary }]}>
+              {l('Langkah 1 dari 3', 'Step 1 of 3')}
+            </Text>
+            <Text style={[styles.noGroupTitle, { color: theme.text }]}>{l('Masuk untuk Komunitas', 'Sign In to Community')}</Text>
             <Text style={[styles.noGroupDesc, { color: theme.textSecondary }]}>
-              Fitur grup publik sedang dinonaktifkan. Untuk saat ini kamu hanya bisa membuat grup privat.
+              {l(
+                'Masuk dulu untuk membuat profil komunitas, bergabung ke grup, dan berbagi progress.',
+                'Sign in first to create your community profile, join groups, and share your progress.'
+              )}
+            </Text>
+
+            <View style={styles.noGroupActions}>
+              <TouchableOpacity
+                style={[styles.joinGroupBtn, { backgroundColor: theme.primary }]}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  router.replace('/sign-in');
+                }}
+                activeOpacity={0.8}
+                testID="community-sign-in-required"
+              >
+                <Text style={styles.joinGroupBtnText}>{l('Masuk', 'Sign In')}</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </View>
+      </>
+    );
+  }
+
+  if (!hasProfile) {
+    return (
+      <>
+        <Stack.Screen options={{ headerShown: false }} />
+        <View style={[styles.container, { backgroundColor: theme.background }]}>
+          <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+            <Text style={[styles.headerTitle, { color: theme.text }]}>{l('Komunitas', 'Community')}</Text>
+          </View>
+
+          <ScrollView
+            style={styles.listFlex}
+            contentContainerStyle={styles.noGroupScroll}
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={[styles.noGroupIconWrap, { backgroundColor: theme.primary + '12' }]}>
+              <UserPlus size={48} color={theme.primary} strokeWidth={1.5} />
+            </View>
+            <Text style={[styles.onboardingStepText, { color: theme.primary }]}>
+              {l('Langkah 1 dari 2', 'Step 1 of 2')}
+            </Text>
+            <Text style={[styles.noGroupTitle, { color: theme.text }]}>{l('Buat Profil Komunitas', 'Create Community Profile')}</Text>
+            <Text style={[styles.noGroupDesc, { color: theme.textSecondary }]}>
+              {l(
+                'Sebelum masuk ke fitur komunitas, buat username dan nama tampilan Anda dulu.',
+                'Before entering community features, create your username and display name first.'
+              )}
+            </Text>
+
+            <View style={styles.noGroupActions}>
+              <TouchableOpacity
+                style={[styles.joinGroupBtn, { backgroundColor: theme.primary }]}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  router.push('/setup-community-profile');
+                }}
+                activeOpacity={0.8}
+                testID="community-create-profile"
+              >
+                <Text style={styles.joinGroupBtnText}>{l('Buat Profil', 'Create Profile')}</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={[styles.noGroupFeatures, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <Text style={[styles.featuresTitle, { color: theme.text }]}>{l('Setelah profil siap', 'After profile setup')}</Text>
+              {[
+                { icon: <Users size={16} color={theme.primary} />, text: l('Buat atau gabung ke grup privat', 'Create or join private groups') },
+                { icon: <Utensils size={16} color={theme.primary} />, text: l('Bagikan makanan dan progres', 'Share meals and progress') },
+                { icon: <MessageCircle size={16} color={theme.primary} />, text: l('Chat dengan anggota grup', 'Chat with group members') },
+              ].map((feature, i) => (
+                <View key={i} style={styles.featureRow}>
+                  <View style={[styles.featureIconWrap, { backgroundColor: theme.primary + '12' }]}>
+                    {feature.icon}
+                  </View>
+                  <Text style={[styles.featureText, { color: theme.textSecondary }]}>{feature.text}</Text>
+                </View>
+              ))}
+            </View>
+          </ScrollView>
+        </View>
+      </>
+    );
+  }
+
+  if (!hasJoinedGroup) {
+    return (
+      <>
+        <Stack.Screen options={{ headerShown: false }} />
+        <View style={[styles.container, { backgroundColor: theme.background }]}>
+          <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+            <Text style={[styles.headerTitle, { color: theme.text }]}>{l('Komunitas', 'Community')}</Text>
+          </View>
+
+          <ScrollView
+            style={styles.listFlex}
+            contentContainerStyle={styles.noGroupScroll}
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={[styles.noGroupIconWrap, { backgroundColor: theme.primary + '12' }]}>
+              <Users size={48} color={theme.primary} strokeWidth={1.5} />
+            </View>
+            <Text style={[styles.onboardingStepText, { color: theme.primary }]}>
+              {l('Langkah 2 dari 2', 'Step 2 of 2')}
+            </Text>
+            <Text style={[styles.noGroupTitle, { color: theme.text }]}>{l('Belum Ada Grup', 'No Group Yet')}</Text>
+            <Text style={[styles.noGroupDesc, { color: theme.textSecondary }]}>
+              {l('Fitur grup publik sedang dinonaktifkan. Untuk saat ini kamu hanya bisa membuat grup privat.', 'Public groups are currently disabled. For now you can only create private groups.')}
             </Text>
 
             <View style={styles.noGroupActions}>
@@ -550,7 +651,7 @@ export default function CommunityScreen() {
                 testID="community-create-group"
               >
                 <Plus size={18} color={theme.primary} strokeWidth={2.5} />
-                <Text style={[styles.createGroupBtnText, { color: theme.text }]}>Buat Grup Baru</Text>
+                <Text style={[styles.createGroupBtnText, { color: theme.text }]}>{l('Buat Grup Baru', 'Create New Group')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.createGroupBtn, { borderColor: theme.border, backgroundColor: theme.card }]}
@@ -559,16 +660,16 @@ export default function CommunityScreen() {
                 testID="community-join-group-by-code"
               >
                 <Search size={18} color={theme.primary} strokeWidth={2.5} />
-                <Text style={[styles.createGroupBtnText, { color: theme.text }]}>Gabung dengan Kode</Text>
+                <Text style={[styles.createGroupBtnText, { color: theme.text }]}>{l('Gabung dengan Kode', 'Join with Code')}</Text>
               </TouchableOpacity>
             </View>
 
             <View style={[styles.noGroupFeatures, { backgroundColor: theme.card, borderColor: theme.border }]}>
-              <Text style={[styles.featuresTitle, { color: theme.text }]}>Apa yang bisa kamu lakukan</Text>
+              <Text style={[styles.featuresTitle, { color: theme.text }]}>{l('Apa yang bisa kamu lakukan', 'What you can do')}</Text>
               {[
-                { icon: <Globe size={16} color={theme.primary} />, text: 'Lihat feed makanan anggota grup privat' },
-                { icon: <MessageCircle size={16} color={theme.primary} />, text: 'Chat dan diskusi nutrisi' },
-                { icon: <UserPlus size={16} color={theme.primary} />, text: 'Undang teman ke grup kamu' },
+                { icon: <Globe size={16} color={theme.primary} />, text: l('Lihat feed makanan anggota grup privat', 'See private group members food feed') },
+                { icon: <MessageCircle size={16} color={theme.primary} />, text: l('Chat dan diskusi nutrisi', 'Chat and nutrition discussion') },
+                { icon: <UserPlus size={16} color={theme.primary} />, text: l('Undang teman ke grup kamu', 'Invite your friends to your group') },
               ].map((feature, i) => (
                 <View key={i} style={styles.featureRow}>
                   <View style={[styles.featureIconWrap, { backgroundColor: theme.primary + '12' }]}>
@@ -588,88 +689,80 @@ export default function CommunityScreen() {
     <>
       <Stack.Screen options={{ headerShown: false }} />
 
-      <View style={[styles.container, { backgroundColor: theme.background }]}>
-        <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-          {joinedGroups.length > 1 ? (
-            <TouchableOpacity
-              style={styles.groupSwitcher}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setShowGroupPicker(!showGroupPicker);
-              }}
-              activeOpacity={0.7}
-              testID="group-switcher"
-            >
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={0}
+      >
+        <View style={[styles.container, { backgroundColor: theme.background }]}>
+          <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+            {joinedGroups.length > 1 ? (
+              <TouchableOpacity
+                style={styles.groupSwitcher}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setShowGroupPicker(!showGroupPicker);
+                }}
+                activeOpacity={0.7}
+                testID="group-switcher"
+              >
+                <Text style={[styles.headerTitle, { color: theme.text }]}>
+                  {activeGroup?.name || l('Komunitas', 'Community')}
+                </Text>
+                <ChevronDown size={20} color={theme.textSecondary} />
+              </TouchableOpacity>
+            ) : (
               <Text style={[styles.headerTitle, { color: theme.text }]}>
-                {activeGroup?.name || 'Komunitas'}
+                {activeGroup?.name || l('Komunitas', 'Community')}
               </Text>
-              <ChevronDown size={20} color={theme.textSecondary} />
-            </TouchableOpacity>
-          ) : (
-            <Text style={[styles.headerTitle, { color: theme.text }]}>
-              {activeGroup?.name || 'Komunitas'}
-            </Text>
-          )}
-          {activeGroup && (
-            <TouchableOpacity
-              style={[styles.settingsIconBtn, { backgroundColor: theme.primary }]}
-              onPress={handleSettings}
-              activeOpacity={0.8}
-              testID="community-settings"
-            >
-              <Settings size={18} color="#FFFFFF" strokeWidth={2.5} />
-            </TouchableOpacity>
-          )}
-        </View>
+            )}
+            {activeGroup && (
+              <TouchableOpacity
+                style={[styles.settingsIconBtn, { backgroundColor: theme.primary }]}
+                onPress={handleSettings}
+                activeOpacity={0.8}
+                testID="community-settings"
+              >
+                <Settings size={18} color="#FFFFFF" strokeWidth={2.5} />
+              </TouchableOpacity>
+            )}
+          </View>
 
-        {GroupPickerDropdown}
+          {GroupPickerDropdown}
 
-        {HeaderContent}
-
-        {activeTab === 'feed' ? (
           <FlatList
             style={styles.listFlex}
-            data={activeGroupPosts}
-            renderItem={renderPost}
-            keyExtractor={keyExtractor}
-            contentContainerStyle={styles.listContent}
+            data={timelineItems}
+            renderItem={renderTimelineItem}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={[styles.listContent, { paddingBottom: 120 }]}
             showsVerticalScrollIndicator={false}
             refreshControl={
               <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={theme.primary} />
             }
             ListEmptyComponent={
               <View style={styles.emptyState}>
-                <Utensils size={48} color={theme.textTertiary} />
-                <Text style={[styles.emptyTitle, { color: theme.text }]}>Belum Ada Post</Text>
-                <Text style={[styles.emptySubtitle, { color: theme.textSecondary }]}>Bagikan makanan Anda dan lihat apa yang dimakan orang lain!</Text>
-              </View>
-            }
-          />
-        ) : null}
-
-        {activeTab === 'chat' ? (
-          <FlatList
-            style={styles.listFlex}
-            data={chatMessages}
-            renderItem={renderChatMessage}
-            keyExtractor={item => item.id}
-            contentContainerStyle={styles.chatContent}
-            showsVerticalScrollIndicator={false}
-            ListEmptyComponent={
-              <View style={styles.emptyState}>
                 <MessageCircle size={48} color={theme.textTertiary} />
-                <Text style={[styles.emptyTitle, { color: theme.text }]}>Belum Ada Chat</Text>
-                <Text style={[styles.emptySubtitle, { color: theme.textSecondary }]}>Mulai percakapan pertama di grup ini.</Text>
+                <Text style={[styles.emptyTitle, { color: theme.text }]}>{l('Belum Ada Aktivitas', 'No Activity Yet')}</Text>
+                <Text style={[styles.emptySubtitle, { color: theme.textSecondary }]}>
+                  {l('Kirim chat atau upload post makanan pertama di grup ini.', 'Send a chat or upload the first meal post in this group.')}
+                </Text>
               </View>
             }
           />
-        ) : null}
 
-        {activeTab === 'chat' ? (
           <View style={[styles.chatInputWrap, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <TouchableOpacity
+              style={[styles.chatSend, { backgroundColor: theme.surfaceElevated, borderColor: theme.border, borderWidth: 1 }]}
+              onPress={handleCreatePost}
+              activeOpacity={0.8}
+              testID="community-create-post-quick"
+            >
+              <Plus size={16} color={theme.primary} />
+            </TouchableOpacity>
             <TextInput
               style={[styles.chatInput, { color: theme.text }]}
-              placeholder="Tulis pesan ke grup"
+            placeholder=""
               placeholderTextColor={theme.textTertiary}
               value={chatInput}
               onChangeText={setChatInput}
@@ -684,8 +777,8 @@ export default function CommunityScreen() {
               <Send size={16} color="#FFFFFF" />
             </TouchableOpacity>
           </View>
-        ) : null}
-      </View>
+        </View>
+      </KeyboardAvoidingView>
     </>
   );
 }

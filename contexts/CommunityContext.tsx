@@ -6,7 +6,7 @@ import { useNutrition } from '@/contexts/NutritionContext';
 import { FoodEntry } from '@/types/nutrition';
 import { eventEmitter } from '@/utils/eventEmitter';
 import { supabase } from '@/lib/supabase';
-import { uploadImageToSupabase, deleteImageFromSupabase } from '@/utils/supabaseStorage';
+import { deleteImageFromSupabase, resolveMealPhotoForDatabase } from '@/utils/supabaseStorage';
 import { fetchPremiumBypassUserIdSet } from '@/utils/communityPremium';
 
 const COMMUNITY_POST_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -501,26 +501,17 @@ export const [CommunityProvider, useCommunity] = createContextHook(() => {
   const createPostMutation = useMutation({
     mutationFn: async (post: Omit<FoodPost, 'id' | 'createdAt' | 'likes' | 'commentCount'>) => {
       if (!userId || !activeGroupId) throw new Error('Missing auth or active group');
-      let photoUri = post.photoUri || null;
-      console.log('Community createPost incoming photoUri:', photoUri);
-      if (photoUri && !isRemoteImage(photoUri)) {
+      let photoUri: string | null = null;
+      if (post.photoUri) {
         try {
-          photoUri = await uploadImageToSupabase(photoUri, userId);
-          console.log('Community createPost uploaded photo storage path:', photoUri);
+          photoUri = await resolveMealPhotoForDatabase(post.photoUri, userId);
+          console.log('Community createPost photo_uri for DB:', photoUri);
         } catch (error) {
-          console.error('Failed to upload community photo, dropping invalid local URI:', error);
+          console.error('Failed to prepare community photo:', error);
           photoUri = null;
         }
       }
-      // Persist storage path in DB (more stable than storing temporary signed URLs).
-      if (photoUri) {
-        const normalizedPath = getStoragePathFromUrl(photoUri);
-        if (normalizedPath) {
-          photoUri = normalizedPath;
-        }
-      }
-      console.log('Community createPost final photo_uri payload:', photoUri);
-      const { error } = await supabase.from('community_posts').insert({
+      const { data, error } = await supabase.from('community_posts').insert({
         user_id: userId,
         group_id: activeGroupId,
         caption: post.caption || '',
@@ -531,14 +522,56 @@ export const [CommunityProvider, useCommunity] = createContextHook(() => {
         carbs: post.carbs,
         fat: post.fat,
         photo_uri: photoUri,
-      });
+      }).select('id, user_id, group_id, caption, meal_type, food_name, calories, protein, carbs, fat, photo_uri, created_at').single();
       if (error) throw error;
+      return data as unknown as DbPost;
     },
-    onSuccess: () => {
+    onMutate: async (post) => {
+      const optimisticId = `local-post-${Date.now()}`;
+      await queryClient.cancelQueries({ queryKey: ['community_posts'] });
+      queryClient.setQueriesData(
+        { queryKey: ['community_posts'] },
+        (old: DbPost[] | undefined) => {
+          const optimistic: DbPost = {
+            id: optimisticId,
+            user_id: userId || '',
+            group_id: activeGroupId || '',
+            caption: post.caption || '',
+            meal_type: (post.mealType as DbPost['meal_type']) || null,
+            food_name: post.foodName,
+            calories: post.calories,
+            protein: post.protein,
+            carbs: post.carbs,
+            fat: post.fat,
+            photo_uri: post.photoUri || null,
+            created_at: new Date().toISOString(),
+          };
+          return [optimistic, ...(old || [])];
+        }
+      );
+      return { optimisticId };
+    },
+    onSuccess: (savedPost, _post, context) => {
+      if (context?.optimisticId) {
+        queryClient.setQueriesData(
+          { queryKey: ['community_posts'] },
+          (old: DbPost[] | undefined) => {
+            const rows = old || [];
+            const withoutOptimistic = rows.filter((p) => p.id !== context.optimisticId);
+            return [savedPost, ...withoutOptimistic];
+          }
+        );
+      }
       queryClient.invalidateQueries({ queryKey: ['community_posts'] });
     },
-    onError: (error) => {
-      console.error('Failed to create community post:', error);
+    onError: (_error, _post, context) => {
+      if (context?.optimisticId) {
+        queryClient.setQueriesData(
+          { queryKey: ['community_posts'] },
+          (old: DbPost[] | undefined) => (old || []).filter((p) => p.id !== context.optimisticId)
+        );
+      }
+      console.error('Failed to create community post:', _error);
     },
   });
 
@@ -560,6 +593,21 @@ export const [CommunityProvider, useCommunity] = createContextHook(() => {
       const { error: insertError } = await supabase.from('community_post_likes').insert({ post_id: postId, user_id: userId });
       if (insertError) throw insertError;
     },
+    onMutate: async ({ postId }) => {
+      if (!userId) return;
+      await queryClient.cancelQueries({ queryKey: ['community_likes'] });
+      queryClient.setQueriesData(
+        { queryKey: ['community_likes'] },
+        (old: DbLike[] | undefined) => {
+          const likes = old || [];
+          const exists = likes.some((l) => l.post_id === postId && l.user_id === userId);
+          if (exists) {
+            return likes.filter((l) => !(l.post_id === postId && l.user_id === userId));
+          }
+          return [...likes, { post_id: postId, user_id: userId }];
+        }
+      );
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['community_likes'] });
     },
@@ -574,6 +622,36 @@ export const [CommunityProvider, useCommunity] = createContextHook(() => {
         content: text,
       });
       if (error) throw error;
+    },
+    onMutate: async ({ postId, text }) => {
+      if (!userId) return;
+      const optimisticId = `local-comment-${Date.now()}`;
+      await queryClient.cancelQueries({ queryKey: ['community_comments'] });
+      queryClient.setQueriesData(
+        { queryKey: ['community_comments'] },
+        (old: { rows: DbComment[]; profileMap: Record<string, DbProfile> } | undefined) => {
+          const prev = old || { rows: [], profileMap: {} };
+          const row: DbComment = {
+            id: optimisticId,
+            post_id: postId,
+            user_id: userId,
+            content: text,
+            created_at: new Date().toISOString(),
+          };
+          return { ...prev, rows: [...prev.rows, row] };
+        }
+      );
+      return { optimisticId };
+    },
+    onError: (_error, _vars, context) => {
+      if (!context?.optimisticId) return;
+      queryClient.setQueriesData(
+        { queryKey: ['community_comments'] },
+        (old: { rows: DbComment[]; profileMap: Record<string, DbProfile> } | undefined) => {
+          if (!old) return old;
+          return { ...old, rows: old.rows.filter((c) => c.id !== context.optimisticId) };
+        }
+      );
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['community_comments'] });
@@ -611,6 +689,37 @@ export const [CommunityProvider, useCommunity] = createContextHook(() => {
           console.error('Failed to delete community post image from storage:', storageError);
         }
       }
+    },
+    onMutate: async (postId: string) => {
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: ['community_posts'] }),
+        queryClient.cancelQueries({ queryKey: ['community_comments'] }),
+        queryClient.cancelQueries({ queryKey: ['community_likes'] }),
+      ]);
+      const previousPosts = queryClient.getQueriesData<DbPost[]>({ queryKey: ['community_posts'] });
+      const previousComments = queryClient.getQueriesData<{ rows: DbComment[]; profileMap: Record<string, DbProfile> }>({ queryKey: ['community_comments'] });
+      const previousLikes = queryClient.getQueriesData<DbLike[]>({ queryKey: ['community_likes'] });
+      queryClient.setQueriesData(
+        { queryKey: ['community_posts'] },
+        (old: DbPost[] | undefined) => (old || []).filter((p) => p.id !== postId)
+      );
+      queryClient.setQueriesData(
+        { queryKey: ['community_comments'] },
+        (old: { rows: DbComment[]; profileMap: Record<string, DbProfile> } | undefined) => {
+          if (!old) return old;
+          return { ...old, rows: old.rows.filter((c) => c.post_id !== postId) };
+        }
+      );
+      queryClient.setQueriesData(
+        { queryKey: ['community_likes'] },
+        (old: DbLike[] | undefined) => (old || []).filter((l) => l.post_id !== postId)
+      );
+      return { previousPosts, previousComments, previousLikes };
+    },
+    onError: (_error, _postId, context) => {
+      context?.previousPosts?.forEach(([key, data]) => queryClient.setQueryData(key, data));
+      context?.previousComments?.forEach(([key, data]) => queryClient.setQueryData(key, data));
+      context?.previousLikes?.forEach(([key, data]) => queryClient.setQueryData(key, data));
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['community_posts'] });

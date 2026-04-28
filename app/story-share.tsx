@@ -35,11 +35,11 @@ import {
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
-import * as MediaLibrary from 'expo-media-library';
 import * as ImageManipulator from 'expo-image-manipulator';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { captureRef } from 'react-native-view-shot';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import {
   StoryShareData,
   IncludeOptions,
@@ -92,8 +92,18 @@ async function exportStoryPngFromCapture(rawUri: string): Promise<string> {
   return uri;
 }
 
+async function saveToMediaLibraryOnIOS(imageUri: string): Promise<void> {
+  const mod = await import('expo-media-library');
+  const permission = await mod.requestPermissionsAsync();
+  if (permission.status !== 'granted') {
+    throw new Error('Izin galeri diperlukan untuk menyimpan gambar.');
+  }
+  await mod.saveToLibraryAsync(imageUri);
+}
+
 export default function StoryShareScreen() {
   const { theme, themeMode } = useTheme();
+  const { l } = useLanguage();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{
     mealName?: string;
@@ -256,11 +266,18 @@ export default function StoryShareScreen() {
   };
 
   const saveStoryImage = async (imageUri: string): Promise<void> => {
-    const permission = await MediaLibrary.requestPermissionsAsync();
-    if (permission.status !== 'granted') {
-      throw new Error('Izin galeri diperlukan untuk menyimpan gambar.');
+    if (Platform.OS === 'ios') {
+      await saveToMediaLibraryOnIOS(imageUri);
+      return;
     }
-    await MediaLibrary.saveToLibraryAsync(imageUri);
+
+    await Share.share({
+      url: imageUri,
+      message: l(
+        'Pilih aplikasi Files/penyimpanan untuk menyimpan gambar story.',
+        'Choose Files/storage app to save this story image.'
+      ),
+    });
   };
 
   const openInstagramApp = async () => {
@@ -304,20 +321,20 @@ export default function StoryShareScreen() {
         const opened = await openInstagramApp();
         if (opened) {
           Alert.alert(
-            'Foto Tersimpan',
-            'Instagram dibuka. Pilih foto yang baru disimpan dari galeri untuk Story kamu.'
+            l('Foto Tersimpan', 'Photo Saved'),
+            l('Instagram dibuka. Pilih foto yang baru disimpan dari galeri untuk Story kamu.', 'Instagram opened. Select the newly saved photo from your gallery for your story.')
           );
         } else {
           Alert.alert(
-            'Instagram Tidak Ditemukan',
-            'Foto sudah disimpan ke galeri. Install Instagram lalu pilih foto ini dari Story.'
+            l('Instagram Tidak Ditemukan', 'Instagram Not Found'),
+            l('Foto sudah disimpan ke galeri. Install Instagram lalu pilih foto ini dari Story.', 'Photo is saved to gallery. Install Instagram and choose this photo from Story.')
           );
         }
       }
     } catch (error) {
       console.error('Share Instagram error:', error);
-      const message = error instanceof Error ? error.message : 'Gagal menyiapkan story.';
-      Alert.alert('Gagal Share Story', message);
+      const message = error instanceof Error ? error.message : l('Gagal menyiapkan story.', 'Failed to prepare story.');
+      Alert.alert(l('Gagal Share Story', 'Failed to Share Story'), message);
     } finally {
       setIsPreparingStory(false);
     }
@@ -330,11 +347,11 @@ export default function StoryShareScreen() {
       const imageUri = await captureStoryImage();
       await saveStoryImage(imageUri);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert('Berhasil', 'Story berhasil disimpan ke galeri.');
+      Alert.alert(l('Berhasil', 'Success'), l('Story berhasil disimpan ke galeri.', 'Story saved to gallery.'));
     } catch (error) {
       console.error('Save story image error:', error);
-      const message = error instanceof Error ? error.message : 'Gagal menyimpan gambar.';
-      Alert.alert('Gagal Simpan', message);
+      const message = error instanceof Error ? error.message : l('Gagal menyimpan gambar.', 'Failed to save image.');
+      Alert.alert(l('Gagal Simpan', 'Save Failed'), message);
     } finally {
       setIsPreparingStory(false);
     }
@@ -385,7 +402,7 @@ export default function StoryShareScreen() {
           ]}
         >
           <View style={[styles.sheetHandle, { backgroundColor: theme.border }]} />
-          <Text style={[styles.sheetTitle, { color: theme.text }]}>Share to</Text>
+          <Text style={[styles.sheetTitle, { color: theme.text }]}>{l('Bagikan ke', 'Share to')}</Text>
 
           <View style={styles.shareGrid}>
             <TouchableOpacity style={styles.shareAppItem} onPress={() => { closeShareSheet(); void handleShareInstagram(); }}>
@@ -419,7 +436,7 @@ export default function StoryShareScreen() {
               <View style={[styles.shareAppIcon, { backgroundColor: '#34C759' }]}>
                 <MessageCircle size={24} color="#FFFFFF" />
               </View>
-              <Text style={[styles.shareAppLabel, { color: theme.textSecondary }]}>Message</Text>
+              <Text style={[styles.shareAppLabel, { color: theme.textSecondary }]}>{l('Pesan', 'Message')}</Text>
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.shareAppItem} onPress={() => { closeShareSheet(); void handleSaveImage(); }}>
@@ -458,7 +475,7 @@ export default function StoryShareScreen() {
               >
                 <Share2 size={24} color={theme.text} />
               </View>
-              <Text style={[styles.shareAppLabel, { color: theme.textSecondary }]}>More</Text>
+              <Text style={[styles.shareAppLabel, { color: theme.textSecondary }]}>{l('Lainnya', 'More')}</Text>
             </TouchableOpacity>
           </View>
         </Animated.View>
@@ -645,7 +662,7 @@ export default function StoryShareScreen() {
         },
       ]}
     >
-      <Text style={[styles.includePanelTitle, { color: theme.text }]}>Include On Story</Text>
+      <Text style={[styles.includePanelTitle, { color: theme.text }]}>{l('Tampilkan di Story', 'Include On Story')}</Text>
 
       <TouchableOpacity
         style={[styles.toggleRow, { borderBottomColor: theme.border }]}
@@ -669,7 +686,7 @@ export default function StoryShareScreen() {
             />
           </View>
           <View style={styles.toggleTextContainer}>
-            <Text style={[styles.toggleLabel, { color: theme.text }]}>Meal Name</Text>
+            <Text style={[styles.toggleLabel, { color: theme.text }]}>{l('Nama Makanan', 'Meal Name')}</Text>
             {isEditingName ? (
               <TextInput
                 style={[styles.nameEditInput, { color: theme.primary, borderBottomColor: theme.primary }]}
@@ -678,7 +695,7 @@ export default function StoryShareScreen() {
                 onBlur={() => setIsEditingName(false)}
                 onSubmitEditing={() => setIsEditingName(false)}
                 autoFocus
-                placeholder="Enter meal name"
+                placeholder={l('Masukkan nama makanan', 'Enter meal name')}
                 placeholderTextColor={theme.textTertiary}
               />
             ) : (
@@ -756,7 +773,7 @@ export default function StoryShareScreen() {
         }}
         activeOpacity={0.7}
       >
-        <Text style={[styles.watermarkLabel, { color: theme.textTertiary }]}>Show Tracked with DietKu</Text>
+        <Text style={[styles.watermarkLabel, { color: theme.textTertiary }]}>{l('Tampilkan "Tracked with DietKu"', 'Show Tracked with DietKu')}</Text>
         <View
           style={[
             styles.toggleCheck,
@@ -797,7 +814,7 @@ export default function StoryShareScreen() {
           ]}
         >
           <View style={[styles.sheetHandle, { backgroundColor: theme.border }]} />
-          <Text style={[styles.sheetTitle, { color: theme.text }]}>Add Location</Text>
+          <Text style={[styles.sheetTitle, { color: theme.text }]}>{l('Tambah Lokasi', 'Add Location')}</Text>
 
           <TouchableOpacity
             style={[styles.locationOption, { borderBottomColor: theme.border }]}
@@ -825,12 +842,12 @@ export default function StoryShareScreen() {
                       },
                       (error) => {
                         console.log('Web location error:', error);
-                        Alert.alert('Location Error', 'Unable to get your location. Please enable location access.');
+                        Alert.alert(l('Kesalahan Lokasi', 'Location Error'), l('Tidak dapat mengambil lokasi Anda. Mohon aktifkan akses lokasi.', 'Unable to get your location. Please enable location access.'));
                         setIsLoadingLocation(false);
                       }
                     );
                   } else {
-                    Alert.alert('Location Error', 'Location is not supported on this browser.');
+                    Alert.alert(l('Kesalahan Lokasi', 'Location Error'), l('Lokasi tidak didukung di browser ini.', 'Location is not supported on this browser.'));
                     setIsLoadingLocation(false);
                   }
                 } else {
@@ -839,11 +856,11 @@ export default function StoryShareScreen() {
                   
                   if (status !== 'granted') {
                     Alert.alert(
-                      'Location Permission Required',
-                      'Please allow location access to use this feature.',
+                      l('Izin Lokasi Diperlukan', 'Location Permission Required'),
+                      l('Mohon izinkan akses lokasi untuk menggunakan fitur ini.', 'Please allow location access to use this feature.'),
                       [
-                        { text: 'Cancel', style: 'cancel' },
-                        { text: 'Settings', onPress: () => Location.requestForegroundPermissionsAsync() }
+                        { text: l('Batal', 'Cancel'), style: 'cancel' },
+                        { text: l('Pengaturan', 'Settings'), onPress: () => Location.requestForegroundPermissionsAsync() }
                       ]
                     );
                     setIsLoadingLocation(false);
@@ -871,7 +888,7 @@ export default function StoryShareScreen() {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               } catch (error) {
                 console.log('Location error:', error);
-                Alert.alert('Location Error', 'Unable to get your location. Please try again.');
+                Alert.alert(l('Kesalahan Lokasi', 'Location Error'), l('Tidak dapat mengambil lokasi Anda. Silakan coba lagi.', 'Unable to get your location. Please try again.'));
                 setIsLoadingLocation(false);
               }
             }}
@@ -882,7 +899,7 @@ export default function StoryShareScreen() {
               <Navigation size={20} color="#22C55E" />
             </View>
             <Text style={[styles.locationOptionText, { color: theme.text }]}>
-              {isLoadingLocation ? 'Getting location...' : 'Use current location'}
+              {isLoadingLocation ? l('Mengambil lokasi...', 'Getting location...') : l('Gunakan lokasi saat ini', 'Use current location')}
             </Text>
             <ChevronRight size={20} color={theme.textTertiary} />
           </TouchableOpacity>
@@ -893,7 +910,7 @@ export default function StoryShareScreen() {
             </View>
             <TextInput
               style={[styles.customLocationInput, { color: theme.text }]}
-              placeholder="Enter custom location..."
+              placeholder={l('Masukkan lokasi kustom...', 'Enter custom location...')}
               placeholderTextColor={theme.textTertiary}
               value={customLocationInput}
               onChangeText={setCustomLocationInput}
@@ -902,12 +919,12 @@ export default function StoryShareScreen() {
             />
             {customLocationInput.trim() && (
               <TouchableOpacity onPress={handleCustomLocation}>
-                <Text style={styles.addLocationBtn}>Add</Text>
+                <Text style={styles.addLocationBtn}>{l('Tambah', 'Add')}</Text>
               </TouchableOpacity>
             )}
           </View>
 
-          <Text style={[styles.presetsTitle, { color: theme.textSecondary }]}>Quick Select</Text>
+          <Text style={[styles.presetsTitle, { color: theme.textSecondary }]}>{l('Pilih Cepat', 'Quick Select')}</Text>
           <View style={styles.presetsGrid}>
             {LOCATION_PRESETS.map((preset) => (
               <TouchableOpacity
@@ -934,7 +951,7 @@ export default function StoryShareScreen() {
                 closeLocationSheet();
               }}
             >
-              <Text style={styles.removeLocationText}>Remove Location</Text>
+              <Text style={styles.removeLocationText}>{l('Hapus Lokasi', 'Remove Location')}</Text>
             </TouchableOpacity>
           )}
         </Animated.View>
@@ -970,7 +987,7 @@ export default function StoryShareScreen() {
           >
             <X size={24} color={theme.text} />
           </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: theme.text }]}>Share Story</Text>
+          <Text style={[styles.headerTitle, { color: theme.text }]}>{l('Bagikan Story', 'Share Story')}</Text>
           <TouchableOpacity
             style={[
               styles.headerShareButton,

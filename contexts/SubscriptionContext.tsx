@@ -28,7 +28,7 @@ const REVENUECAT_IOS_API_KEY = process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY ||
 const REVENUECAT_TEST_STORE_API_KEY =
   (process.env.EXPO_PUBLIC_REVENUECAT_TEST_STORE_API_KEY ?? '').trim();
 const PREMIUM_ENTITLEMENT_ID = 'premium';
-const ALWAYS_PREMIUM_EMAILS = new Set(['testers@dietku.com']);
+const ALWAYS_PREMIUM_EMAILS = new Set(['testers@dietku.com', 'testers2@dietku.com']);
 
 function isRunningInExpoGo(): boolean {
   return Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
@@ -59,6 +59,54 @@ type CustomerInfoResult = any;
 function hasPremiumEntitlement(customerInfo: CustomerInfoResult): boolean {
   const active = customerInfo?.entitlements?.active ?? {};
   return Boolean(active?.[PREMIUM_ENTITLEMENT_ID]);
+}
+
+function formatPurchaseError(error: unknown): string | null {
+  if (error == null) return 'Unknown error';
+  const e = error as {
+    userCancelled?: boolean;
+    message?: string;
+    readableErrorCode?: string;
+    underlyingErrorMessage?: string;
+    info?: { backendErrorCode?: number; statusCode?: number };
+  };
+  if (e.userCancelled) return null;
+  const bits = [e.message, e.readableErrorCode, e.underlyingErrorMessage].filter(
+    (x): x is string => typeof x === 'string' && x.trim().length > 0
+  );
+  const msg = bits.length ? bits.join(' — ') : String(error);
+  return msg.length > 450 ? `${msg.slice(0, 450)}…` : msg;
+}
+
+function isRevenueCatInvalidApiKey(error: unknown): boolean {
+  const e = error as any;
+  const underlying = String(e?.underlyingErrorMessage ?? '');
+  const message = String(e?.message ?? '');
+  const backendErrorCode = e?.info?.backendErrorCode;
+
+  // RevenueCat surfaces Invalid API Key as 401 with backendErrorCode: 7225 (observed in logs).
+  if (backendErrorCode === 7225) return true;
+  return underlying.toLowerCase().includes('invalid api key') || message.toLowerCase().includes('invalid api key');
+}
+
+function getRevenueCatDebugSnapshot(apiKey: string, expoGo: boolean, error?: unknown) {
+  const e = error as any;
+  return {
+    platform: Platform.OS,
+    expoGo,
+    appOwnership: Constants.appOwnership ?? null,
+    executionEnvironment: Constants.executionEnvironment ?? null,
+    bundleId: Constants.expoConfig?.ios?.bundleIdentifier ?? null,
+    packageName: Constants.expoConfig?.android?.package ?? null,
+    keyPrefix: apiKey ? apiKey.slice(0, 8) : null,
+    keyLen: apiKey ? apiKey.length : 0,
+    message: e?.message ?? null,
+    readableErrorCode: e?.readableErrorCode ?? null,
+    underlyingErrorMessage: e?.underlyingErrorMessage ?? null,
+    backendErrorCode: e?.info?.backendErrorCode ?? null,
+    statusCode: e?.info?.statusCode ?? null,
+    code: e?.code ?? null,
+  };
 }
 
 async function fetchAndroidSubscriptionStoreProduct(
@@ -294,6 +342,12 @@ export const [SubscriptionProvider, useSubscription] = createContextHook(() => {
         }
       }
     } catch (error) {
+      if (isRevenueCatInvalidApiKey(error)) {
+        console.warn('[RevenueCat] Invalid API key detected; disabling subscription sync.');
+        setIsConfigured(false);
+        setOfferings(null);
+        setRcPremium(false);
+      }
       console.warn('Failed to refresh subscription:', error);
     } finally {
       setIsLoading(false);
@@ -318,6 +372,15 @@ export const [SubscriptionProvider, useSubscription] = createContextHook(() => {
         : Platform.OS === 'ios'
           ? REVENUECAT_IOS_API_KEY.trim()
           : REVENUECAT_ANDROID_API_KEY.trim();
+
+      if (__DEV__) {
+        console.log('[RevenueCat] configure:', {
+          expoGo,
+          platform: Platform.OS,
+          keyPrefix: apiKey ? apiKey.slice(0, 6) : null,
+          keyLen: apiKey ? apiKey.length : 0,
+        });
+      }
 
       if (!apiKey) {
         if (expoGo) {
@@ -347,10 +410,27 @@ export const [SubscriptionProvider, useSubscription] = createContextHook(() => {
         await Purchases.configure({
           apiKey,
         });
+
+        // Validate the key early so we don't spam logIn/getCustomerInfo when the key is wrong.
+        // `configure()` may not throw even when the key is invalid; server errors happen on requests.
+        try {
+          await Purchases.getCustomerInfo();
+        } catch (validationError) {
+          if (isRevenueCatInvalidApiKey(validationError)) throw validationError;
+          console.warn('[RevenueCat] Early validation failed (non-fatal):', validationError);
+        }
+
         if (!mounted) return;
         setIsConfigured(true);
       } catch (error) {
-        console.warn('Failed to configure RevenueCat:', error);
+        const debug = getRevenueCatDebugSnapshot(apiKey, expoGo, error);
+        console.warn('Failed to configure RevenueCat:', debug);
+        if (__DEV__) {
+          Alert.alert(
+            'RevenueCat config error',
+            `msg=${String(debug.message ?? '-')}\nreadableCode=${String(debug.readableErrorCode ?? '-')}\nbackendCode=${String(debug.backendErrorCode ?? '-')}\nstatus=${String(debug.statusCode ?? '-')}\nkeyPrefix=${String(debug.keyPrefix ?? '-')}\nkeyLen=${String(debug.keyLen ?? '-')}\nbundle=${String(debug.bundleId ?? '-')}`
+          );
+        }
         if (mounted) {
           setIsConfigured(false);
           setIsLoading(false);
@@ -368,6 +448,7 @@ export const [SubscriptionProvider, useSubscription] = createContextHook(() => {
     if (!isConfigured) return;
 
     async function handleIdentity() {
+      let shouldRefresh = true;
       try {
         if (authState.userId) {
           await Purchases.logIn(authState.userId);
@@ -375,9 +456,20 @@ export const [SubscriptionProvider, useSubscription] = createContextHook(() => {
           await Purchases.logOut();
         }
       } catch (error) {
-        console.warn('Failed to sync RevenueCat user identity:', error);
+        if (isRevenueCatInvalidApiKey(error)) {
+          shouldRefresh = false;
+          setIsConfigured(false);
+        }
+        console.warn(
+          'Failed to sync RevenueCat user identity:',
+          getRevenueCatDebugSnapshot(
+            Platform.OS === 'ios' ? REVENUECAT_IOS_API_KEY.trim() : REVENUECAT_ANDROID_API_KEY.trim(),
+            isRunningInExpoGo(),
+            error
+          )
+        );
       } finally {
-        await refreshSubscription();
+        if (shouldRefresh) await refreshSubscription();
         premiumSyncUserIdRef.current = authState.userId ?? null;
       }
     }
@@ -395,18 +487,25 @@ export const [SubscriptionProvider, useSubscription] = createContextHook(() => {
 
   const openPaywall = useCallback(
     (reason?: string, opts?: { dismissible?: boolean }) => {
+      if (isPremium) return;
       setPaywallReason(reason || null);
       setPaywallDismissible(opts?.dismissible !== false);
       setShowPaywall(true);
       void refreshSubscription();
     },
-    [refreshSubscription]
+    [isPremium, refreshSubscription]
   );
 
-  const closePaywall = useCallback(() => {
-    if (!paywallDismissible) return;
+  /** Pass `true` after RevenueCat UI closes so state clears even when the paywall was not user-dismissible. */
+  const closePaywall = useCallback((force?: boolean) => {
+    if (!force && !paywallDismissible) return;
     setShowPaywall(false);
   }, [paywallDismissible]);
+
+  useEffect(() => {
+    if (!isPremium) return;
+    setShowPaywall(false);
+  }, [isPremium]);
 
   const finalizePurchaseCustomerInfo = useCallback(
     async (customerInfo: CustomerInfoResult | undefined) => {
@@ -441,9 +540,10 @@ export const [SubscriptionProvider, useSubscription] = createContextHook(() => {
         setPurchaseBusy(true);
         const result = await Purchases.purchasePackage(pkg);
         return finalizePurchaseCustomerInfo(result?.customerInfo);
-      } catch (error: any) {
-        if (!error?.userCancelled) {
-          Alert.alert('Pembelian gagal', 'Silakan coba lagi.');
+      } catch (error: unknown) {
+        const detail = formatPurchaseError(error);
+        if (detail) {
+          Alert.alert('Pembelian gagal', `${detail}\n\nJika ini review sandbox: pastikan produk IAP aktif, Paid Apps Agreement disetujui, dan RevenueCat memakai kunci iOS yang benar.`);
         }
         return false;
       } finally {
@@ -483,9 +583,10 @@ export const [SubscriptionProvider, useSubscription] = createContextHook(() => {
         }
         const result = await Purchases.purchaseStoreProduct(storeProduct);
         return finalizePurchaseCustomerInfo(result?.customerInfo);
-      } catch (error: any) {
-        if (!error?.userCancelled) {
-          Alert.alert('Pembelian gagal', 'Silakan coba lagi.');
+      } catch (error: unknown) {
+        const detail = formatPurchaseError(error);
+        if (detail) {
+          Alert.alert('Pembelian gagal', detail);
         }
         return false;
       } finally {
@@ -517,9 +618,10 @@ export const [SubscriptionProvider, useSubscription] = createContextHook(() => {
         }
         const result = await Purchases.purchaseStoreProduct(storeProduct);
         return finalizePurchaseCustomerInfo(result?.customerInfo);
-      } catch (error: any) {
-        if (!error?.userCancelled) {
-          Alert.alert('Pembelian gagal', 'Silakan coba lagi.');
+      } catch (error: unknown) {
+        const detail = formatPurchaseError(error);
+        if (detail) {
+          Alert.alert('Pembelian gagal', detail);
         }
         return false;
       } finally {
@@ -572,8 +674,9 @@ export const [SubscriptionProvider, useSubscription] = createContextHook(() => {
         premium ? 'Premium berhasil dipulihkan.' : 'Tidak ada langganan aktif untuk dipulihkan.'
       );
       return premium;
-    } catch (error) {
-      Alert.alert('Gagal memulihkan', 'Silakan coba lagi.');
+    } catch (error: unknown) {
+      const detail = formatPurchaseError(error);
+      Alert.alert('Gagal memulihkan', detail || 'Silakan coba lagi.');
       return false;
     } finally {
       setPurchaseBusy(false);

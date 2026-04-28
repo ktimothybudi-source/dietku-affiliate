@@ -4,6 +4,7 @@ import { Stack, router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { ChevronLeft } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
+import { useSubscription } from '@/contexts/SubscriptionContext';
 
 const items = [
   'Fitur Pulihkan Pembelian digunakan untuk memulihkan akses pembelian/langganan yang valid pada akun Google Play yang sama.',
@@ -16,6 +17,7 @@ const items = [
 
 export default function LegalRestorePurchaseScreen() {
   const { theme } = useTheme();
+  const { restorePurchases, purchaseBusy } = useSubscription();
   const supportEmail = 'support@dietku.app';
 
   return (
@@ -70,6 +72,19 @@ export default function LegalRestorePurchaseScreen() {
           <Text style={[styles.text, { color: theme.textSecondary }]}>
             Butuh bantuan pembelian? Hubungi: {supportEmail}
           </Text>
+          <TouchableOpacity
+            style={[styles.restoreButton, purchaseBusy && styles.restoreButtonDisabled]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              void restorePurchases();
+            }}
+            disabled={purchaseBusy}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.restoreButtonText}>
+              {purchaseBusy ? 'Memulihkan...' : 'Pulihkan Pembelian Sekarang'}
+            </Text>
+          </TouchableOpacity>
         </View>
       </ScrollView>
     </>
@@ -88,4 +103,13 @@ const styles = StyleSheet.create({
   text: { flex: 1, fontSize: 13, lineHeight: 19 },
   headerBack: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   headerBackText: { fontSize: 15, fontWeight: '600' },
+  restoreButton: {
+    marginTop: 4,
+    borderRadius: 12,
+    backgroundColor: '#22C55E',
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  restoreButtonDisabled: { opacity: 0.6 },
+  restoreButtonText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
 });

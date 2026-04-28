@@ -2,56 +2,56 @@
   "expo": {
     "name": "DietKu",
     "slug": "dietku-clone-jlejfwy",
-    "version": "1.0.11",
+    "version": "1.0.13",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/main-app-icon.png",
     "scheme": "rork-app",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": false,
     "splash": {
-      "image": "./assets/images/icon.png",
+      "image": "./assets/images/main-app-icon.png",
       "resizeMode": "native",
       "backgroundColor": "#F6F4F1"
     },
     "ios": {
-      "supportsTablet": false,
+      "supportsTablet": true,
       "usesAppleSignIn": true,
       "bundleIdentifier": "app.rork.dietku-clone-jlejfwy",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSPhotoLibraryUsageDescription": "Allow $(PRODUCT_NAME) to access your photos",
-        "NSPhotoLibraryAddUsageDescription": "Allow $(PRODUCT_NAME) to save story images to your photo library",
-        "NSCameraUsageDescription": "Allow $(PRODUCT_NAME) to access your camera",
-        "NSMicrophoneUsageDescription": "Allow $(PRODUCT_NAME) to access your microphone",
+        "NSPhotoLibraryUsageDescription": "DietKu needs access to your photo library so you can choose meal photos to log calories and share progress images. For example, you can pick a picture of lunch from your gallery to analyze nutrition.",
+        "NSPhotoLibraryAddUsageDescription": "DietKu saves exported story or share images to your library only when you choose Save or Share to Photos.",
+        "NSCameraUsageDescription": "DietKu uses the camera to take photos of your meals so the app can estimate calories and macros for your food log. For example, point the camera at your plate and tap scan to add that meal to your diary.",
+        "NSMicrophoneUsageDescription": "DietKu may use the microphone only while recording video with the camera, if you choose to capture meal videos.",
         "LSApplicationQueriesSchemes": [
           "instagram",
           "instagram-stories"
         ]
       },
-      "buildNumber": "10"
+      "buildNumber": "20"
     },
     "android": {
-      "versionCode": 19,
+      "versionCode": 27,
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "foregroundImage": "./assets/images/main-app-icon.png",
         "backgroundColor": "#ffffff"
       },
       "package": "app.rork.dietku_clone_jlejfwy",
       "permissions": [
         "android.permission.VIBRATE",
-        "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO",
+        "android.permission.CAMERA"
+      ],
+      "blockedPermissions": [
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
-        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
         "android.permission.READ_MEDIA_IMAGES",
         "android.permission.READ_MEDIA_VIDEO",
         "android.permission.READ_MEDIA_AUDIO"
       ]
     },
     "web": {
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/main-app-icon.png"
     },
     "plugins": [
       [
@@ -63,7 +63,7 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/icon.png",
+          "image": "./assets/images/main-app-icon.png",
           "imageWidth": 140,
           "backgroundColor": "#F6F4F1"
         }
@@ -73,16 +73,15 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "The app accesses your photos to let you share them with your friends."
+          "photosPermission": "DietKu needs access to your photos so you can select meal pictures to log nutrition and create shares. Example: choose a gallery photo of dinner to add it to your calorie log."
         }
       ],
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera"
+          "cameraPermission": "DietKu uses the camera to photograph meals for AI nutrition estimates and your food diary. Example: take a picture of your breakfast to log calories and macros."
         }
       ],
-      "expo-media-library",
       "expo-apple-authentication",
       [
         "expo-location",

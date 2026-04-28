@@ -1,9 +1,10 @@
 import React from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Stack, router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { ChevronLeft } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
+import { DIETKU_TERMS_URL } from '@/lib/legalLinks';
 
 const sections = [
   {
@@ -71,6 +72,11 @@ const sections = [
 export default function LegalTermsScreen() {
   const { theme } = useTheme();
   const supportEmail = 'support@dietku.app';
+  const openWebTerms = async () => {
+    const canOpen = await Linking.canOpenURL(DIETKU_TERMS_URL);
+    if (!canOpen) return;
+    await Linking.openURL(DIETKU_TERMS_URL);
+  };
 
   return (
     <>
@@ -105,6 +111,16 @@ export default function LegalTermsScreen() {
       >
         <Text style={[styles.title, { color: theme.text }]}>Ketentuan Layanan DietKu</Text>
         <Text style={[styles.meta, { color: theme.textTertiary }]}>Terakhir diperbarui: 27 Maret 2026</Text>
+        <TouchableOpacity
+          style={[styles.webLinkBtn, { borderColor: theme.border, backgroundColor: theme.card }]}
+          onPress={openWebTerms}
+          activeOpacity={0.75}
+        >
+          <Text style={styles.webLinkText}>Buka versi web terbaru</Text>
+          <Text style={styles.webLinkUrl} numberOfLines={1}>
+            {DIETKU_TERMS_URL}
+          </Text>
+        </TouchableOpacity>
 
         {sections.map((section) => (
           <View key={section.title} style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -133,4 +149,14 @@ const styles = StyleSheet.create({
   sectionBody: { fontSize: 13, lineHeight: 19 },
   headerBack: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   headerBackText: { fontSize: 15, fontWeight: '600' },
+  webLinkBtn: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    gap: 4,
+    marginBottom: 4,
+  },
+  webLinkText: { fontSize: 13, fontWeight: '700', color: '#22C55E' },
+  webLinkUrl: { fontSize: 12, color: '#6E6E82' },
 });

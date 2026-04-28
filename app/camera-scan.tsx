@@ -19,6 +19,7 @@ import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNutrition } from '@/contexts/NutritionContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ANIMATION_DURATION } from '@/constants/animations';
 import { callAIProxy } from '@/utils/aiProxy';
@@ -38,6 +39,7 @@ type ScanQuotaResponse = {
 export default function CameraScanScreen() {
   const insets = useSafeAreaInsets();
   const { addPendingEntry, authState } = useNutrition();
+  const { l } = useLanguage();
 
   const cameraRef = useRef<CameraView>(null);
 
@@ -139,13 +141,16 @@ export default function CameraScanScreen() {
   const alertCameraDenied = useCallback(() => {
     const msg =
       Platform.OS === 'ios'
-        ? 'Buka Pengaturan → Privasi & Keamanan → Kamera, lalu aktifkan DietKu. Atau Pengaturan → DietKu → aktifkan Kamera.'
-        : 'Aktifkan izin kamera untuk DietKu di pengaturan aplikasi.';
-    Alert.alert('Izin kamera diperlukan', msg, [
-      { text: 'Batal', style: 'cancel' },
-      { text: 'Buka Settings', onPress: openSettings },
+        ? l(
+          'Buka Pengaturan → Privasi & Keamanan → Kamera, lalu aktifkan DietKu. Atau Pengaturan → DietKu → aktifkan Kamera.',
+          'Open Settings → Privacy & Security → Camera, then enable DietKu. Or Settings → DietKu → enable Camera.'
+        )
+        : l('Aktifkan izin kamera untuk DietKu di pengaturan aplikasi.', 'Enable camera permission for DietKu in app settings.');
+    Alert.alert(l('Izin kamera diperlukan', 'Camera permission required'), msg, [
+      { text: l('Batal', 'Cancel'), style: 'cancel' },
+      { text: 'Settings', onPress: openSettings },
     ]);
-  }, [openSettings]);
+  }, [openSettings, l]);
 
   const requestCameraFromUser = useCallback(async () => {
     try {
@@ -173,10 +178,10 @@ export default function CameraScanScreen() {
   const handleTakePhoto = async () => {
     if (hasReachedLimit) {
       Alert.alert(
-        'Batas scan tercapai',
+        l('Batas scan tercapai', 'Scan limit reached'),
         timeUntilResetMs > 0
-          ? `Coba lagi dalam ${formatDuration(timeUntilResetMs)}.`
-          : 'Silakan coba lagi nanti.',
+          ? l(`Coba lagi dalam ${formatDuration(timeUntilResetMs)}.`, `Try again in ${formatDuration(timeUntilResetMs)}.`)
+          : l('Silakan coba lagi nanti.', 'Please try again later.'),
         [{ text: 'OK' }]
       );
       return;
@@ -229,10 +234,10 @@ export default function CameraScanScreen() {
   const handleGalleryPick = async () => {
     if (hasReachedLimit) {
       Alert.alert(
-        'Batas scan tercapai',
+        l('Batas scan tercapai', 'Scan limit reached'),
         timeUntilResetMs > 0
-          ? `Coba lagi dalam ${formatDuration(timeUntilResetMs)}.`
-          : 'Silakan coba lagi nanti.',
+          ? l(`Coba lagi dalam ${formatDuration(timeUntilResetMs)}.`, `Try again in ${formatDuration(timeUntilResetMs)}.`)
+          : l('Silakan coba lagi nanti.', 'Please try again later.'),
         [{ text: 'OK' }]
       );
       return;
@@ -354,7 +359,7 @@ export default function CameraScanScreen() {
               </TouchableOpacity>
 
               <View style={styles.brandPill}>
-                <Image source={logo} style={styles.brandLogo} />
+                <Image source={logo} style={styles.brandLogo} resizeMode="contain" />
                 <DietKuWordmark
                   premium={false}
                   color="#FFFFFF"

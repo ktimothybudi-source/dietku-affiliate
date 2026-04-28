@@ -11,12 +11,14 @@ import {
 import { Stack, router } from 'expo-router';
 import { useNutrition } from '@/contexts/NutritionContext';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { UserProfile } from '@/types/nutrition';
 import * as Haptics from 'expo-haptics';
 
 export default function EditProfileScreen() {
   const { profile, saveProfile, isSaving } = useNutrition();
   const { theme } = useTheme();
+  const { l } = useLanguage();
 
   const [name, setName] = useState(profile?.name || '');
   const [age, setAge] = useState(profile?.age.toString() || '');
@@ -46,7 +48,7 @@ export default function EditProfileScreen() {
 
   const handleSave = () => {
     if (!age || !height || !weight || !goalWeight) {
-      Alert.alert('Error', 'Mohon lengkapi semua field yang wajib diisi');
+      Alert.alert(l('Error', 'Error'), l('Mohon lengkapi semua field yang wajib diisi', 'Please complete all required fields'));
       return;
     }
 
@@ -59,37 +61,37 @@ export default function EditProfileScreen() {
       : undefined;
 
     if (weeklyWeightChange.trim() && (weeklyWeightChangeNum === undefined || Number.isNaN(weeklyWeightChangeNum))) {
-      Alert.alert('Error', 'Target per minggu harus berupa angka (contoh: 0.5 atau -0.5)');
+      Alert.alert(l('Error', 'Error'), l('Target per minggu harus berupa angka (contoh: 0.5 atau -0.5)', 'Weekly target must be a number (e.g. 0.5 or -0.5)'));
       return;
     }
 
     if (ageNum < 15 || ageNum > 100) {
-      Alert.alert('Error', 'Usia harus antara 15-100 tahun');
+      Alert.alert(l('Error', 'Error'), l('Usia harus antara 15-100 tahun', 'Age must be between 15-100 years'));
       return;
     }
 
     if (heightNum < 100 || heightNum > 250) {
-      Alert.alert('Error', 'Tinggi harus antara 100-250 cm');
+      Alert.alert(l('Error', 'Error'), l('Tinggi harus antara 100-250 cm', 'Height must be between 100-250 cm'));
       return;
     }
 
     if (weightNum < 30 || weightNum > 300) {
-      Alert.alert('Error', 'Berat harus antara 30-300 kg');
+      Alert.alert(l('Error', 'Error'), l('Berat harus antara 30-300 kg', 'Weight must be between 30-300 kg'));
       return;
     }
 
     if (goalWeightNum < 30 || goalWeightNum > 300) {
-      Alert.alert('Error', 'Target berat harus antara 30-300 kg');
+      Alert.alert(l('Error', 'Error'), l('Target berat harus antara 30-300 kg', 'Goal weight must be between 30-300 kg'));
       return;
     }
 
     if (goal === 'muscle_gain' && goalWeightNum < weightNum) {
-      Alert.alert('Perhatian', 'Untuk tujuan membangun otot, target berat tidak boleh lebih rendah dari berat saat ini.');
+      Alert.alert('Perhatian', l('Untuk tujuan membangun otot, target berat tidak boleh lebih rendah dari berat saat ini.', 'For muscle gain, goal weight cannot be lower than current weight.'));
       return;
     }
 
     if (goal === 'fat_loss' && goalWeightNum > weightNum) {
-      Alert.alert('Perhatian', 'Untuk tujuan menurunkan berat badan, target berat tidak boleh lebih tinggi dari berat saat ini.');
+      Alert.alert('Perhatian', l('Untuk tujuan menurunkan berat badan, target berat tidak boleh lebih tinggi dari berat saat ini.', 'For fat loss, goal weight cannot be higher than current weight.'));
       return;
     }
 
@@ -101,7 +103,7 @@ export default function EditProfileScreen() {
           goal === 'muscle_gain'
             ? 'Untuk naik berat: 0.1–0.5 kg per minggu (lebih realistis untuk otot).'
             : 'Untuk turun / pemeliharaan: 0.1–1 kg per minggu.';
-        Alert.alert('Error', `Target per minggu tidak valid. ${rangeHint} Kosongkan untuk pakai default.`);
+        Alert.alert(l('Error', 'Error'), l(`Target per minggu tidak valid. ${rangeHint} Kosongkan untuk pakai default.`, `Invalid weekly target. ${rangeHint} Leave empty to use default.`));
         return;
       }
       weeklyWeightChangeNum = absValue;
@@ -129,7 +131,7 @@ export default function EditProfileScreen() {
 
     saveProfile(updatedProfile);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    Alert.alert('Berhasil', 'Profil dan target kalori berhasil diperbarui', [
+    Alert.alert(l('Berhasil', 'Success'), l('Profil dan target kalori berhasil diperbarui', 'Profile and calorie targets updated successfully'), [
       { text: 'OK', onPress: () => router.back() }
     ]);
   };
@@ -137,11 +139,11 @@ export default function EditProfileScreen() {
   const handleCancel = () => {
     if (hasChanges) {
       Alert.alert(
-        'Batalkan Perubahan',
-        'Perubahan yang Anda buat belum disimpan. Apakah Anda yakin ingin keluar?',
+        l('Batalkan Perubahan', 'Discard Changes'),
+        l('Perubahan yang Anda buat belum disimpan. Apakah Anda yakin ingin keluar?', 'Your changes are not saved yet. Are you sure you want to leave?'),
         [
-          { text: 'Lanjutkan Edit', style: 'cancel' },
-          { text: 'Batalkan', style: 'destructive', onPress: () => router.back() },
+          { text: l('Lanjutkan Edit', 'Continue Editing'), style: 'cancel' },
+          { text: l('Batalkan', 'Discard'), style: 'destructive', onPress: () => router.back() },
         ]
       );
     } else {
@@ -153,7 +155,7 @@ export default function EditProfileScreen() {
     <>
       <Stack.Screen
         options={{
-          title: 'Edit Profil',
+          title: l('Edit Profil', 'Edit Profile'),
           headerStyle: {
             backgroundColor: theme.background,
           },
@@ -161,7 +163,7 @@ export default function EditProfileScreen() {
           headerShadowVisible: false,
           headerLeft: () => (
             <TouchableOpacity onPress={handleCancel} style={styles.headerButton}>
-              <Text style={[styles.headerButtonText, { color: theme.text }]}>Batal</Text>
+              <Text style={[styles.headerButtonText, { color: theme.text }]}>{l('Batal', 'Cancel')}</Text>
             </TouchableOpacity>
           ),
           headerRight: () => (
@@ -174,7 +176,7 @@ export default function EditProfileScreen() {
                 styles.headerButtonText, 
                 { color: hasChanges ? theme.primary : theme.textSecondary }
               ]}>
-                {isSaving ? 'Menyimpan...' : 'Simpan'}
+                {isSaving ? l('Menyimpan...', 'Saving...') : l('Simpan', 'Save')}
               </Text>
             </TouchableOpacity>
           ),
@@ -186,22 +188,22 @@ export default function EditProfileScreen() {
         contentContainerStyle={styles.content}
       >
         <View style={[styles.section, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Info Dasar</Text>
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>{l('Info Dasar', 'Basic Info')}</Text>
 
           <View style={styles.field}>
-            <Text style={[styles.label, { color: theme.text }]}>Nama</Text>
+            <Text style={[styles.label, { color: theme.text }]}>{l('Nama', 'Name')}</Text>
             <TextInput
               style={[styles.input, { backgroundColor: theme.background, color: theme.text, borderColor: theme.border }]}
               value={name}
               onChangeText={setName}
-              placeholder="Nama Anda"
+              placeholder={l('Nama Anda', 'Your name')}
               placeholderTextColor={theme.textSecondary}
               autoCapitalize="words"
             />
           </View>
 
           <View style={styles.field}>
-            <Text style={[styles.label, { color: theme.text }]}>Usia (tahun)</Text>
+            <Text style={[styles.label, { color: theme.text }]}>{l('Usia (tahun)', 'Age (years)')}</Text>
             <TextInput
               style={[styles.input, { backgroundColor: theme.background, color: theme.text, borderColor: theme.border }]}
               value={age}
@@ -213,7 +215,7 @@ export default function EditProfileScreen() {
           </View>
 
           <View style={styles.field}>
-            <Text style={[styles.label, { color: theme.text }]}>Jenis Kelamin</Text>
+            <Text style={[styles.label, { color: theme.text }]}>{l('Jenis Kelamin', 'Sex')}</Text>
             <View style={styles.optionRow}>
               <TouchableOpacity
                 style={[

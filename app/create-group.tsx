@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { Stack, router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { useCommunity } from '@/contexts/CommunityContext';
 import { useNutrition } from '@/contexts/NutritionContext';
 import { GROUP_COVERS } from '@/types/community';
@@ -23,6 +24,7 @@ type Privacy = 'private';
 
 export default function CreateGroupScreen() {
   const { theme } = useTheme();
+  const { l } = useLanguage();
   const { createGroup, hasProfile } = useCommunity();
   const { authState } = useNutrition();
 
@@ -31,24 +33,32 @@ export default function CreateGroupScreen() {
   const [selectedCover, setSelectedCover] = useState(GROUP_COVERS[0]);
   const [isCreating, setIsCreating] = useState(false);
 
+  const handleBack = useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace('/(tabs)/community');
+  }, []);
+
   const handleCreate = useCallback(async () => {
     console.log('create-group:submit', name, privacy);
     if (isCreating) return;
     if (!name.trim()) {
-      Alert.alert('Nama Diperlukan', 'Masukkan nama untuk grup kamu.');
+      Alert.alert(l('Nama Diperlukan', 'Name Required'), l('Masukkan nama untuk grup kamu.', 'Enter a name for your group.'));
       return;
     }
     if (name.trim().length < 3) {
-      Alert.alert('Nama Terlalu Pendek', 'Nama grup minimal 3 karakter.');
+      Alert.alert(l('Nama Terlalu Pendek', 'Name Too Short'), l('Nama grup minimal 3 karakter.', 'Group name must be at least 3 characters.'));
       return;
     }
     if (!authState.userId) {
-      Alert.alert('Masuk Diperlukan', 'Silakan masuk kembali lalu coba buat grup.');
+      Alert.alert(l('Masuk Diperlukan', 'Sign In Required'), l('Silakan masuk kembali lalu coba buat grup.', 'Please sign in again and try creating a group.'));
       return;
     }
 
     if (!hasProfile) {
-      Alert.alert('Profil Komunitas Diperlukan', 'Buat profil komunitas dulu sebelum membuat grup.');
+      Alert.alert(l('Profil Komunitas Diperlukan', 'Community Profile Required'), l('Buat profil komunitas dulu sebelum membuat grup.', 'Create your community profile before creating a group.'));
       return;
     }
 
@@ -63,24 +73,29 @@ export default function CreateGroupScreen() {
       });
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.back();
+      handleBack();
     } catch (error) {
       console.error('create-group failed:', error);
-      const message = error instanceof Error ? error.message : 'Gagal membuat grup. Coba lagi.';
-      Alert.alert('Gagal Buat Grup', message);
+      const message = error instanceof Error ? error.message : l('Gagal membuat grup. Coba lagi.', 'Failed to create group. Please try again.');
+      Alert.alert(l('Gagal Buat Grup', 'Failed to Create Group'), message);
     } finally {
       setIsCreating(false);
     }
-  }, [name, privacy, selectedCover, createGroup, authState.userId, hasProfile, isCreating]);
+  }, [name, privacy, selectedCover, createGroup, authState.userId, hasProfile, isCreating, handleBack]);
 
   return (
     <>
       <Stack.Screen
         options={{
-          title: 'Buat Grup Baru',
+          title: l('Buat Grup Baru', 'Create New Group'),
           headerStyle: { backgroundColor: theme.background },
           headerTintColor: theme.text,
           headerShadowVisible: false,
+          headerLeft: () => (
+            <TouchableOpacity onPress={handleBack} activeOpacity={0.7} style={styles.headerBackBtn}>
+              <Text style={[styles.headerBackText, { color: theme.primary }]}>Back</Text>
+            </TouchableOpacity>
+          ),
         }}
       />
 
@@ -97,7 +112,7 @@ export default function CreateGroupScreen() {
             <Image source={{ uri: selectedCover }} style={styles.coverPreview} />
             <View style={[styles.coverOverlay, { backgroundColor: 'rgba(0,0,0,0.25)' }]}>
               <Camera size={20} color="#FFFFFF" />
-              <Text style={styles.coverOverlayText}>Pilih Cover</Text>
+              <Text style={styles.coverOverlayText}>{l('Pilih Cover', 'Choose Cover')}</Text>
             </View>
           </View>
 
@@ -131,12 +146,12 @@ export default function CreateGroupScreen() {
 
           <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <View style={styles.field}>
-              <Text style={[styles.label, { color: theme.text }]}>Nama Grup</Text>
+              <Text style={[styles.label, { color: theme.text }]}>{l('Nama Grup', 'Group Name')}</Text>
               <TextInput
                 style={[styles.input, { backgroundColor: theme.surfaceElevated, borderColor: theme.border, color: theme.text }]}
                 value={name}
                 onChangeText={setName}
-                placeholder="Contoh: Healthy Squad"
+                placeholder={l('Contoh: Healthy Squad', 'Example: Healthy Squad')}
                 placeholderTextColor={theme.textTertiary}
                 maxLength={40}
                 testID="create-group-name"
@@ -147,7 +162,7 @@ export default function CreateGroupScreen() {
           </View>
 
           <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <Text style={[styles.label, { color: theme.text, marginBottom: 12 }]}>Privasi Grup</Text>
+            <Text style={[styles.label, { color: theme.text, marginBottom: 12 }]}>{l('Privasi Grup', 'Group Privacy')}</Text>
 
             <TouchableOpacity
               style={[
@@ -166,9 +181,9 @@ export default function CreateGroupScreen() {
                 <Lock size={18} color={theme.warning} />
               </View>
               <View style={styles.privacyText}>
-                <Text style={[styles.privacyTitle, { color: theme.text }]}>Privat</Text>
+                <Text style={[styles.privacyTitle, { color: theme.text }]}>{l('Privat', 'Private')}</Text>
                 <Text style={[styles.privacyDesc, { color: theme.textSecondary }]}>
-                  Hanya bisa bergabung lewat kode undangan
+                  {l('Hanya bisa bergabung lewat kode undangan', 'Can only be joined with an invite code')}
                 </Text>
               </View>
               {privacy === 'private' && (
@@ -186,7 +201,7 @@ export default function CreateGroupScreen() {
             disabled={isCreating}
             testID="create-group-submit"
           >
-            <Text style={styles.createBtnText}>{isCreating ? 'Membuat...' : 'Buat Grup'}</Text>
+            <Text style={styles.createBtnText}>{isCreating ? l('Membuat...', 'Creating...') : l('Buat Grup', 'Create Group')}</Text>
           </TouchableOpacity>
 
           <View style={{ height: 60 }} />
@@ -335,5 +350,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700' as const,
     letterSpacing: -0.2,
+  },
+  headerBackBtn: {
+    paddingVertical: 6,
+    paddingRight: 8,
+  },
+  headerBackText: {
+    fontSize: 15,
+    fontWeight: '700' as const,
   },
 });

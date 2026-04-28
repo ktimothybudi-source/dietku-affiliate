@@ -12,7 +12,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import * as Haptics from 'expo-haptics';
 
 export default function LanguagePickerScreen() {
-  const { language, setLanguage } = useLanguage();
+  const { language, setLanguage, t } = useLanguage();
   const { theme } = useTheme();
 
   const handleLanguageSelect = (lang: Language) => {
@@ -27,7 +27,7 @@ export default function LanguagePickerScreen() {
     <>
       <Stack.Screen
         options={{
-          title: 'Bahasa',
+          title: t.languagePicker.title,
           headerStyle: {
             backgroundColor: theme.background,
           },
@@ -39,7 +39,7 @@ export default function LanguagePickerScreen() {
       <View style={[styles.container, { backgroundColor: theme.background }]}>
         <View style={styles.content}>
           <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-            Pilih bahasa yang ingin Anda gunakan
+            {t.languagePicker.subtitle}
           </Text>
 
           <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -51,8 +51,8 @@ export default function LanguagePickerScreen() {
               <View style={styles.optionLeft}>
                 <Text style={[styles.flag, { fontSize: 32 }]}>🇮🇩</Text>
                 <View>
-                  <Text style={[styles.languageName, { color: theme.text }]}>Indonesia</Text>
-                  <Text style={[styles.languageNative, { color: theme.textSecondary }]}>Bahasa Indonesia</Text>
+                  <Text style={[styles.languageName, { color: theme.text }]}>{t.languagePicker.indonesiaName}</Text>
+                  <Text style={[styles.languageNative, { color: theme.textSecondary }]}>{t.languagePicker.indonesiaNative}</Text>
                 </View>
               </View>
               {language === 'id' && (
@@ -72,8 +72,8 @@ export default function LanguagePickerScreen() {
               <View style={styles.optionLeft}>
                 <Text style={[styles.flag, { fontSize: 32 }]}>🇺🇸</Text>
                 <View>
-                  <Text style={[styles.languageName, { color: theme.text }]}>English</Text>
-                  <Text style={[styles.languageNative, { color: theme.textSecondary }]}>English (US)</Text>
+                  <Text style={[styles.languageName, { color: theme.text }]}>{t.languagePicker.englishName}</Text>
+                  <Text style={[styles.languageNative, { color: theme.textSecondary }]}>{t.languagePicker.englishNative}</Text>
                 </View>
               </View>
               {language === 'en' && (

@@ -13,12 +13,14 @@ import { ChevronLeft, Plus, Search, Trash2 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { useNutrition } from '@/contexts/NutritionContext';
 import { useMealDraft, lineTotals } from '@/contexts/MealDraftContext';
 import { getDefaultMealNameAndType } from '@/lib/mealDefaults';
 
 export default function MealBuilderScreen() {
   const { theme } = useTheme();
+  const { l } = useLanguage();
   const insets = useSafeAreaInsets();
   const { addComposedMeal, isSaving } = useNutrition();
   const { startNewMeal, endSession, lines, updateLineGrams, removeLine, mealTotals, setSessionActive } =
@@ -36,11 +38,11 @@ export default function MealBuilderScreen() {
 
   const onSave = () => {
     if (lines.length === 0) {
-      Alert.alert('Kosong', 'Tambah minimal satu makanan.');
+      Alert.alert(l('Kosong', 'Empty'), l('Tambah minimal satu makanan.', 'Add at least one food item.'));
       return;
     }
     if (lines.some((l) => l.grams <= 0)) {
-      Alert.alert('Gram', 'Semua item harus punya gram lebih dari 0.');
+      Alert.alert(l('Gram', 'Grams'), l('Semua item harus punya gram lebih dari 0.', 'All items must have grams greater than 0.'));
       return;
     }
     const { displayName, mealType } = getDefaultMealNameAndType();
@@ -72,10 +74,10 @@ export default function MealBuilderScreen() {
 
   const onBack = () => {
     if (lines.length > 0) {
-      Alert.alert('Buang draft?', 'Makanan di keranjang akan hilang.', [
-        { text: 'Batal', style: 'cancel' },
+      Alert.alert(l('Buang draft?', 'Discard draft?'), l('Makanan di keranjang akan hilang.', 'Food in the cart will be lost.'), [
+        { text: l('Batal', 'Cancel'), style: 'cancel' },
         {
-          text: 'Buang',
+          text: l('Buang', 'Discard'),
           style: 'destructive',
           onPress: () => {
             endSession();

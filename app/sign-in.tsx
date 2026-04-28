@@ -9,6 +9,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { ArrowLeft, ArrowRight, Eye, EyeOff, Mail } from 'lucide-react-native';
@@ -27,11 +28,15 @@ WebBrowser.maybeCompleteAuthSession();
 /** Toggle to show Google OAuth on the sign-in screen. */
 const SHOW_GOOGLE_SIGN_IN = false;
 
+const FORM_MAX_WIDTH = 440;
+
 export default function SignInScreen() {
   const params = useLocalSearchParams<{ ref?: string | string[] }>();
-  const { t } = useLanguage();
+  const { t, l } = useLanguage();
   const { signIn } = useNutrition();
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
+  const formPad = Math.max(16, (windowWidth - FORM_MAX_WIDTH) / 2);
   const [email, setEmail] = useState<string>('');
   const [password, setPassword] = useState<string>('');
   const [passwordVisible, setPasswordVisible] = useState<boolean>(false);
@@ -107,7 +112,7 @@ export default function SignInScreen() {
     const emailToUse = targetEmail ?? unverifiedEmail ?? email.trim();
 
     if (!emailToUse) {
-      Alert.alert('Error', 'Masukkan email kamu dulu ya.');
+      Alert.alert(l('Error', 'Error'), l('Masukkan email kamu dulu ya.', 'Please enter your email first.'));
       return;
     }
 
@@ -122,17 +127,20 @@ export default function SignInScreen() {
 
       if (error) {
         console.error('Resend verification error:', error);
-        Alert.alert('Error', 'Gagal kirim ulang email. Coba lagi nanti.');
+        Alert.alert(l('Error', 'Error'), l('Gagal kirim ulang email. Coba lagi nanti.', 'Failed to resend email. Please try again later.'));
         return;
       }
 
       Alert.alert(
-        'Email Terkirim',
-        `Link verifikasi sudah dikirim ke ${emailToUse}. Cek inbox atau folder spam kamu.`
+        l('Email Terkirim', 'Email Sent'),
+        l(
+          `Link verifikasi sudah dikirim ke ${emailToUse}. Cek inbox atau folder spam kamu.`,
+          `Verification link has been sent to ${emailToUse}. Check your inbox or spam folder.`
+        )
       );
     } catch (error) {
       console.error('Unexpected resend verification error:', error);
-      Alert.alert('Error', 'Gagal kirim ulang email. Coba lagi nanti.');
+      Alert.alert(l('Error', 'Error'), l('Gagal kirim ulang email. Coba lagi nanti.', 'Failed to resend email. Please try again later.'));
     } finally {
       setIsResending(false);
     }
@@ -140,7 +148,7 @@ export default function SignInScreen() {
 
   const handleSignIn = async () => {
     if (!email.trim() || !password.trim()) {
-      Alert.alert('Error', 'Mohon masukkan email dan password');
+      Alert.alert(l('Error', 'Error'), l('Mohon masukkan email dan password', 'Please enter email and password'));
       return;
     }
 
@@ -151,13 +159,13 @@ export default function SignInScreen() {
     try {
       console.log('Sign in attempt:', { email: email.trim() });
       await signIn(email.trim(), password);
-      console.log('Sign in successful, navigating to main app');
-      router.replace('/(tabs)');
+      console.log('Sign in successful, checking profile and navigating');
+      await checkProfileAndNavigate();
     } catch (error) {
       console.error('Sign in error:', error);
 
       if (error instanceof Error && error.message === 'INVALID_CREDENTIALS') {
-        Alert.alert('Login Gagal', 'Email atau password salah. Silakan coba lagi.');
+        Alert.alert(l('Login Gagal', 'Login Failed'), l('Email atau password salah. Silakan coba lagi.', 'Incorrect email or password. Please try again.'));
         return;
       }
 
@@ -165,11 +173,14 @@ export default function SignInScreen() {
         const trimmedEmail = email.trim();
         setUnverifiedEmail(trimmedEmail);
         Alert.alert(
-          'Email Belum Dikonfirmasi',
-          'Kami sudah kirim link verifikasi ke email kamu. Cek inbox atau folder spam ya!',
+          l('Email Belum Dikonfirmasi', 'Email Not Verified'),
+          l(
+            'Kami sudah kirim link verifikasi ke email kamu. Cek inbox atau folder spam ya!',
+            'We already sent a verification link to your email. Please check your inbox or spam folder.'
+          ),
           [
             {
-              text: 'Kirim Ulang',
+              text: l('Kirim Ulang', 'Resend'),
               onPress: () => {
                 void handleResendVerification(trimmedEmail);
               },
@@ -180,7 +191,7 @@ export default function SignInScreen() {
         return;
       }
 
-      Alert.alert('Error', 'Gagal masuk. Silakan coba lagi.');
+      Alert.alert(l('Error', 'Error'), l('Gagal masuk. Silakan coba lagi.', 'Failed to sign in. Please try again.'));
     } finally {
       setIsSigningIn(false);
     }
@@ -208,14 +219,14 @@ export default function SignInScreen() {
 
       if (error) {
         console.error('Google OAuth error:', error);
-        Alert.alert('Error', 'Gagal memulai login Google. Silakan coba lagi.');
+        Alert.alert(l('Error', 'Error'), l('Gagal memulai login Google. Silakan coba lagi.', 'Failed to start Google login. Please try again.'));
         return;
       }
 
       console.log('Opening OAuth URL:', data.url);
 
       if (!data.url) {
-        Alert.alert('Error', 'URL login Google tidak tersedia.');
+        Alert.alert(l('Error', 'Error'), l('URL login Google tidak tersedia.', 'Google login URL is unavailable.'));
         return;
       }
 
@@ -236,7 +247,7 @@ export default function SignInScreen() {
 
           if (sessionError) {
             console.error('Error setting session:', sessionError);
-            Alert.alert('Error', 'Gagal masuk dengan Google');
+            Alert.alert(l('Error', 'Error'), l('Gagal masuk dengan Google', 'Failed to sign in with Google'));
             return;
           }
 
@@ -251,7 +262,7 @@ export default function SignInScreen() {
       }
     } catch (error) {
       console.error('Google sign in error:', error);
-      Alert.alert('Error', 'Gagal masuk dengan Google. Silakan coba lagi.');
+      Alert.alert(l('Error', 'Error'), l('Gagal masuk dengan Google. Silakan coba lagi.', 'Failed to sign in with Google. Please try again.'));
     } finally {
       setIsGoogleSigningIn(false);
     }
@@ -270,14 +281,22 @@ export default function SignInScreen() {
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={0}
+      keyboardVerticalOffset={insets.top + 12}
     >
       <ScrollView
-        contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 20 }]}
+        contentContainerStyle={[
+          styles.scrollContent,
+          {
+            paddingTop: insets.top + 20,
+            paddingBottom: Math.max(56, insets.bottom + 32),
+            paddingHorizontal: formPad,
+          },
+        ]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         testID="sign-in-scroll-view"
       >
+        <View style={styles.narrowWrap}>
         <TouchableOpacity
           style={styles.backButton}
           onPress={handleBack}
@@ -311,7 +330,7 @@ export default function SignInScreen() {
                   setEmail(value);
                   setUnverifiedEmail(null);
                 }}
-                placeholder="nama@email.com"
+                placeholder={l('nama@email.com', 'name@email.com')}
                 placeholderTextColor="#999999"
                 keyboardType="email-address"
                 autoCapitalize="none"
@@ -446,6 +465,7 @@ export default function SignInScreen() {
             </View>
           </View>
         </View>
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -458,7 +478,11 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    paddingHorizontal: 24,
+  },
+  narrowWrap: {
+    width: '100%',
+    maxWidth: FORM_MAX_WIDTH,
+    alignSelf: 'center',
   },
   backButton: {
     marginBottom: 20,
@@ -466,7 +490,7 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   content: {
-    flex: 1,
+    flexGrow: 0,
   },
   header: {
     alignItems: 'center',
@@ -495,7 +519,7 @@ const styles = StyleSheet.create({
     lineHeight: 24,
   },
   form: {
-    flex: 1,
+    flexGrow: 0,
   },
   inputGroup: {
     marginBottom: 20,

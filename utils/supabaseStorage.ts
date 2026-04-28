@@ -2,8 +2,60 @@ import { supabase } from '@/lib/supabase';
 import * as FileSystem from 'expo-file-system/legacy';
 import { optimizeImageForUpload } from '@/utils/imageOptimization';
 
-const STORAGE_BUCKET = 'meal-photos';
+export const MEAL_PHOTOS_BUCKET = 'meal-photos';
+const STORAGE_BUCKET = MEAL_PHOTOS_BUCKET;
 const SIGNED_URL_EXPIRY_SECONDS = 60 * 60 * 24 * 30; // 30 days
+
+const MEAL_PHOTO_UUID_PATH = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/.+/i;
+
+export function isRemoteMealPhotoUri(uri?: string | null): boolean {
+  return !!uri && /^https?:\/\//i.test(uri);
+}
+
+/** True when `uri` is a storage object key we write (e.g. userId/timestamp_x.jpg). */
+export function isMealPhotoStorageObjectPath(uri: string): boolean {
+  return MEAL_PHOTO_UUID_PATH.test(uri);
+}
+
+/**
+ * Resolve a DB/display value to a storage object path for the meal-photos bucket.
+ * Returns null for local file URIs or unrecognized values.
+ */
+export function getMealPhotoStoragePathFromValue(uri: string): string | null {
+  if (!uri) return null;
+  if (!isRemoteMealPhotoUri(uri)) {
+    return isMealPhotoStorageObjectPath(uri) ? uri : null;
+  }
+  const publicMarker = `/storage/v1/object/public/${STORAGE_BUCKET}/`;
+  const signMarker = `/storage/v1/object/sign/${STORAGE_BUCKET}/`;
+  const objectMarker = `/storage/v1/object/${STORAGE_BUCKET}/`;
+  if (uri.includes(publicMarker)) {
+    return decodeURIComponent(uri.split(publicMarker)[1]?.split('?')[0] || '');
+  }
+  if (uri.includes(signMarker)) {
+    return decodeURIComponent(uri.split(signMarker)[1]?.split('?')[0] || '');
+  }
+  if (uri.includes(objectMarker)) {
+    return decodeURIComponent(uri.split(objectMarker)[1]?.split('?')[0] || '');
+  }
+  return null;
+}
+
+/**
+ * Normalize meal photo for persisting to `food_entries.photo_uri` (storage path), matching community posts.
+ * Local camera/gallery URIs are uploaded first; existing storage paths are kept; remote Supabase URLs become paths.
+ */
+export async function resolveMealPhotoForDatabase(
+  photoUri: string | null | undefined,
+  userId: string
+): Promise<string | null> {
+  if (!photoUri) return null;
+  if (isRemoteMealPhotoUri(photoUri)) {
+    return getMealPhotoStoragePathFromValue(photoUri) ?? photoUri;
+  }
+  if (isMealPhotoStorageObjectPath(photoUri)) return photoUri;
+  return uploadImageToSupabase(photoUri, userId);
+}
 
 function inferExtensionFromMime(mimeType?: string | null): string {
   const normalized = (mimeType || '').toLowerCase();

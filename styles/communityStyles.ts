@@ -465,6 +465,13 @@ export const communityStyles = StyleSheet.create({
     marginBottom: 28,
     paddingHorizontal: 8,
   },
+  onboardingStepText: {
+    fontSize: 12,
+    fontWeight: '700' as const,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 8,
+  },
   noGroupActions: {
     width: '100%',
     gap: 12,

@@ -9,6 +9,7 @@ const MAX_IMAGE_BASE64_LENGTH = 2_000_000; // ~2MB payload ceiling
 const mealAnalysisInputSchema = z.object({
   base64Image: z.string().min(1),
   userId: z.string().uuid().optional(),
+  language: z.enum(['id', 'en']).optional(),
 });
 
 const exerciseEstimateInputSchema = z.object({
@@ -197,8 +198,18 @@ app.post("/meal-analysis", async (c) => {
     }
     const dataUrl = `data:image/jpeg;base64,${sanitized}`;
 
+    const language = input.language === 'en' ? 'en' : 'id';
     const prompt = [
       "Analyze this meal photo and estimate nutrition.",
+      language === 'en'
+        ? "IMPORTANT LANGUAGE RULE: All text output MUST be in English."
+        : "IMPORTANT LANGUAGE RULE: All text output MUST be in Indonesian (Bahasa Indonesia).",
+      language === 'en'
+        ? 'Food names in "items[].name" must be common English names.'
+        : 'Food names in "items[].name" must be Indonesian names commonly used in Indonesia (e.g., "fried chicken" -> "ayam goreng", "rice" -> "nasi").',
+      language === 'en'
+        ? 'Keep "portion" and "tips" in English as well.'
+        : 'Keep "portion" and "tips" in Indonesian as well.',
       "Return ONLY valid JSON with this exact shape:",
       "{",
       '  "items": [{',
@@ -218,6 +229,8 @@ app.post("/meal-analysis", async (c) => {
       '  "tips": string[]',
       "}",
       "Use realistic estimates and keep values non-negative.",
+      "Do not round values to coarse buckets like 25/50/100. Prefer precise estimates based on visible portions.",
+      "Example: use 487 instead of 500 when appropriate.",
       "For EACH item you MUST estimate sugar (g), dietary fiber (g), and sodium (mg) from the actual foods visible (sauces, fruit, bread, noodles, cheese, processed meat, etc.).",
       "Do not use 0 for sugar, fiber, and sodium on all items at once unless the meal is truly negligible (e.g. plain water). Ranges should reflect uncertainty (min < max).",
     ].join("\n");
@@ -225,8 +238,15 @@ app.post("/meal-analysis", async (c) => {
     const openAIData = await callOpenAI({
       model: "gpt-4o-mini",
       temperature: 0.2,
+      max_tokens: 550,
       messages: [
-        { role: "system", content: "You are a nutrition analysis assistant. Return strict JSON only." },
+        {
+          role: "system",
+          content:
+            language === 'en'
+              ? "You are a nutrition analysis assistant for English users. Return strict JSON only, and all output text must be in English."
+              : "You are a nutrition analysis assistant for Indonesian users. Return strict JSON only, and all output text must be in Indonesian.",
+        },
         {
           role: "user",
           content: [
