@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { supabaseAdmin } from "@/lib/supabase";
+import { getSupabaseAdmin } from "@/lib/supabase";
 import { generateReferralCode } from "@/lib/referral";
 
 const schema = z.object({
@@ -10,6 +10,7 @@ const schema = z.object({
 
 export async function POST(request) {
   try {
+    const supabaseAdmin = getSupabaseAdmin();
     const body = await request.json();
     const { email, name } = schema.parse(body);
     const referralCode = generateReferralCode(email);
