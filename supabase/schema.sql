@@ -1,292 +1,145 @@
--- Rork Dietku Clone Database Schema
--- Run this in Supabase SQL Editor to create all required tables
+create extension if not exists "pgcrypto";
 
--- Enable UUID extension
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-
--- Profiles table (extends Supabase auth.users)
-CREATE TABLE IF NOT EXISTS profiles (
-  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  email TEXT,
-  name TEXT,
-  gender TEXT CHECK (gender IN ('male', 'female')),
-  birth_date DATE,
-  height NUMERIC(5,2),
-  weight NUMERIC(5,2),
-  target_weight NUMERIC(5,2),
-  activity_level TEXT CHECK (activity_level IN ('low', 'moderate', 'high')),
-  goal TEXT CHECK (goal IN ('fat_loss', 'maintenance', 'muscle_gain')),
-  daily_calories INTEGER,
-  protein_target NUMERIC(5,2),
-  carbs_target NUMERIC(5,2),
-  fat_target NUMERIC(5,2),
-  weekly_weight_change NUMERIC(5,2),
-  health_connect_enabled BOOLEAN NOT NULL DEFAULT FALSE,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+-- This schema matches the current affiliate API routes:
+-- - affiliates uses promo_code
+-- - referrals/commissions use amount_idr fields
+create table if not exists affiliates (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  email text not null unique,
+  promo_code text not null unique,
+  created_at timestamptz not null default now()
 );
 
--- Food entries table
-CREATE TABLE IF NOT EXISTS food_entries (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  date DATE NOT NULL,
-  meal_type TEXT CHECK (meal_type IN ('breakfast', 'lunch', 'dinner', 'snack')),
-  food_name TEXT NOT NULL,
-  calories NUMERIC(7,2) NOT NULL,
-  protein NUMERIC(7,2) NOT NULL DEFAULT 0,
-  carbs NUMERIC(7,2) NOT NULL DEFAULT 0,
-  fat NUMERIC(7,2) NOT NULL DEFAULT 0,
-  sugar NUMERIC(7,2) NOT NULL DEFAULT 0,
-  fiber NUMERIC(7,2) NOT NULL DEFAULT 0,
-  sodium NUMERIC(9,2) NOT NULL DEFAULT 0,
-  photo_uri TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+create table if not exists referrals (
+  id uuid primary key default gen_random_uuid(),
+  affiliate_id uuid not null references affiliates(id) on delete cascade,
+  referred_user_id text not null,
+  subscription_plan text,
+  amount_idr numeric(12,2) not null default 0,
+  commission_idr numeric(12,2) not null default 0,
+  status text not null default 'converted',
+  created_at timestamptz not null default now()
 );
 
--- Weight history table
-CREATE TABLE IF NOT EXISTS weight_history (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  weight NUMERIC(5,2) NOT NULL,
-  recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(user_id, recorded_at)
+create table if not exists commissions (
+  id uuid primary key default gen_random_uuid(),
+  affiliate_id uuid not null references affiliates(id) on delete cascade,
+  referral_id uuid unique references referrals(id) on delete set null,
+  amount_idr numeric(12,2) not null default 0,
+  status text not null default 'confirmed',
+  created_at timestamptz not null default now()
 );
 
--- Food database table (for food search)
-CREATE TABLE IF NOT EXISTS food (
-  id SERIAL PRIMARY KEY,
-  name TEXT NOT NULL,
-  calories NUMERIC(7,2) NOT NULL,
-  proteins NUMERIC(7,2) NOT NULL DEFAULT 0,
-  fat NUMERIC(7,2) NOT NULL DEFAULT 0,
-  carbohydrate NUMERIC(7,2) NOT NULL DEFAULT 0,
-  image TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
+-- Migration-safe updates for databases that were created from older schema versions.
+alter table if exists affiliates add column if not exists promo_code text;
+alter table if exists referrals add column if not exists amount_idr numeric(12,2) not null default 0;
+alter table if exists referrals add column if not exists commission_idr numeric(12,2) not null default 0;
+alter table if exists referrals add column if not exists subscription_plan text;
+alter table if exists commissions add column if not exists amount_idr numeric(12,2) not null default 0;
+alter table if exists commissions add column if not exists referral_id uuid;
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'commissions_referral_id_fkey'
+  ) then
+    alter table commissions
+      add constraint commissions_referral_id_fkey
+      foreign key (referral_id) references referrals(id) on delete set null;
+  end if;
+end $$;
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'commissions_referral_id_key'
+  ) then
+    alter table commissions
+      add constraint commissions_referral_id_key unique (referral_id);
+  end if;
+end $$;
 
--- Exercise entries table
-CREATE TABLE IF NOT EXISTS exercise_entries (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  date DATE NOT NULL,
-  type TEXT NOT NULL CHECK (type IN ('quick', 'describe', 'manual', 'steps')),
-  name TEXT NOT NULL,
-  calories_burned INTEGER NOT NULL DEFAULT 0,
-  duration INTEGER,
-  description TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
+alter table referrals drop constraint if exists referrals_subscription_plan_check;
+alter table referrals
+  add constraint referrals_subscription_plan_check
+  check (subscription_plan is null or subscription_plan in ('bulanan', 'tahunan'));
 
--- Steps data table
-CREATE TABLE IF NOT EXISTS steps_data (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  date DATE NOT NULL,
-  steps INTEGER NOT NULL DEFAULT 0,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(user_id, date)
-);
+-- Commission policy: affiliate earns 30% from each converted referral purchase.
+create or replace function set_referral_commission_30pct()
+returns trigger
+language plpgsql
+as $$
+begin
+  if coalesce(new.amount_idr, 0) < 0 then
+    raise exception 'amount_idr cannot be negative';
+  end if;
+  new.commission_idr := round(coalesce(new.amount_idr, 0) * 0.30, 2);
+  return new;
+end;
+$$;
 
--- Community profiles table
-CREATE TABLE IF NOT EXISTS community_profiles (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  username TEXT NOT NULL UNIQUE,
-  display_name TEXT NOT NULL,
-  avatar_color TEXT NOT NULL,
-  bio TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(user_id)
-);
+drop trigger if exists trg_set_referral_commission_10pct on referrals;
+drop trigger if exists trg_set_referral_commission_30pct on referrals;
+create trigger trg_set_referral_commission_30pct
+before insert or update of amount_idr
+on referrals
+for each row
+execute function set_referral_commission_30pct();
 
--- Community groups table
-CREATE TABLE IF NOT EXISTS community_groups (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  name TEXT NOT NULL,
-  description TEXT,
-  cover_image TEXT,
-  invite_code TEXT UNIQUE,
-  created_by UUID NOT NULL REFERENCES auth.users(id),
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
+create or replace function sync_referral_commission_to_earnings()
+returns trigger
+language plpgsql
+as $$
+begin
+  if new.status <> 'converted' then
+    return new;
+  end if;
 
--- Community group members table
-CREATE TABLE IF NOT EXISTS community_group_members (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  group_id UUID NOT NULL REFERENCES community_groups(id) ON DELETE CASCADE,
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  joined_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(group_id, user_id)
-);
+  insert into commissions (affiliate_id, referral_id, amount_idr, status)
+  values (new.affiliate_id, new.id, new.commission_idr, 'confirmed')
+  on conflict (referral_id)
+  do update set amount_idr = excluded.amount_idr, status = excluded.status;
 
--- Community posts table
-CREATE TABLE IF NOT EXISTS community_posts (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  group_id UUID REFERENCES community_groups(id) ON DELETE CASCADE,
-  caption TEXT,
-  meal_type TEXT CHECK (meal_type IN ('breakfast', 'lunch', 'dinner', 'snack')),
-  food_name TEXT NOT NULL,
-  calories NUMERIC(7,2) NOT NULL,
-  protein NUMERIC(7,2) NOT NULL DEFAULT 0,
-  carbs NUMERIC(7,2) NOT NULL DEFAULT 0,
-  fat NUMERIC(7,2) NOT NULL DEFAULT 0,
-  photo_uri TEXT,
-  likes_count INTEGER DEFAULT 0,
-  comments_count INTEGER DEFAULT 0,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
+  return new;
+end;
+$$;
 
--- Community post likes table
-CREATE TABLE IF NOT EXISTS community_post_likes (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  post_id UUID NOT NULL REFERENCES community_posts(id) ON DELETE CASCADE,
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(post_id, user_id)
-);
+drop trigger if exists trg_sync_referral_commission_to_earnings on referrals;
+create trigger trg_sync_referral_commission_to_earnings
+after insert or update of amount_idr, commission_idr, status
+on referrals
+for each row
+execute function sync_referral_commission_to_earnings();
 
--- Community comments table
-CREATE TABLE IF NOT EXISTS community_comments (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  post_id UUID NOT NULL REFERENCES community_posts(id) ON DELETE CASCADE,
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  content TEXT NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
+-- Backfill existing converted referrals to 30% commission and sync earnings.
+update referrals
+set commission_idr = round(coalesce(amount_idr, 0) * 0.30, 2)
+where status = 'converted';
 
--- Favorites table
-CREATE TABLE IF NOT EXISTS favorites (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,
-  calories NUMERIC(7,2) NOT NULL,
-  protein NUMERIC(7,2) NOT NULL DEFAULT 0,
-  carbs NUMERIC(7,2) NOT NULL DEFAULT 0,
-  fat NUMERIC(7,2) NOT NULL DEFAULT 0,
-  log_count INTEGER NOT NULL DEFAULT 0,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
+insert into commissions (affiliate_id, referral_id, amount_idr, status)
+select affiliate_id, id, commission_idr, 'confirmed'
+from referrals
+where status = 'converted'
+on conflict (referral_id)
+do update set amount_idr = excluded.amount_idr, status = excluded.status;
 
--- Recent meals table
-CREATE TABLE IF NOT EXISTS recent_meals (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,
-  calories NUMERIC(7,2) NOT NULL,
-  protein NUMERIC(7,2) NOT NULL DEFAULT 0,
-  carbs NUMERIC(7,2) NOT NULL DEFAULT 0,
-  fat NUMERIC(7,2) NOT NULL DEFAULT 0,
-  log_count INTEGER NOT NULL DEFAULT 1,
-  last_logged_at TIMESTAMPTZ DEFAULT NOW()
-);
+-- If old column exists, copy existing referral codes into promo_code.
+update affiliates
+set promo_code = referral_code
+where promo_code is null
+  and referral_code is not null;
 
--- Water tracking table
-CREATE TABLE IF NOT EXISTS water_tracking (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  date DATE NOT NULL,
-  cups INTEGER NOT NULL DEFAULT 0,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(user_id, date)
-);
+-- Fill any remaining null promo codes so constraints/index can be applied safely.
+update affiliates
+set promo_code = upper(substr(md5(id::text), 1, 8))
+where promo_code is null;
 
--- Micronutrients tracking table
-CREATE TABLE IF NOT EXISTS micronutrients_tracking (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  date DATE NOT NULL,
-  sugar_units NUMERIC(5,2) DEFAULT 0,
-  fiber_units NUMERIC(5,2) DEFAULT 0,
-  sodium_units INTEGER DEFAULT 0,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(user_id, date)
-);
+alter table affiliates alter column promo_code set not null;
 
--- Streaks table (daily logging streak per user)
-CREATE TABLE IF NOT EXISTS streaks (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  current_streak INTEGER NOT NULL DEFAULT 0,
-  best_streak INTEGER NOT NULL DEFAULT 0,
-  last_logged_date DATE,
-  grace_used_week BOOLEAN NOT NULL DEFAULT FALSE,
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(user_id)
-);
-
--- Create indexes for better query performance
-CREATE INDEX IF NOT EXISTS idx_food_entries_user_date ON food_entries(user_id, date);
-CREATE INDEX IF NOT EXISTS idx_food_entries_user_id ON food_entries(user_id);
-CREATE INDEX IF NOT EXISTS idx_weight_history_user_id ON weight_history(user_id);
-CREATE INDEX IF NOT EXISTS idx_exercise_entries_user_date ON exercise_entries(user_id, date);
-CREATE INDEX IF NOT EXISTS idx_steps_data_user_date ON steps_data(user_id, date);
-CREATE INDEX IF NOT EXISTS idx_community_posts_group_id ON community_posts(group_id);
-CREATE INDEX IF NOT EXISTS idx_community_posts_user_id ON community_posts(user_id);
-CREATE INDEX IF NOT EXISTS idx_community_group_members_group_id ON community_group_members(group_id);
-CREATE INDEX IF NOT EXISTS idx_community_group_members_user_id ON community_group_members(user_id);
-CREATE INDEX IF NOT EXISTS idx_food_name ON food(name);
-
--- Create function to update updated_at timestamp
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.updated_at = NOW();
-  RETURN NEW;
-END;
-$$ language 'plpgsql';
-
--- Create triggers for updated_at
-CREATE TRIGGER update_profiles_updated_at BEFORE UPDATE ON profiles
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_community_groups_updated_at BEFORE UPDATE ON community_groups
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_community_profiles_updated_at BEFORE UPDATE ON community_profiles
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_community_posts_updated_at BEFORE UPDATE ON community_posts
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_community_comments_updated_at BEFORE UPDATE ON community_comments
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_food_updated_at BEFORE UPDATE ON food
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_steps_data_updated_at BEFORE UPDATE ON steps_data
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_water_tracking_updated_at BEFORE UPDATE ON water_tracking
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_micronutrients_tracking_updated_at BEFORE UPDATE ON micronutrients_tracking
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
--- Create function to automatically create profile on user signup
-CREATE OR REPLACE FUNCTION handle_new_user()
-RETURNS TRIGGER AS $$
-BEGIN
-  INSERT INTO profiles (id, email)
-  VALUES (NEW.id, NEW.email);
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- Create trigger for new user signup
-CREATE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION handle_new_user();
-
--- Referral / affiliate (profiles columns, referral_codes, RPC redeem, RLS): see migrations/20260329_referral_affiliate_system.sql
+create unique index if not exists idx_affiliates_promo_code on affiliates(promo_code);
+create index if not exists idx_affiliates_email on affiliates(email);
+create index if not exists idx_referrals_affiliate_created on referrals(affiliate_id, created_at desc);
+create index if not exists idx_commissions_affiliate_created on commissions(affiliate_id, created_at desc);
