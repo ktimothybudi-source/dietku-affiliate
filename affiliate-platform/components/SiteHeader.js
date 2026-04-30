@@ -15,13 +15,14 @@ export default function SiteHeader() {
         className="card"
         style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}
       >
-        <div style={{ fontSize: 24, fontWeight: 800 }}>DietKu Affiliates</div>
+        <div>
+          <div style={{ fontSize: 23, fontWeight: 800 }}>DietKu Affiliates</div>
+          <p className="page-subtitle" style={{ marginTop: 2 }}>Referral dashboard</p>
+        </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           <Link href="/">Home</Link>
           <Link href="/register">Register</Link>
           <Link href="/dashboard">Dashboard</Link>
-          <Link href="/leaderboard">Leaderboard</Link>
-          <Link href="/admin">Admin</Link>
           <button className="btn btn-ghost" onClick={() => setMode((m) => (m === "light" ? "dark" : "light"))}>
             {mode === "light" ? "Dark" : "Light"}
           </button>

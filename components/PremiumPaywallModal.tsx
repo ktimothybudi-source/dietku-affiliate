@@ -131,10 +131,12 @@ export default function PremiumPaywallModal() {
                   <Text style={styles.trialBadgeText}>Coba Gratis 3 Hari</Text>
                 </View>
                 <Text style={styles.planLabel}>Tahunan</Text>
-                <Text style={styles.planPrice}>{annualPrice}/thn</Text>
+                <Text style={styles.planPrice} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.82}>
+                  {annualPrice}/thn
+                </Text>
                 <Text style={styles.planSubtle}>Setara {annualEquivalent}</Text>
                 <Text style={styles.planTrialDisclosure}>
-                  Setelah trial, ditagih {annualPrice}/tahun (auto-renew).
+                  Setelah trial, ditagih {annualPrice}/tahun dan diperpanjang otomatis.
                 </Text>
                 <View style={styles.checkWrap}>
                   {selectedPlan === 'annual' ? (
@@ -153,7 +155,9 @@ export default function PremiumPaywallModal() {
                 activeOpacity={0.85}
               >
                 <Text style={styles.planLabel}>Bulanan</Text>
-                <Text style={styles.planPrice}>{monthlyPrice}/bln</Text>
+                <Text style={styles.planPrice} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.82}>
+                  {monthlyPrice}/bln
+                </Text>
                 <Text style={styles.planSubtle}>Ditagih {monthlyPrice}/bulan</Text>
                 <Text style={styles.planTrialDisclosure}>
                   Jika ada trial, setelah trial berakhir ditagih otomatis.
@@ -343,7 +347,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   planPrice: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '700',
     color: '#121418',
     marginTop: 2,

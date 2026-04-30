@@ -8,7 +8,17 @@ export default function RegisterPage() {
   const [name, setName] = useState("");
   const [customCode, setCustomCode] = useState("");
   const [codeAvailability, setCodeAvailability] = useState(null);
+  const [suggestions, setSuggestions] = useState([]);
   const [status, setStatus] = useState("");
+
+  function getErrorMessage(errorPayload) {
+    if (!errorPayload) return "Failed to register.";
+    if (typeof errorPayload.error === "string") return errorPayload.error;
+    if (Array.isArray(errorPayload.error) && errorPayload.error[0]?.message) {
+      return errorPayload.error[0].message;
+    }
+    return "Please check your input and try again.";
+  }
 
   async function checkCodeAvailability(code) {
     if (!code || code.length < 4) {
@@ -18,6 +28,7 @@ export default function RegisterPage() {
     const res = await fetch(`/api/affiliates/code-availability?code=${encodeURIComponent(code)}`);
     const payload = await res.json();
     setCodeAvailability(Boolean(payload.available));
+    setSuggestions(payload.suggestions || []);
   }
 
   async function handleSubmit(e) {
@@ -30,7 +41,7 @@ export default function RegisterPage() {
     });
     const payload = await res.json();
     if (!res.ok) {
-      setStatus(payload.error || "Failed to register.");
+      setStatus(getErrorMessage(payload));
       return;
     }
     setStatus(`Registered. Your referral code: ${payload.affiliate.referral_code}`);
@@ -41,8 +52,8 @@ export default function RegisterPage() {
       <SiteHeader />
       <main className="container">
         <section className="card" style={{ maxWidth: 620, margin: "0 auto" }}>
-          <h2>Affiliate Registration</h2>
-          <p className="muted">Pick your own custom affiliate code and build your referral leaderboard streak.</p>
+          <h2 className="page-headline">Affiliate Registration</h2>
+          <p className="page-subtitle">Create your account and lock in a unique code for your referral campaigns.</p>
           <form onSubmit={handleSubmit} style={{ display: "grid", gap: 10 }}>
             <input
               value={name}
@@ -71,9 +82,28 @@ export default function RegisterPage() {
               required
             />
             {customCode ? (
-              <p className="muted" style={{ margin: 0, color: codeAvailability ? "var(--primary)" : "var(--danger)" }}>
-                {codeAvailability ? "Code available." : "Code unavailable or not valid yet."}
-              </p>
+              <>
+                <p className="muted" style={{ margin: 0, color: codeAvailability ? "var(--primary)" : "var(--danger)" }}>
+                  {codeAvailability ? "Code available." : "Code unavailable."}
+                </p>
+                {!codeAvailability && suggestions.length ? (
+                  <div className="inline-row">
+                    {suggestions.map((suggestion) => (
+                      <button
+                        key={suggestion}
+                        type="button"
+                        className="btn btn-ghost"
+                        onClick={() => {
+                          setCustomCode(suggestion);
+                          setCodeAvailability(true);
+                        }}
+                      >
+                        {suggestion}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </>
             ) : null}
             <button type="submit" className="btn btn-primary">Register Affiliate</button>
           </form>

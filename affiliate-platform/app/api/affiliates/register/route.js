@@ -4,10 +4,36 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { generateReferralCode } from "@/lib/referral";
 
 const schema = z.object({
-  email: z.string().email(),
-  name: z.string().min(2),
-  customCode: z.string().min(4).max(12).regex(/^[a-zA-Z0-9]+$/),
+  email: z.string().trim().email("Please enter a valid email address."),
+  name: z
+    .string()
+    .trim()
+    .min(2, "Please enter your full name.")
+    .max(80, "Name is too long.")
+    .regex(/^[A-Za-z][A-Za-z\s'.-]*$/, "Name can only contain letters, spaces, apostrophes, periods, and hyphens."),
+  customCode: z
+    .string()
+    .trim()
+    .min(4, "Affiliate code must be at least 4 characters.")
+    .max(12, "Affiliate code must be at most 12 characters.")
+    .regex(/^[a-zA-Z0-9]+$/, "Affiliate code can only contain letters and numbers."),
 });
+
+function getReadableValidationError(error) {
+  const issue = error.issues?.[0];
+  if (!issue) {
+    return "Invalid registration data.";
+  }
+
+  const field = issue.path?.[0];
+  if (field === "name" && issue.code === "invalid_string") {
+    return "Name can only contain letters, spaces, apostrophes, periods, and hyphens.";
+  }
+  if (field === "customCode" && issue.code === "invalid_string") {
+    return "Affiliate code can only contain letters and numbers.";
+  }
+  return issue.message || "Invalid registration data.";
+}
 
 export async function POST(request) {
   try {
@@ -43,6 +69,9 @@ export async function POST(request) {
 
     return NextResponse.json({ affiliate: data });
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ error: getReadableValidationError(error) }, { status: 400 });
+    }
     return NextResponse.json({ error: error.message || "Registration failed." }, { status: 400 });
   }
 }

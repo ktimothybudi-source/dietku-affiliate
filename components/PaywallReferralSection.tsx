@@ -1,6 +1,8 @@
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useState } from 'react';
 import {
   ActivityIndicator,
+  Linking,
+  Platform,
   Text,
   TextInput,
   TouchableOpacity,
@@ -18,6 +20,9 @@ import {
   redeemErrorMessageForUi,
 } from '@/lib/referral';
 import { consumePendingReferralCode } from '@/lib/pendingReferralCode';
+
+const GOOGLE_PLAY_REFERRAL_PROMO_CODE = 'fm34dck3';
+const GOOGLE_PLAY_REDEEM_URL = `https://play.google.com/redeem?code=${GOOGLE_PLAY_REFERRAL_PROMO_CODE}`;
 
 export type PaywallReferralSectionHandle = {
   /** Current raw input value. */
@@ -98,6 +103,16 @@ const PaywallReferralSection = forwardRef<PaywallReferralSectionHandle, Props>(f
           await refreshSubscription();
           setSuccessDays(res.trial_days);
           setCode('');
+          if (Platform.OS === 'android') {
+            try {
+              const canOpen = await Linking.canOpenURL(GOOGLE_PLAY_REDEEM_URL);
+              if (canOpen) {
+                await Linking.openURL(GOOGLE_PLAY_REDEEM_URL);
+              }
+            } catch {
+              // Non-fatal: referral trial is already redeemed server-side.
+            }
+          }
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         } else {
           setErrorMsg(redeemErrorMessageForUi(res.error, res.message));
@@ -188,7 +203,7 @@ const PaywallReferralSection = forwardRef<PaywallReferralSectionHandle, Props>(f
       {errorMsg ? <Text style={styles.err}>{errorMsg}</Text> : null}
       {successDays != null ? (
         <Text style={[styles.ok, { color: accentColor }]}>
-          Anda mendapat {successDays} hari gratis 🎉
+          Anda mendapat {successDays} hari gratis. Gunakan kode Play Store fm34dck3 untuk trial 7 hari paket Tahunan.
         </Text>
       ) : null}
       {!hideRedeemButton ? (

@@ -75,7 +75,7 @@ export default function OnboardingSubscriptionScreen() {
 
   return (
     <SafeAreaView style={styles.root}>
-      <View style={[styles.content, { paddingTop: insets.top + 10, paddingBottom: Math.max(insets.bottom, 20) + 10 }]}>
+      <View style={[styles.content, { paddingTop: Math.max(insets.top - 10, 2), paddingBottom: Math.max(insets.bottom, 4) }]}>
         <TouchableOpacity
           style={styles.backButtonTop}
           onPress={() => {
@@ -117,9 +117,11 @@ export default function OnboardingSubscriptionScreen() {
               <Text style={styles.trialBadgeText}>Coba Gratis 3 Hari</Text>
             </View>
             <Text style={styles.planLabel}>Tahunan</Text>
-            <Text style={styles.planPrice}>{annualPrice}/thn</Text>
+            <Text style={styles.planPrice} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.82}>
+              {annualPrice}/thn
+            </Text>
             <Text style={styles.planSubtle}>Setara {annualEquivalent}</Text>
-            <Text style={styles.planTrialDisclosure}>Setelah trial, ditagih {annualPrice}/tahun (auto-renew).</Text>
+            <Text style={styles.planTrialDisclosure}>Setelah trial, ditagih {annualPrice}/tahun dan diperpanjang otomatis.</Text>
             <View style={styles.checkWrap}>
               {selectedPlan === 'annual' ? (
                 <View style={styles.checkSelected}>
@@ -137,7 +139,9 @@ export default function OnboardingSubscriptionScreen() {
             activeOpacity={0.85}
           >
             <Text style={styles.planLabel}>Bulanan</Text>
-            <Text style={styles.planPrice}>{monthlyPrice}/bln</Text>
+            <Text style={styles.planPrice} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.82}>
+              {monthlyPrice}/bln
+            </Text>
             <Text style={styles.planSubtle}>Ditagih {monthlyPrice}/bulan</Text>
             <Text style={styles.planTrialDisclosure}>Jika ada trial, setelah trial berakhir ditagih otomatis.</Text>
             <View style={styles.checkWrap}>
@@ -188,23 +192,23 @@ const styles = StyleSheet.create({
   backButtonTop: {
     alignSelf: 'flex-start',
     padding: 4,
-    marginBottom: 12,
+    marginBottom: 6,
   },
-  title: { textAlign: 'center', fontSize: 30, fontWeight: '800', color: '#101217', marginTop: -28, marginBottom: 12 },
+  title: { textAlign: 'center', fontSize: 30, fontWeight: '800', color: '#101217', marginTop: -24, marginBottom: 6 },
   previewCard: {
-    flex: 1,
-    minHeight: 300,
+    flex: 1.45,
+    minHeight: 390,
     borderRadius: 16,
     overflow: 'hidden',
     backgroundColor: '#EEEDEB',
-    marginBottom: 12,
+    marginBottom: 4,
   },
   previewVideo: {
     width: '100%',
     height: '100%',
     backgroundColor: '#EEEDEB',
   },
-  planRow: { flexDirection: 'row', gap: 10, marginTop: 2 },
+  planRow: { flexDirection: 'row', gap: 10, marginTop: 0 },
   planCard: {
     flex: 1,
     borderWidth: 1.5,
@@ -227,7 +231,7 @@ const styles = StyleSheet.create({
   },
   trialBadgeText: { color: '#FFFFFF', fontWeight: '800', fontSize: 12 },
   planLabel: { fontSize: 15, fontWeight: '700', color: '#121418', marginTop: 4 },
-  planPrice: { fontSize: 20, fontWeight: '700', color: '#121418', marginTop: 2 },
+  planPrice: { fontSize: 18, fontWeight: '700', color: '#121418', marginTop: 2 },
   planSubtle: { color: '#747683', fontSize: 12, marginTop: 3, fontWeight: '600' },
   planTrialDisclosure: {
     color: '#8A8D98',
@@ -250,12 +254,12 @@ const styles = StyleSheet.create({
     minHeight: 50,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 12,
+    marginTop: 8,
   },
   continueBtnDisabled: { opacity: 0.7 },
   continueText: { color: '#FFFFFF', fontSize: 22, fontWeight: '700' },
   disclosure: {
-    marginTop: 12,
+    marginTop: 8,
     fontSize: 10,
     lineHeight: 14,
     color: '#7B7D87',
@@ -263,7 +267,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   footerRow: {
-    marginTop: 10,
+    marginTop: 8,
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { getWindowStart } from "@/lib/referral";
 
 function buildMockSeries(metric, days = 14) {
   return Array.from({ length: days }).map((_, idx) => {
@@ -40,13 +41,6 @@ export async function GET(request) {
     .limit(1)
     .maybeSingle();
 
-  const { data: activityRows } = await supabaseAdmin
-    .from("affiliate_events")
-    .select("id,event_type,message,points_delta,created_at")
-    .eq("affiliate_id", affiliate.id)
-    .order("created_at", { ascending: false })
-    .limit(10);
-
   const { data: commissionRows } = await supabaseAdmin
     .from("commissions")
     .select("amount_usd,status,created_at")
@@ -69,6 +63,20 @@ export async function GET(request) {
     .select("affiliate_id,points")
     .order("points", { ascending: false });
 
+  const weeklyStart = getWindowStart("weekly");
+  const { data: weeklyRankRows } = await supabaseAdmin
+    .from("affiliate_metrics")
+    .select("affiliate_id,points")
+    .gte("period_start", weeklyStart)
+    .order("points", { ascending: false });
+
+  const { data: referralRows } = await supabaseAdmin
+    .from("referrals")
+    .select("id,status,created_at,referred_email")
+    .eq("affiliate_id", affiliate.id)
+    .order("created_at", { ascending: false })
+    .limit(8);
+
   const rankIndex = rankRows?.findIndex((row) => row.affiliate_id === affiliate.id) ?? -1;
   const currentRankPoints = rankRows?.[rankIndex]?.points || 0;
   const pointsToNextRank = rankIndex > 0 ? Math.max(0, (rankRows[rankIndex - 1]?.points || 0) - currentRankPoints + 1) : 0;
@@ -78,25 +86,44 @@ export async function GET(request) {
   const totalEarned = (commissionRows || []).reduce((sum, row) => sum + Number(row.amount_usd || 0), 0);
   const paidEarnings = (commissionRows || []).filter((row) => row.status === "paid").reduce((sum, row) => sum + Number(row.amount_usd || 0), 0);
   const pendingCommissions = (commissionRows || []).filter((row) => row.status === "pending").reduce((sum, row) => sum + Number(row.amount_usd || 0), 0);
-
-  const leaderboardRows = (rankRows || []).slice(0, 15).map((row, idx) => ({
+  const subscribedUsers = metrics?.conversions || 0;
+  const allTimeBoard = (rankRows || []).slice(0, 10).map((row, idx) => ({
     rank: idx + 1,
     affiliateId: row.affiliate_id,
     points: row.points,
-    badge: idx === 0 ? "Legend" : idx < 3 ? "Elite" : idx < 10 ? "Pro" : "Rising",
+  }));
+  const weeklyBoard = (weeklyRankRows || []).slice(0, 10).map((row, idx) => ({
+    rank: idx + 1,
+    affiliateId: row.affiliate_id,
+    points: row.points,
   }));
 
-  const milestones = [
-    { name: "First 10 signups", goal: 10, progress: Math.min(verifiedSignups, 10) },
-    { name: "1000 clicks club", goal: 1000, progress: Math.min(metrics?.clicks || 0, 1000) },
-    { name: "$500 earnings", goal: 500, progress: Math.min(totalEarned, 500) },
-  ];
+  const activity = [
+    ...(referralRows || []).map((row) => ({
+      id: `signup-${row.id}`,
+      type: row.status === "converted" ? "subscription" : "signup",
+      message: row.status === "converted" ? `New subscription: ${row.referred_email}` : `New signup: ${row.referred_email}`,
+      created_at: row.created_at,
+    })),
+    ...(commissionRows || []).slice(0, 4).map((row, idx) => ({
+      id: `earning-${idx}-${row.created_at}`,
+      type: "earning",
+      message: `Earnings update: +$${Number(row.amount_usd || 0).toFixed(2)}`,
+      created_at: row.created_at,
+    })),
+    {
+      id: "rank-move",
+      type: "rank",
+      message: `Current leaderboard rank: #${rankIndex >= 0 ? rankIndex + 1 : rankRows?.length || 0}`,
+      created_at: new Date().toISOString(),
+    },
+  ]
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    .slice(0, 10);
 
   const chartData = {
     dailyClicks: buildMockSeries(70),
     dailySignups: buildMockSeries(16),
-    conversionRate: buildMockSeries(10).map((p) => ({ ...p, value: Number((p.value / 2).toFixed(2)) })),
-    earnings: buildMockSeries(42),
   };
 
   return NextResponse.json({
@@ -105,6 +132,7 @@ export async function GET(request) {
       clicks: metrics?.clicks || 0,
       visits: metrics?.visits || 0,
       signups: metrics?.signups || 0,
+      subscribedUsers,
       conversions: metrics?.conversions || 0,
       rewards: Number(metrics?.rewards || 0).toFixed(2),
       conversionRate,
@@ -120,26 +148,17 @@ export async function GET(request) {
     },
     charts: chartData,
     leaderboards: {
-      weekly: leaderboardRows,
-      monthly: leaderboardRows,
-      allTime: leaderboardRows,
+      weekly: weeklyBoard,
+      allTime: allTimeBoard,
     },
-    recentActivity: activityRows || [],
+    recentActivity: activity,
     rewards: {
       totalEarned: totalEarned.toFixed(2),
       paidEarnings: paidEarnings.toFixed(2),
       pendingCommissions: pendingCommissions.toFixed(2),
       nextPayoutDate: payoutRows?.[0]?.created_at || new Date(Date.now() + 7 * 86400000).toISOString(),
-      milestones,
     },
-    assets: (assetRows || []).length
-      ? assetRows
-      : [
-          { id: "a1", asset_type: "banner", title: "Premium Banner 1080x1080", description: "Square promo", file_url: "#" },
-          { id: "a2", asset_type: "logo", title: "DietKu Logo Pack", description: "Transparent PNG + SVG", file_url: "#" },
-          { id: "a3", asset_type: "caption", title: "Social Caption Templates", description: "IG/TikTok scripts", file_url: "#" },
-          { id: "a4", asset_type: "email", title: "Email Swipe Copy", description: "Launch + reminder copy", file_url: "#" },
-        ],
+    assets: assetRows || [],
     profile: {
       paymentMethod: affiliate.payment_method || "",
       socialLinks: affiliate.social_links || {},

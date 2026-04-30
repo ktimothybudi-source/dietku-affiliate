@@ -1,23 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import SiteHeader from "@/components/SiteHeader";
 import MetricCard from "@/components/MetricCard";
 
 export default function DashboardPage() {
   const [identifier, setIdentifier] = useState("");
-  const [leaderboardTab, setLeaderboardTab] = useState("weekly");
+  const [rankingScope, setRankingScope] = useState("weekly");
   const [savingProfile, setSavingProfile] = useState(false);
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
@@ -60,14 +49,15 @@ export default function DashboardPage() {
     navigator.clipboard.writeText(text);
   }
 
-  const leaderboardRows = data?.leaderboards?.[leaderboardTab] || [];
+  const leaderboardRows = data?.leaderboards?.[rankingScope] || [];
 
   return (
     <>
       <SiteHeader />
       <main className="container" style={{ display: "grid", gap: "1rem", paddingBottom: "2rem" }}>
         <section className="card">
-          <h2 style={{ marginTop: 0 }}>Affiliate Dashboard</h2>
+          <h2 className="page-headline">Affiliate Dashboard</h2>
+          <p className="page-subtitle">Track performance, optimize your link, and climb the leaderboard.</p>
           <form onSubmit={loadDashboard} style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <input
               value={identifier}
@@ -85,18 +75,16 @@ export default function DashboardPage() {
           <>
             <section className="dashboard-grid">
               <MetricCard title="Clicks" value={data.metrics.clicks} />
-              <MetricCard title="Unique Visitors" value={data.metrics.visits} />
               <MetricCard title="Sign-ups" value={data.metrics.signups} />
-              <MetricCard title="Verified Sign-ups" value={data.metrics.verifiedSignups} />
+              <MetricCard title="Subscribed Users" value={data.metrics.subscribedUsers} />
               <MetricCard title="Conversion Rate" value={`${data.metrics.conversionRate}%`} />
               <MetricCard title="Earnings" value={`$${data.metrics.earnings}`} />
-              <MetricCard title="Pending Payouts" value={`$${data.metrics.pendingPayouts}`} />
-              <MetricCard title="Your Rank" value={`#${data.rank.position}`} subtitle={`of ${data.rank.totalAffiliates} affiliates`} />
+              <MetricCard title="Current Rank" value={`#${data.rank.position}`} subtitle={`of ${data.rank.totalAffiliates}`} />
             </section>
 
             <section className="card dashboard-two-col">
               <div>
-                <h3 style={{ marginTop: 0 }}>Referral Tools</h3>
+                <h3 className="page-headline" style={{ fontSize: "1.25rem" }}>Referral Tools</h3>
                 <div className="stack">
                   <label className="muted">Custom code</label>
                   <input
@@ -112,163 +100,87 @@ export default function DashboardPage() {
                     <button className="btn btn-ghost" onClick={() => copy(data.referralLink)}>Copy</button>
                   </div>
                   <div className="inline-row">
-                    <button className="btn btn-primary" onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent(data.referralLink)}`, "_blank")}>WhatsApp</button>
-                    <button className="btn btn-ghost" onClick={() => window.open(`https://twitter.com/intent/tweet?url=${encodeURIComponent(data.referralLink)}`, "_blank")}>X</button>
-                    <button className="btn btn-ghost" onClick={() => window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(data.referralLink)}`, "_blank")}>Facebook</button>
-                  </div>
-                  <div className="qr-wrap">
-                    <img
-                      src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(data.referralLink)}`}
-                      alt="Referral QR"
-                    />
+                    <button className="btn btn-primary" onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent(data.referralLink)}`, "_blank")}>Share WhatsApp</button>
+                    <button className="btn btn-ghost" onClick={() => window.open(`https://twitter.com/intent/tweet?url=${encodeURIComponent(data.referralLink)}`, "_blank")}>Share X</button>
                   </div>
                 </div>
               </div>
               <div>
-                <h3 style={{ marginTop: 0 }}>Live Rank Status</h3>
+                <h3 className="page-headline" style={{ fontSize: "1.25rem" }}>Live Rank Status</h3>
                 <p className="muted">Distance to next rank</p>
                 <p style={{ fontSize: 32, margin: "0 0 1rem", fontWeight: 800 }}>{data.rank.pointsToNextRank} pts</p>
                 <p className="muted">Current points: {data.rank.points}</p>
               </div>
             </section>
 
-            <section className="card">
-              <h3 style={{ marginTop: 0 }}>Analytics</h3>
-              <div className="analytics-grid">
-                <div className="chart-card">
-                  <p className="muted">Daily Clicks</p>
-                  <ResponsiveContainer width="100%" height={220}>
-                    <AreaChart data={data.charts.dailyClicks}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="date" />
-                      <YAxis />
-                      <Tooltip />
-                      <Area type="monotone" dataKey="value" stroke="#22C55E" fill="#22C55E33" />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="chart-card">
-                  <p className="muted">Daily Sign-ups</p>
-                  <ResponsiveContainer width="100%" height={220}>
-                    <LineChart data={data.charts.dailySignups}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="date" />
-                      <YAxis />
-                      <Tooltip />
-                      <Line type="monotone" dataKey="value" stroke="#6366F1" strokeWidth={2} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="chart-card">
-                  <p className="muted">Conversion Rate Over Time</p>
-                  <ResponsiveContainer width="100%" height={220}>
-                    <LineChart data={data.charts.conversionRate}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="date" />
-                      <YAxis />
-                      <Tooltip />
-                      <Line type="monotone" dataKey="value" stroke="#F59E0B" strokeWidth={2} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="chart-card">
-                  <p className="muted">Earnings Over Time</p>
-                  <ResponsiveContainer width="100%" height={220}>
-                    <AreaChart data={data.charts.earnings}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="date" />
-                      <YAxis />
-                      <Tooltip />
-                      <Area type="monotone" dataKey="value" stroke="#06B6D4" fill="#06B6D433" />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            </section>
-
             <section className="card dashboard-two-col">
               <div>
-                <h3 style={{ marginTop: 0 }}>Leaderboard</h3>
-                <div className="inline-row" style={{ marginBottom: 10 }}>
-                  {["weekly", "monthly", "allTime"].map((scope) => (
+                <h3 className="page-headline" style={{ fontSize: "1.25rem" }}>Leaderboard</h3>
+                <div className="inline-row" style={{ marginBottom: 12 }}>
+                  {["weekly", "allTime"].map((scope) => (
                     <button
                       key={scope}
-                      className={`btn ${leaderboardTab === scope ? "btn-primary" : "btn-ghost"}`}
-                      onClick={() => setLeaderboardTab(scope)}
+                      className={`btn ${rankingScope === scope ? "btn-primary" : "btn-ghost"}`}
+                      onClick={() => setRankingScope(scope)}
                     >
-                      {scope}
+                      {scope === "allTime" ? "All-time" : "Weekly"}
                     </button>
                   ))}
                 </div>
                 <table className="table">
                   <thead>
                     <tr>
-                      <th>Rank</th><th>Points</th><th>Badge</th>
+                      <th>Rank</th><th>Points</th>
                     </tr>
                   </thead>
                   <tbody>
                     {leaderboardRows.map((row) => (
-                      <tr key={`${leaderboardTab}-${row.rank}-${row.affiliateId}`}>
+                      <tr key={`${rankingScope}-${row.rank}-${row.affiliateId}`}>
                         <td>#{row.rank}</td>
                         <td>{row.points}</td>
-                        <td><span className="badge">{row.badge}</span></td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
               <div>
-                <h3 style={{ marginTop: 0 }}>Recent Activity Feed</h3>
+                <h3 className="page-headline" style={{ fontSize: "1.25rem" }}>Recent Activity</h3>
                 <div className="stack">
-                  {data.recentActivity.length ? data.recentActivity.map((item) => (
-                    <div key={item.id} className="activity-item">
+                  {data.recentActivity.map((item) => (
+                    <div className="activity-item" key={item.id}>
                       <p style={{ margin: 0, fontWeight: 600 }}>{item.message}</p>
-                      <p className="muted" style={{ margin: 0, fontSize: 12 }}>
-                        {new Date(item.created_at).toLocaleString()}
-                      </p>
+                      <p className="muted" style={{ margin: 0, fontSize: 12 }}>{new Date(item.created_at).toLocaleString()}</p>
                     </div>
-                  )) : (
-                    <p className="muted">No activity yet.</p>
-                  )}
+                  ))}
                 </div>
               </div>
             </section>
 
-            <section className="card dashboard-three-col">
+            <section className="card dashboard-two-col">
               <div>
-                <h3 style={{ marginTop: 0 }}>Rewards & Payouts</h3>
+                <h3 className="page-headline" style={{ fontSize: "1.25rem" }}>Rewards & Payouts</h3>
                 <p className="muted">Total earned: ${data.rewards.totalEarned}</p>
                 <p className="muted">Paid earnings: ${data.rewards.paidEarnings}</p>
                 <p className="muted">Pending commissions: ${data.rewards.pendingCommissions}</p>
+                <p className="muted">Pending payouts: ${data.metrics.pendingPayouts}</p>
                 <p className="muted">Next payout date: {new Date(data.rewards.nextPayoutDate).toLocaleDateString()}</p>
               </div>
               <div>
-                <h3 style={{ marginTop: 0 }}>Milestones</h3>
-                {data.rewards.milestones.map((m) => {
-                  const pct = Math.min(100, Math.round((m.progress / m.goal) * 100));
-                  return (
-                    <div key={m.name} style={{ marginBottom: 12 }}>
-                      <p style={{ margin: "0 0 6px", fontSize: 13 }}>{m.name}</p>
-                      <div className="progress"><span style={{ width: `${pct}%` }} /></div>
-                    </div>
-                  );
-                })}
-              </div>
-              <div>
-                <h3 style={{ marginTop: 0 }}>Marketing Assets</h3>
+                <h3 className="page-headline" style={{ fontSize: "1.25rem" }}>Quick Trend</h3>
+                <p className="muted">Daily clicks snapshot</p>
                 <div className="stack">
-                  {data.assets.map((asset) => (
-                    <a key={asset.id} className="asset-link" href={asset.file_url} target="_blank">
-                      <strong>{asset.title}</strong>
-                      <span className="muted">{asset.asset_type}</span>
-                    </a>
+                  {data.charts.dailyClicks.slice(-6).map((row) => (
+                    <div key={row.date} className="inline-row" style={{ justifyContent: "space-between" }}>
+                      <span className="muted">{row.date}</span>
+                      <strong>{row.value}</strong>
+                    </div>
                   ))}
                 </div>
               </div>
             </section>
 
             <section className="card">
-              <h3 style={{ marginTop: 0 }}>Profile Settings</h3>
+              <h3 className="page-headline" style={{ fontSize: "1.25rem" }}>Profile Settings</h3>
               <form className="settings-grid" onSubmit={updateProfile}>
                 <input
                   className="input"

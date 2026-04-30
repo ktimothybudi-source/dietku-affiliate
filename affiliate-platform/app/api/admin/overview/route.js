@@ -4,11 +4,14 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 export async function GET() {
   const supabaseAdmin = getSupabaseAdmin();
 
-  const [{ count: affiliates }, { count: referrals }, { count: payouts }, { data: metricsRows }] = await Promise.all([
+  const [{ count: affiliates }, { count: referrals }, { count: payouts }, { data: metricsRows }, { data: affiliatesRows }, { data: referralRows }, { data: pendingPayouts }] = await Promise.all([
     supabaseAdmin.from("affiliates").select("*", { count: "exact", head: true }),
     supabaseAdmin.from("referrals").select("*", { count: "exact", head: true }),
     supabaseAdmin.from("payouts").select("*", { count: "exact", head: true }),
     supabaseAdmin.from("affiliate_metrics").select("clicks,conversions,rewards"),
+    supabaseAdmin.from("affiliates").select("id,name,email,referral_code,created_at").order("created_at", { ascending: false }).limit(50),
+    supabaseAdmin.from("referrals").select("id,affiliate_id,referred_email,status,created_at").order("created_at", { ascending: false }).limit(100),
+    supabaseAdmin.from("payouts").select("id,affiliate_id,amount_usd,status,created_at").eq("status", "pending").order("created_at", { ascending: false }).limit(50),
   ]);
 
   const totalClicks = (metricsRows || []).reduce((sum, row) => sum + Number(row.clicks || 0), 0);
@@ -24,5 +27,8 @@ export async function GET() {
       totalConversions,
       totalRewards,
     },
+    affiliates: affiliatesRows || [],
+    referrals: referralRows || [],
+    pendingPayouts: pendingPayouts || [],
   });
 }

@@ -1,6 +1,16 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
+function buildSuggestions(base) {
+  const clean = base.replace(/[^A-Z0-9]/g, "").slice(0, 8) || "AFFILIATE";
+  return [
+    `${clean}VIP`,
+    `${clean}PRO`,
+    `${clean}01`,
+    `${clean}${Math.floor(Math.random() * 90 + 10)}`,
+  ];
+}
+
 export async function GET(request) {
   const code = request.nextUrl.searchParams.get("code")?.toUpperCase();
   if (!code) {
@@ -18,5 +28,9 @@ export async function GET(request) {
     return NextResponse.json({ available: false, error: error.message }, { status: 400 });
   }
 
-  return NextResponse.json({ available: !data });
+  const available = !data;
+  return NextResponse.json({
+    available,
+    suggestions: available ? [] : buildSuggestions(code),
+  });
 }

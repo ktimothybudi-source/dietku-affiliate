@@ -34,9 +34,10 @@ export default function LeaderboardPage() {
       <SiteHeader />
       <main className="container">
         <section className="card">
-          <h2 style={{ marginTop: 0 }}>Public Leaderboard</h2>
+          <h2 className="page-headline">Public Leaderboard</h2>
+          <p className="page-subtitle">See top performers and measure how far you are from the next tier.</p>
           <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-            {["weekly", "monthly", "all"].map((item) => (
+            {["weekly", "all"].map((item) => (
               <button
                 key={item}
                 className={`btn ${item === windowScope ? "btn-primary" : "btn-ghost"}`}
