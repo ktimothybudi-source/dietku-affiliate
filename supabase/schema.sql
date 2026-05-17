@@ -18,7 +18,7 @@ create table if not exists referrals (
   subscription_plan text,
   amount_idr numeric(12,2) not null default 0,
   commission_idr numeric(12,2) not null default 0,
-  status text not null default 'converted',
+  status text not null default 'trial_active',
   created_at timestamptz not null default now()
 );
 
@@ -66,6 +66,19 @@ alter table referrals drop constraint if exists referrals_subscription_plan_chec
 alter table referrals
   add constraint referrals_subscription_plan_check
   check (subscription_plan is null or subscription_plan in ('bulanan', 'tahunan'));
+
+alter table referrals drop constraint if exists referrals_status_check;
+alter table referrals
+  add constraint referrals_status_check
+  check (status in ('trial_active', 'converted', 'expired', 'cancelled'));
+
+alter table referrals add column if not exists app_redemption_id uuid;
+alter table referrals add column if not exists referral_code_id uuid;
+alter table referrals add column if not exists trial_started_at timestamptz;
+alter table referrals add column if not exists converted_at timestamptz;
+alter table referrals add column if not exists updated_at timestamptz not null default now();
+
+create unique index if not exists idx_referrals_referred_user_id on referrals(referred_user_id);
 
 -- Commission policy: affiliate earns 30% from each converted referral purchase.
 create or replace function set_referral_commission_30pct()
